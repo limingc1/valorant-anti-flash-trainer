@@ -4,10 +4,29 @@
 
 ## 结论先说
 
-**主分享链接用 Cloudflare Pages（连 GitHub 自动部署）**，GitHub 仓库是唯一的源码与构建入口，
-workbuddy 那份逐步退役。
+**主分享链接（已部署并验证可用）：**
 
-理由：它是唯一一个既能「`git push` 就自动上线」、又能让国内朋友直接打开的选项。
+```
+https://valorant-anti-flash-trainer.pages.dev/
+```
+
+GitHub 仓库是唯一的源码与构建入口，workbuddy 那份逐步退役。
+Cloudflare Pages 已连上仓库，**`git push` 之后约 1 分钟自动上线**，不需要任何手动操作。
+
+理由：它是唯一一个既能「push 就自动上线」、又能让国内朋友直接打开的选项。
+
+### 关于发布目录（重要，别再踩）
+
+当前 CF Pages 实际发布的是**仓库根目录**，不是 `dist/`。
+根目录的 `index.html` 是一个 30 行的跳转页，负责把访客送到
+`valorant-anti-flash-trainer.html`（游戏本体）。所以根目录那个 `index.html`
+**不是冗余文件，删了线上立刻 404**。
+
+另外 Cloudflare Pages 默认开 clean URL：访问 `xxx.html` 会被 308 跳到去掉扩展名的
+`xxx`，浏览器自动跟随，但用 `curl` 验证时要记得加 `-L`，否则会误判成失败。
+
+如果你把 CF 改成发布 `dist/`（配合 Build command，见下文方案 A），两种配置都能正常工作，
+因为 `dist/index.html` 是游戏本体、根目录 `index.html` 只是跳转页。
 
 ## 实测数据
 
@@ -26,18 +45,28 @@ workbuddy 那份逐步退役。
 | `edgeone.app` | 404，1.9s 完成握手（能连） |
 | `baidu.com`（基线） | 200，0.2s |
 
+部署完成后复测（同一台机器、同样不走代理）：
+
+```
+valorant-anti-flash-trainer.pages.dev/            200  1572 字节（跳转页）
+.../valorant-anti-flash-trainer                   200  91151 字节  text/html  ✅ 游戏本体
+```
+
+国内直连可用，握手约 2–4 秒。
+
 > 短链 `https://tinyurl.com/2yhunzc6` 本身也被墙，**已失效，不要再发**。
 
-## 三个链接的分工
+## 各链接的分工
 
 | 链接 | 国内直连 | 自动更新 | 定位 |
 |---|---|---|---|
+| `https://valorant-anti-flash-trainer.pages.dev/` | **可** | push 约 1 分钟自动上线 | **主分享链接，发这个** |
 | GitHub 仓库 | 打不开 | push 即更新 | 源码 + CI，唯一编辑入口 |
-| `https://limingc1.github.io/valorant-anti-flash-trainer/` | 打不开 | push 即上线 | 备用链接，零维护 |
-| Cloudflare Pages（待部署） | 可，默认域名偏慢 | 连 Git 后 push 即上线 | **主分享链接** |
-| workbuddy | 可，2.0s | 需回平台手动重发 | 旧链接，确认 CF 可用后删掉 |
+| `https://limingc1.github.io/valorant-anti-flash-trainer/` | 打不开 | push 即上线 | 备用，自己带代理时测试用 |
+| workbuddy | 可，2.0s | 需回平台手动重发 | 旧链接，可以删掉了 |
 
-GitHub Pages 已经配好并在跑（`.github/workflows/deploy.yml`），不用管它。
+GitHub Pages 由 `.github/workflows/deploy.yml` 负责，Cloudflare Pages 由 CF 侧的 Git 集成负责，
+两边都是 push 自动触发，不用管。
 
 ## 日常更新流程
 

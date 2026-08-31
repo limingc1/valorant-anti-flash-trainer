@@ -80,13 +80,18 @@ node .workbuddy/smoke-test.js
 git add -A && git commit -m "改了什么" && git push
 ```
 
-在线可玩（**国内直连实测**，详见 [`DEPLOY.md`](DEPLOY.md)）：
+在线可玩（**国内直连实测可用**，详见 [`DEPLOY.md`](DEPLOY.md)）：
 
-- Cloudflare Pages —— 主链接，配好后 `git push` 即自动更新
-- `https://limingc1.github.io/valorant-anti-flash-trainer/` —— 备用，push 即上线，
-  但**大陆不开代理打不开**，自己测试用
-- `https://66e587e7751b4693b9d10586ece6a764.app.workbuddy.link` —— 旧链接，能直连但
-  是冻结快照，不会跟着更新，确认 Cloudflare 可用后退役
+```
+https://valorant-anti-flash-trainer.pages.dev/
+```
+
+`git push` 之后约 1 分钟自动上线，不需要手动部署。另有两份备用：
+
+- `https://limingc1.github.io/valorant-anti-flash-trainer/` —— push 即上线，但
+  **大陆不开代理打不开**，自己测试用
+- `https://66e587e7751b4693b9d10586ece6a764.app.workbuddy.link` —— 旧链接，冻结快照，
+  不会跟着更新，已退役
 
 > 之前的短链 `https://tinyurl.com/2yhunzc6` 已失效（tinyurl 本身在国内被墙），别再发。
 
