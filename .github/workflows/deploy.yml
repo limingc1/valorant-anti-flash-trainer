@@ -1,0 +1,58 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assemble dist
+        run: |
+          set -e
+          rm -rf dist
+          mkdir -p dist/sfx
+          cp valorant-anti-flash-trainer.html dist/index.html
+          cp logo.svg dist/logo.svg
+          cp sfx/README.md sfx/split-recorded.py dist/sfx/
+          # 仓库里默认不含音频（Riot 版权）；若你自行往 sfx/ 放了文件，一并发布
+          find sfx -maxdepth 1 -type f \
+            \( -name '*.mp3' -o -name '*.wav' -o -name '*.ogg' -o -name '*.m4a' \) \
+            -exec cp {} dist/sfx/ \;
+          echo "--- dist ---"
+          ls -la dist dist/sfx
+
+      - name: Smoke test
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Run assertions
+        run: node .workbuddy/smoke-test.js
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

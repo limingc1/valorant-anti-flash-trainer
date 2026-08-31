@@ -1,0 +1,18 @@
+# 用户自行放入的音效文件不入库（Riot 版权内容，见 sfx/README.md）
+sfx/*.mp3
+sfx/*.wav
+sfx/*.ogg
+sfx/*.m4a
+dist/sfx/*.mp3
+dist/sfx/*.wav
+dist/sfx/*.ogg
+dist/sfx/*.m4a
+
+# dist 是部署产物，由 GitHub Actions 从源文件生成，不需要入库
+dist/
+
+# 杂项
+.DS_Store
+Thumbs.db
+*.log
+node_modules/

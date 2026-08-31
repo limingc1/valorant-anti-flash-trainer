@@ -1,0 +1,18 @@
+# 统一用 LF 入库，避免 Windows 换行符造成无意义的整文件 diff
+* text=auto
+*.html text eol=lf
+*.css text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.svg text eol=lf
+*.yml text eol=lf
+*.py text eol=lf
+
+# 二进制
+*.mp3 binary
+*.wav binary
+*.ogg binary
+*.m4a binary
+*.png binary
+*.jpg binary

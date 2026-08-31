@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- 无畏契约 · 背闪模拟器标识 · made by LIMING -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#16222e"/>
+      <stop offset="1" stop-color="#0f1923"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="16" y="16" width="480" height="480" rx="76" fill="url(#bg)" stroke="#ff4655" stroke-width="10"/>
+
+  <!-- 引爆的闪光：右上四芒星 -->
+  <circle cx="330" cy="168" r="118" fill="#ff4655" opacity="0.13"/>
+  <path d="M330,58 Q356,142 440,168 Q356,194 330,278 Q304,194 220,168 Q304,142 330,58 Z" fill="#ff4655"/>
+  <path d="M330,108 Q346,152 390,168 Q346,184 330,228 Q314,184 270,168 Q314,152 330,108 Z" fill="#ffd7dc"/>
+  <circle cx="330" cy="168" r="14" fill="#ffffff"/>
+
+  <!-- 准星：左下 -->
+  <g stroke="#ece8e1" stroke-width="15" stroke-linecap="round">
+    <line x1="216" y1="252" x2="216" y2="188"/>
+    <line x1="216" y1="320" x2="216" y2="384"/>
+    <line x1="182" y1="286" x2="118" y2="286"/>
+    <line x1="250" y1="286" x2="314" y2="286"/>
+  </g>
+  <circle cx="216" cy="286" r="14" fill="#ff4655" stroke="#ece8e1" stroke-width="4"/>
+
+  <!-- 字标 -->
+  <text x="256" y="446" text-anchor="middle"
+        font-family="'Segoe UI','PingFang SC','Microsoft YaHei',Arial,sans-serif"
+        font-size="92" font-weight="800" letter-spacing="10" fill="#ece8e1">LIMING</text>
+  <text x="261" y="484" text-anchor="middle"
+        font-family="'Segoe UI','PingFang SC','Microsoft YaHei',Arial,sans-serif"
+        font-size="25" font-weight="600" letter-spacing="9" fill="#ff4655">ANTI-FLASH TRAINER</text>
+</svg>
