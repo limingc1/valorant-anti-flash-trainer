@@ -300,6 +300,82 @@ try{
   run('relock()');
   ok(run('mdx')===0 && run('mdy')===0,'relock 清空累积位移');
 
+  /* 以下三组是 2026-09-01 四项改动的回归锁，别删 */
+  {   /* 块级作用域：避免与前面用例的 const 变量重名 */
+  console.log('[18] 致盲叠加不再续满白屏 / 射击及时恢复');
+  run('cfg.auto=false; resetStats(true);');
+  run('flashes=[]; spawnFlash("phoenix")');
+  for(let i=0;i<300 && run('flashes.length>0 && !flashes[0].popped');i++){ aim('flashes[0].pos'); step(1); }
+  ok(run('blindAmount()')>0.9,'正对闪光会被致盲');
+  step(8);
+  run('flashes=[]; spawnFlash("phoenix")');
+  let bAmt=0,aAmt=0,rem=0,saw=false;
+  for(let i=0;i<400;i++){
+    aim('flashes[0].pos');
+    const wasPopped=run('flashes[0].popped');
+    const a0=run('blindAmount()'), r0=run('blindUntil-T');
+    step(1);
+    if(!wasPopped && run('flashes[0].popped')){ bAmt=a0; aAmt=run('blindAmount()'); rem=r0; saw=true; break; }
+  }
+  ok(saw && rem>0.05,'第二发在第一发致盲结束前引爆（剩余 '+rem.toFixed(2)+'s）');
+  ok(aAmt<0.95,'叠加不再把白屏拉回满值：'+bAmt.toFixed(3)+' -> '+aAmt.toFixed(3)+'（旧实现必然 1.000）');
+  let prev=aAmt, mono=true;
+  for(let i=0;i<600 && run('blindAmount()')>0;i++){
+    step(1); const a=run('blindAmount()'); if(a>prev+1e-6) mono=false; prev=a;
+  }
+  ok(mono,'叠加后强度单调衰减，不会反复续满');
+  ok(run('blindAmount()')===0,'致盲最终结束');
+  aim('targets[0]');
+  const hb=run('st.hits'); run('shoot()');
+  ok(run('st.hits')===hb+1,'致盲结束后左键立即恢复命中');
+  run('blindStart=T; blindUntil=T+2; blindDur=2;');
+  const hs=run('st.shots'), hh=run('st.hits');
+  aim('targets[0]');
+  run('shoot()');
+  ok(run('st.shots')===hs+1 && run('st.hits')===hh,'满强度致盲期间出手记为 MISS（不白送分）');
+  /* 淡出尾声（amount 约 0.3）必须已经允许命中，否则就是「看着能打其实点不动」 */
+  run('blindStart=T-1.4; blindUntil=T+0.6; blindDur=2.0;');
+  const amtTail=run('blindAmount()');
+  aim('targets[0]');
+  const hb2=run('st.hits'), hs2=run('st.shots');
+  run('shoot()');
+  ok(amtTail<0.35 && run('st.hits')===hb2+1 && run('st.shots')===hs2+1,
+     '淡出尾声 amount='+amtTail.toFixed(2)+' 已放开命中（旧阈值 0.12 会一直卡到 88% 时长）');
+  run('resetStats(true);');
+
+  console.log('[19] 闪光落点铺满整个拱门区域');
+  const ys=[];
+  for(let i=0;i<3000;i++){
+    run('flashes=[]; spawnFlash("phoenix")');
+    ys.push(run('flashes[0].pts[4].y'));
+  }
+  const yLo=Math.min.apply(null,ys), yHi=Math.max.apply(null,ys);
+  const below=(v)=>ys.filter(y=>y<v).length/ys.length*100;
+  ok(yLo<-0.7,'会出现低处落点 y>='+yLo.toFixed(2)+'（左下/右下）');
+  ok(yHi>1.9,'会出现高处落点 y<='+yHi.toFixed(2)+'（左上/右上）');
+  ok(below(0.5)>25,'拱门下半区覆盖率 '+below(0.5).toFixed(1)+'%（旧实现恒为 0）');
+  run('cam.yaw=0;cam.pitch=0;computeArchScreen();');
+  let v=0;
+  for(let i=0;i<600;i++){
+    run('flashes=[]; spawnFlash("phoenix")');
+    if(run('flashVisible(flashes[0].pts[4])')) v++;
+  }
+  ok(v/600>0.5,'低落点仍在拱门洞内可见 '+Math.round(v/600*100)+'%');
+
+  console.log('[20] 夜露提速改深蓝 / 斯凯降速');
+  ok(run('AGENTS.yoru.travel')<1.10,'夜露 travel 1.50 -> '+run('AGENTS.yoru.travel'));
+  ok(run('AGENTS.yoru.popFrac')<0.80,'夜露 popFrac 0.86 -> '+run('AGENTS.yoru.popFrac'));
+  ok(run('AGENTS.yoru.color')==='#2f6fe4','夜露颜色 -> 深蓝 #2f6fe4');
+  ok(run('AGENTS.yoru.rgb')==='47,111,228','夜露光晕 rgb 同步深蓝');
+  ok(run('AGENTS.skye.travel')>1.00,'斯凯 travel 0.88 -> '+run('AGENTS.skye.travel'));
+  const yPop=run('AGENTS.yoru.travel*DIFF[0].speed*AGENTS.yoru.popFrac');
+  const sPop=run('AGENTS.skye.travel*DIFF[0].speed*AGENTS.skye.popFrac');
+  const pPop=run('AGENTS.phoenix.travel*DIFF[0].speed*AGENTS.phoenix.popFrac');
+  ok(yPop<pPop,'夜露引爆早于菲尼克斯（'+yPop.toFixed(2)+'s < '+pPop.toFixed(2)+'s）');
+  ok(sPop<pPop,'斯凯引爆仍早于菲尼克斯（'+sPop.toFixed(2)+'s < '+pPop.toFixed(2)+'s）');
+  run('cfg.auto=true; resetStats(true);');
+  }
+
   console.log('\n'+(fails?('有 '+fails+' 项失败'):'全部通过'));
   process.exit(fails?1:0);
 }catch(e){

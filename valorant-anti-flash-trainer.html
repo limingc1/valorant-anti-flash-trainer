@@ -425,8 +425,8 @@ const AGENTS={
     shape:'orb',travel:1.15,popFrac:0.82,coneHalf:60,dur:[0.35,2.05],arc:0.9,vf:0.30,
     note:'红色火球，弧线大、飞行久、最好读'},
   skye:{zh:'斯凯',en:'飞鸟 Guiding Light',color:'#4ff0c0',rgb:'79,240,192',
-    shape:'bird',travel:0.88,popFrac:0.72,coneHalf:55,dur:[0.30,1.80],arc:0.35,vf:0.26,
-    popVar:[0.60,0.86],note:'绿色飞鸟，快且引爆时机不固定'},
+    shape:'bird',travel:1.06,popFrac:0.72,coneHalf:55,dur:[0.30,1.80],arc:0.35,vf:0.26,
+    popVar:[0.62,0.88],note:'绿色飞鸟，引爆时机不固定'},
   breach:{zh:'布雷奇',en:'闪光点 Flash Point',color:'#7fb2ff',rgb:'127,178,255',
     shape:'wall',travel:0.95,popFrac:0.44,coneHalf:70,dur:[0.40,2.20],arc:0.15,vf:0.0,
     throughWall:true,note:'墙后引爆：先在墙面亮起一个黄色光点'},
@@ -434,8 +434,9 @@ const AGENTS={
     shape:'cassette',travel:1.05,popFrac:0.80,coneHalf:58,dur:[0.35,2.10],arc:0.6,vf:0.32,
     note:'蓝色长方体，飞行中有滴答声'},
   yoru:{zh:'夜露',en:'致盲球 Blindside',color:'#c79bff',rgb:'199,155,255',
-    shape:'orb',travel:1.50,popFrac:0.86,coneHalf:50,dur:[0.30,1.70],arc:1.7,vf:0.34,
-    note:'高抛弹地，飞得久但锥角小'},
+    shape:'orb',travel:1.02,popFrac:0.76,coneHalf:50,dur:[0.30,1.70],arc:1.45,vf:0.34,
+    color:'#2f6fe4',rgb:'47,111,228',
+    note:'深蓝色光球，高抛弹地，锥角小'},
   reyna:{zh:'蕾娜',en:'致盲之眼 Leer',color:'#ff5f8d',rgb:'255,95,141',
     shape:'eye',travel:0.55,popFrac:1.0,coneHalf:45,dur:[0.50,2.60],arc:0.3,vf:0.55,
     spawn:0.5, life:6.0, noPath:true, nearsight:true, destructible:true, hp:2,
@@ -448,7 +449,7 @@ let T=0;
 let playing=false, paused=false, pauseT=0;
 let flashes=[], pops=[];
 let targets=[], nextAutoAt=0, flashSeq=0;
-let blindUntil=0, blindDur=0, blindSrc=0;
+let blindUntil=0, blindDur=0, blindSrc=0, blindStart=0;
 let score=0, combo=0, shownScore=0;
 const st={trials:0,dodges:0,blinds:0,hits:0,shots:0,best:0,rtSum:0,rtN:0,rfSum:0,rfN:0};
 let reflickBase=0;
@@ -973,7 +974,10 @@ function spawnFlash(key){
   const S=P(side*4.60, rand(-0.35,0.35),        9.00);
   const A=P(side*2.30, 0.35+arcH*0.5,           7.80);
   const B=P(side*1.05, 0.70+arcH*0.6,           ROOM.zW);
-  let   E=P(-side*rand(0.0,1.3), rand(0.8,1.8), rand(2.8,4.4));
+  /* 落点要铺满整个拱门区域：左上/左下/右上/右下/正中都可能。
+     以前 y 固定取 0.8~1.8，闪光永远只在拱门中上部爆开。 */
+  const yLo=ROOM.yF+0.55, yHi=archTopAt(0)-0.55;
+  let   E=P(-side*rand(0.0,1.45), rand(yLo,yHi), rand(2.8,4.4));
   if(a.noPath) E=P(side*rand(0.15,0.95), rand(0.3,1.5), 6.15);   /* 凭空出现，没有飞行段 */
 
   const f={
@@ -989,7 +993,7 @@ function spawnFlash(key){
   if(a.throughWall){
     /* 只在墙面某一个点亮起提示，不要大面积铺开 */
     const sg=Math.random()<0.5?-1:1;
-    f.charges=[{ x:sg*rand(2.1,3.9), y:rand(-0.30,1.80), z:ROOM.zW-0.03, ph:rand(0,6.2832) }];
+    f.charges=[{ x:sg*rand(2.1,3.9), y:rand(ROOM.yF+0.55,2.10), z:ROOM.zW-0.03, ph:rand(0,6.2832) }];
   }
   flashes.push(f);
 
@@ -1020,8 +1024,17 @@ function popFlash(f){
   }
   if(flashed){
     st.blinds++; combo=0;
-    const nd=Math.max(Math.max(0,blindUntil-T),dur);
-    blindUntil=T+nd; blindDur=nd; blindSrc=f.id;
+    const remain=Math.max(0,blindUntil-T);
+    if(remain>0.02){
+      /* 已经在致盲中：只把结束时刻往后推，绝不把强度重新拉回满值。
+         旧写法把 blindDur 重设成「剩余时长」，blindAmount 于是又变回 1.0，
+         连续闪光下白屏被反复续满，射击长时间被吞 —— 就是「被闪后左键不管用」。 */
+      blindUntil=T+Math.max(dur,remain);
+    }else{
+      blindStart=T; blindUntil=T+dur;
+    }
+    blindDur=Math.max(0.001,blindUntil-blindStart);
+    blindSrc=f.id;
     log('被 '+a.zh+' 闪到 '+dur.toFixed(1)+'s','b');
     reflickBase=blindUntil;
   }else{
@@ -1182,14 +1195,16 @@ function shoot(){
         st.hits++;                    /* 击毁算有效命中，不再拉低命中率 */
         let freed=false;
         if(f.a.nearsight && nearSrc===f.id){ nearUntil=0; nearSrc=0; freed=true; }
-        else if(blind>0 && blindSrc===f.id){ blindUntil=0; blindDur=0; blindSrc=0; freed=true; }
+        else if(blind>0 && blindSrc===f.id){ blindUntil=0; blindDur=0; blindSrc=0; blindStart=0; freed=true; }
         log('击毁 '+f.a.zh+' 之眼  +120'+(freed?' · 近视解除':''),'c');
         updateStats(); return;
       }
     }
   }
 
-  if(blind>0.12){ sfx.miss(); updateStats(); return; }   /* 致盲期间看不见靶点，出手无效 */
+  /* 只在「确实还白茫茫」时判无效。阈值 0.12 会一路管到淡出尾声：
+     画面早就看清了、点击还在被吞，手感上就是射击失灵。 */
+  if(blind>0.35){ sfx.miss(); updateStats(); return; }
   /* 近视期间靶球不可见，自然也打不到 —— 先解决紫眼才有得打 */
   if(cfg.mode===1 || !targets.length || fogNear>0.15){ sfx.miss(); updateStats(); return; }
 
@@ -1885,13 +1900,13 @@ function resume(){
   $('ovl').style.display='none';
   $('bStart').textContent='暂停';
   relock();
-  blindUntil=0; blindDur=0; blindSrc=0; scheduleAuto();
+  blindUntil=0; blindDur=0; blindSrc=0; blindStart=0; scheduleAuto();
 }
 function resetStats(silent){
   score=0; combo=0; shownScore=0;
   st.trials=st.dodges=st.blinds=st.hits=st.shots=st.best=0;
   st.rtSum=st.rtN=st.rfSum=st.rfN=0;
-  flashes=[]; pops=[]; blindUntil=0; blindDur=0; blindSrc=0; reflickBase=T;
+  flashes=[]; pops=[]; blindUntil=0; blindDur=0; blindSrc=0; blindStart=0; reflickBase=T;
   nearUntil=0; nearSrc=0; nearStart=0; fogNear=0;
   cam.yaw=0; cam.pitch=0; mdx=0; mdy=0;
   relocateTarget(); scheduleAuto();
