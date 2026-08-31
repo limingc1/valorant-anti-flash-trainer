@@ -332,12 +332,13 @@
         <h3>准星</h3>
         <div class="row"><label>样式</label><div class="seg" id="segCross"></div></div>
         <div class="row"><label>颜色</label><div class="seg" id="segCrossC"></div></div>
-        <div class="row"><label>长度 <b id="vCLen">7</b></label>
-          <input type="range" id="rCLen" min="2" max="22" step="1" value="7"></div>
+        <div class="row"><label>长度 <b id="vCLen">4</b></label>
+          <input type="range" id="rCLen" min="2" max="22" step="1" value="4"></div>
         <div class="row"><label>粗细 <b id="vCTh">2</b></label>
           <input type="range" id="rCTh" min="1" max="6" step="1" value="2"></div>
-        <div class="row"><label>中心间隙 <b id="vCGap">4</b></label>
-          <input type="range" id="rCGap" min="0" max="20" step="1" value="4"></div>
+        <div class="row"><label>中心间隙 <b id="vCGap">2</b></label>
+          <input type="range" id="rCGap" min="0" max="20" step="1" value="2"></div>
+        <div class="row"><label>中心点</label><div class="seg" id="segCrossDot"></div></div>
       </div>
       <div class="sec">
         <h3>辅助</h3>
@@ -346,7 +347,6 @@
           <button data-k="blur" class="act">动态模糊</button>
           <button data-k="edge">边缘提示</button>
           <button data-k="invert">反转 Y 轴</button>
-          <button data-k="crossDot">准星中心点</button>
         </div>
         <div class="sfx" id="sfxState">使用内置合成音</div>
       </div>
@@ -392,7 +392,7 @@ const fwdVec=()=>{const cp=Math.cos(cam.pitch);
 const cfg={
   sens:1.2, fov:103, invertY:false, targetR:0.1, targetN:5, quality:1,
   diff:0, mode:0, vis:0, auto:true, rate:1, roundIdx:1,
-  crossKind:0, crossColor:0, crossLen:7, crossThick:2, crossGap:4, crossDot:true,
+  crossKind:0, crossColor:0, crossLen:4, crossThick:2, crossGap:2, crossDot:false,
   sound:true, blur:true, edge:false,
   agents:{phoenix:true,skye:true,breach:true,kayo:false,yoru:false,reyna:false}
 };
@@ -1954,6 +1954,7 @@ function syncSegs(){
   set($('segMode'),cfg.mode); set($('segDiff'),cfg.diff); set($('segVis'),cfg.vis);
   set($('segQual'),cfg.quality); set($('segRound'),cfg.roundIdx);
   set($('segCross'),cfg.crossKind); set($('segCrossC'),cfg.crossColor);
+  set($('segCrossDot'),cfg.crossDot?1:0);
 }
 function buildAgents(){
   const box=$('agBox'); box.innerHTML='';
@@ -1987,7 +1988,6 @@ function bindUI(){
   buildSeg($('segDiff'),DIFF,v=>v,i=>{cfg.diff=i;relocateTarget();updateStats();});
   buildSeg($('segVis'),[{n:'正常'},{n:'短暂'},{n:'无'}],v=>v,i=>{cfg.vis=i;});
   buildSeg($('segRound'),ROUNDS,v=>v,i=>{ cfg.roundIdx=i; if(playing) startRound(); else { roundOver=false; roundEndAt=0; } });
-  syncSegs();
 
   $('bSide').onclick=e=>{ e.stopPropagation(); toggleSide(); };
   $('resAgain').onclick=e=>{ e.stopPropagation(); startRound(); relock(); };
@@ -2011,6 +2011,9 @@ function bindUI(){
   });
   buildSeg($('segCross'),CROSS_KINDS,v=>v,i=>{ cfg.crossKind=i; });
   buildSeg($('segCrossC'),CROSS_COLORS,v=>v,i=>{ cfg.crossColor=i; });
+  /* 中心点单独做成「关闭 / 开启」，比藏在辅助区的勾选按钮好找。
+     注意样式选「点」时中心点强制显示，否则准星就空了。 */
+  buildSeg($('segCrossDot'),[{n:'关闭'},{n:'开启'}],v=>cfg.crossDot?1:0,i=>{ cfg.crossDot=!!i; });
   $('rCLen').oninput=e=>{ cfg.crossLen=+e.target.value; $('vCLen').textContent=cfg.crossLen; };
   $('rCTh').oninput =e=>{ cfg.crossThick=+e.target.value; $('vCTh').textContent=cfg.crossThick; };
   $('rCGap').oninput=e=>{ cfg.crossGap=+e.target.value; $('vCGap').textContent=cfg.crossGap; };
@@ -2025,6 +2028,11 @@ function bindUI(){
   $('bReset').onclick=e=>{ e.stopPropagation(); resetStats(); };
   $('ovlBtn').onclick=e=>{ e.stopPropagation(); if(!playing) start(); else resume(); };
   $('ovl').onclick=()=>{ if(!playing) start(); else resume(); };
+
+  /* 必须放在所有 buildSeg 之后：buildSeg 只建按钮，高亮靠 syncSegs 刷。
+     原来这里在 segQual / segCross / segCrossC 创建前就调用了一次，
+     导致这几个分段控件初始没有选中态，点一下才亮。 */
+  syncSegs();
 }
 
 /* ---------- 启动 ---------- */

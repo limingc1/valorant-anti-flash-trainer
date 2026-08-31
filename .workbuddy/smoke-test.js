@@ -283,8 +283,34 @@ try{
   run('cfg.crossColor=4;cfg.crossLen=22;cfg.crossThick=6;cfg.crossGap=20;cfg.crossDot=false;drawCrosshair();');
   run('cfg.crossColor=0;cfg.crossLen=2;cfg.crossThick=1;cfg.crossGap=0;cfg.crossDot=true;drawCrosshair();');
   ok(true,'极端参数组合不报错');
-  run('cfg.crossKind=0;cfg.crossColor=0;cfg.crossLen=7;cfg.crossThick=2;cfg.crossGap=4;cfg.crossDot=true;');
-  ok(run('cfg.crossDot')===true,'中心点默认开启');
+  /* 默认值直接从源码断言，而不是读 cfg —— 上面的用例已经改过 cfg 了 */
+  const dm=code.match(/crossKind:(\d+),\s*crossColor:(\d+),\s*crossLen:(\d+),\s*crossThick:(\d+),\s*crossGap:(\d+),\s*crossDot:(\w+)/);
+  ok(!!dm,'找到准星默认值声明');
+  if(dm){
+    ok(dm[1]==='0'&&dm[3]==='4'&&dm[4]==='2'&&dm[5]==='2'&&dm[6]==='false',
+       '默认准星 = 十字 / 长度4 / 粗细2 / 间隙2 / 中心点关闭（实际 '+
+       ['十字','长度'+dm[3],'粗细'+dm[4],'间隙'+dm[5],'中心点'+(dm[6]==='true'?'开':'关')].join(' · ')+'）');
+  }
+  ok(/id="rCLen"[^>]*value="4"/.test(html)&&/id="rCGap"[^>]*value="2"/.test(html),
+     '侧栏滑块初始值与 cfg 默认一致');
+  ok(/<b id="vCLen">4<\/b>/.test(html)&&/<b id="vCGap">2<\/b>/.test(html),
+     '侧栏数值标签与默认一致');
+  ok(/id="segCrossDot"/.test(html),'准星区有独立的中心点开关');
+  ok(!/data-k="crossDot"/.test(html),'中心点已从「辅助」勾选区迁走，避免两处控制同一项');
+  run('cfg.crossKind=0;cfg.crossColor=0;cfg.crossLen=4;cfg.crossThick=2;cfg.crossGap=2;cfg.crossDot=false;');
+  run('drawCrosshair();');
+  ok(true,'默认参数绘制不报错');
+
+  /* 分段控件的初始高亮依赖 syncSegs 在所有 buildSeg 之后调用 */
+  const kids=id=>[...document.getElementById(id).children];
+  const dotSeg=kids('segCrossDot');
+  ok(dotSeg.length===2,'中心点开关有「关闭 / 开启」两项');
+  ok(dotSeg[0].classList.contains('act') && !dotSeg[1].classList.contains('act'),
+     '中心点默认高亮在「关闭」');
+  ok(kids('segCross')[0].classList.contains('act'),'准星样式初始即高亮「十字」');
+  ok(kids('segCrossC')[0].classList.contains('act'),'准星颜色初始即高亮「白」');
+  ok(kids('segQual')[1].classList.contains('act'),'渲染画质初始即高亮「标准」');
+  ok(kids('segMode')[0].classList.contains('act'),'训练模式初始即高亮「综合」');
 
   console.log('[16] 卡顿帧不兑现累积位移');
   run('cam.yaw=0;mdx=600;mdy=0;lastDt=0.20;applyLook();');
