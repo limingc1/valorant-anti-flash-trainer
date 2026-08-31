@@ -82,6 +82,13 @@ try{
   console.log('[3] 开局');
   ok(run('playing===true && paused===false'),'start() 后进入游戏（不再因 started 崩溃）');
   ok(run('targets.length===cfg.targetN'),'开局即生成 '+run('cfg.targetN')+' 个靶点');
+  /* 默认一轮 60s，而整套用例要跑几千帧游戏时钟。
+     一旦累计时间越过 60s，updateRound() 会 endRound() -> roundOver=true，
+     frame() 随即跳过 updateFlashes()，飞行中的闪光和紫眼就永远不结算，
+     表现为 [7]「超时后紫眼消散 / 近视随之解除」随机失败。
+     这里统一切成「不限」；[10] 单轮计时那组自己会重设 roundIdx。 */
+  run('cfg.roundIdx=3; startRound();');
+  ok(run('roundEndAt')===0 && run('roundOver')===false,'测试环境切到不限时，倒计时不会中途掐表');
 
   step(120);
   console.log('[4] 多靶点命中与补位');
@@ -149,6 +156,8 @@ try{
   ok(run('nearUntil>T'),'再次进入近视');
   run('cfg.auto=false;');
   step(Math.ceil(run('flashes[0].dieAt-T')*1000/16.7)+12);
+  ok(run('roundOver')===false && run('paused')===false,
+     '消散等待期间未被结算/暂停打断（否则 updateFlashes 不跑）');
   ok(run('flashes.length')===0,'超时后紫眼消散');
   ok(run('nearUntil')===0,'近视随之解除');
 
