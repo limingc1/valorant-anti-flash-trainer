@@ -69,12 +69,26 @@
 准星直接画在 canvas 上（不是 DOM），每种形状都会先描一圈半透明黑边再上色，
 保证在亮墙面、白屏、紫幕上都看得清。
 
-## 分享给别人玩
+## 分享给别人玩 / 改完怎么更新
 
-纯静态单文件，任何静态托管都行。已经部署好一份可以直接分享的：
-`https://66e587e7751b4693b9d10586ece6a764.app.workbuddy.link`
+源码仓库：`https://github.com/limingc1/valorant-anti-flash-trainer`
 
-其他平台的选择和注意事项（**国内访问 Cloudflare 并不理想**）见 [`DEPLOY.md`](DEPLOY.md)。
+改完只要 `git push`，CI 自动构建发布，不用手动传文件：
+
+```
+node .workbuddy/smoke-test.js
+git add -A && git commit -m "改了什么" && git push
+```
+
+在线可玩（**国内直连实测**，详见 [`DEPLOY.md`](DEPLOY.md)）：
+
+- Cloudflare Pages —— 主链接，配好后 `git push` 即自动更新
+- `https://limingc1.github.io/valorant-anti-flash-trainer/` —— 备用，push 即上线，
+  但**大陆不开代理打不开**，自己测试用
+- `https://66e587e7751b4693b9d10586ece6a764.app.workbuddy.link` —— 旧链接，能直连但
+  是冻结快照，不会跟着更新，确认 Cloudflare 可用后退役
+
+> 之前的短链 `https://tinyurl.com/2yhunzc6` 已失效（tinyurl 本身在国内被墙），别再发。
 
 ## 单轮训练
 
@@ -130,7 +144,7 @@ FOV（默认 103° 即瓦罗兰特锁定的水平 FOV）、靶点大小（0.04�
 
 ## 实现
 
-- 单文件纯前端：`HTML + CSS + 原生 JavaScript`，约 1735 行，无任何外部库与网络请求
+- 单文件纯前端：`HTML + CSS + 原生 JavaScript`，约 2030 行，无任何外部库与网络请求
 - 伪 3D 软件渲染：自写相机变换 / 近平面裁剪 / 透视投影，Canvas 2D 绘制
 - 墙面细节：拱腹、楔形拱石、门框柱、壁柱、横梁、踢脚线与腰线，带明暗与距离雾
 - 音效默认 WebAudio 实时合成，检测不到 `sfx/` 文件时不产生任何网络请求
