@@ -560,9 +560,9 @@ const WALL_T=(()=>{
   return pts;
 })();
 const CRATES=[
-  {b:[-3.4,ROOM.yF,10.6,-1.6,-0.05,12.4],c:'#8a7a5f'},
-  {b:[2.4,ROOM.yF,12.8,4.6,1.15,14.6],c:'#7b6b51'},
-  {b:[-0.7,ROOM.yF,15.2,0.9,2.20,16.6],c:'#94836a'}
+  {b:[-3.4,ROOM.yF,10.6,-1.6,-0.05,12.4],c:'#8d7f78'},
+  {b:[2.4,ROOM.yF,12.8,4.6,1.15,14.6],c:'#7d7370'},
+  {b:[-0.7,ROOM.yF,15.2,0.9,2.20,16.6],c:'#8d8b8f'}
 ];
 
 /* ---------- 建筑细节：墙厚 / 拱石 / 壁柱 / 横梁 / 立柱 ---------- */
@@ -660,7 +660,7 @@ const COLUMNS=(()=>{
   const out=[];
   for(const z of [9.6,14.0]) for(const sg of [-1,1]){
     const cx=sg*4.3,w=0.58;
-    out.push({b:[cx-w,ROOM.yF,z-w, cx+w,ROOM.yC,z+w], c:'#8d7e64'});
+    out.push({b:[cx-w,ROOM.yF,z-w, cx+w,ROOM.yC,z+w], c:'#9d8f7e'});
   }
   return out;
 })();
@@ -787,6 +787,11 @@ const sfx={
 
 /* ---------- 表面着色：明暗 + 距离雾 ---------- */
 const FOG_IN=[26,34,45], FOG_OUT=[132,112,88], FOG_NEAR=[40,16,58];
+function mixHex(h1,h2,t){
+  const p=h=>[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];
+  const a=p(h1),b=p(h2);
+  return '#'+[0,1,2].map(i=>Math.round(a[i]+(b[i]-a[i])*t).toString(16).padStart(2,'0')).join('');
+}
 function shadeFog(hex,k,fog,fc){
   const n=parseInt(hex.slice(1),16);
   let r=((n>>16)&255)*k, g=((n>>8)&255)*k, b=(n&255)*k;
@@ -821,22 +826,33 @@ function drawRoom(){
     let mn=1e9,mx=-1e9;
     for(const p of endSp){mn=Math.min(mn,p.y);mx=Math.max(mx,p.y);}
     const g=ctx.createLinearGradient(0,mn,0,mx);
-    g.addColorStop(0,'#a8c7e0'); g.addColorStop(0.55,'#d9c39a'); g.addColorStop(1,'#8a6f4e');
+    g.addColorStop(0,'#9d7350'); g.addColorStop(0.5,'#b5764f'); g.addColorStop(1,'#8a5540');
     ctx.save();
     ctx.beginPath(); ctx.moveTo(endSp[0].x,endSp[0].y);
     for(let i=1;i<endSp.length;i++) ctx.lineTo(endSp[i].x,endSp[i].y);
     ctx.closePath(); ctx.fillStyle=g; ctx.fill(); ctx.restore();
   }
+  /* 远端墙脚的浅色混凝土条（参考图里砖墙脚那一截浅灰） */
+  surf([P(-X,yF,zE-0.02),P(X,yF,zE-0.02),P(X,yF+0.95,zE-0.02),P(-X,yF+0.95,zE-0.02)],
+       '#a89e93', Object.assign({lit:0.92},OUT));
+  /* 砖缝：让远端那面墙读得出是砖而不是一片渐变 */
+  for(let y=yF+0.42;y<yC;y+=0.44) drawLine(P(-X,y,zE-0.03),P(X,y,zE-0.03),'#6b3f2c',1,0.20);
+  for(let x=-X;x<=X;x+=0.72) drawLine(P(x,yF+0.02,zE-0.03),P(x,yF+1.9,zE-0.03),'#6b3f2c',1,0.10);
 
   /* 2. 拱门外走廊（远 → 近） */
   for(const [z0,z1] of [[14,zE],[9.5,14],[zW,9.5]]){
-    surf([P(-X,yF,z0),P(X,yF,z0),P(X,yF,z1),P(-X,yF,z1)],'#7a6a52',Object.assign({lit:1.00},OUT));
-    surf([P(-X,yC,z0),P(X,yC,z0),P(X,yC,z1),P(-X,yC,z1)],'#544c3c',Object.assign({lit:0.80},OUT));
-    surf([P(-X,yF,z0),P(-X,yC,z0),P(-X,yC,z1),P(-X,yF,z1)],'#8b7c63',Object.assign({lit:0.98},OUT));
-    surf([P(X,yF,z0),P(X,yC,z0),P(X,yC,z1),P(X,yF,z1)],'#8b7c63',Object.assign({lit:0.80},OUT));
+    /* 拱门后是砖砌廊道：陶土地面 + 红砖墙 + 暗木色顶 */
+    surf([P(-X,yF,z0),P(X,yF,z0),P(X,yF,z1),P(-X,yF,z1)],'#a5764f',Object.assign({lit:0.96},OUT));
+    surf([P(-X,yC,z0),P(X,yC,z0),P(X,yC,z1),P(-X,yC,z1)],'#6b5642',Object.assign({lit:0.74},OUT));
+    surf([P(-X,yF,z0),P(-X,yC,z0),P(-X,yC,z1),P(-X,yF,z1)],'#9d6a4c',Object.assign({lit:0.94},OUT));
+    surf([P(X,yF,z0),P(X,yC,z0),P(X,yC,z1),P(X,yF,z1)],'#8e6046',Object.assign({lit:0.78},OUT));
   }
-  for(let z=zW;z<=zE;z+=1.6) drawLine(P(-X,yF+.01,z),P(X,yF+.01,z),'#000',1,0.16);
-  for(let x=-6;x<=6;x+=1.6) drawLine(P(x,yF+.01,zW),P(x,yF+.01,zE),'#000',1,0.12);
+  for(let z=zW;z<=zE;z+=1.6) drawLine(P(-X,yF+.01,z),P(X,yF+.01,z),'#5c3a24',1,0.22);
+  for(let x=-6;x<=6;x+=1.6) drawLine(P(x,yF+.01,zW),P(x,yF+.01,zE),'#5c3a24',1,0.18);
+  for(let y=yF+0.5;y<yC;y+=0.55){
+    drawLine(P(-X,y,zW+.02),P(-X,y,9.5),'#4a2f1c',1,0.10);
+    drawLine(P(X,y,zW+.02),P(X,y,9.5),'#4a2f1c',1,0.10);
+  }
 
   /* 3. 走廊立柱 + 掩体箱（统一按距离排序，远 → 近） */
   const solids=CRATES.map(c=>({b:c.b,c:c.c,
@@ -848,51 +864,104 @@ function drawRoom(){
 
   /* 4. 门洞内部：拱腹 / 侧壁 / 门槛 —— 让墙体有厚度 */
   const DG={fs:5,fe:22,fc:FOG_IN};
-  for(const q of ARCH_INTRADOS) surf(q,'#6d7484',Object.assign({lit:0.52},DG));
-  surf(JAMB_L,'#6d7484',Object.assign({lit:0.60},DG));
-  surf(JAMB_R,'#6d7484',Object.assign({lit:0.48},DG));
-  surf(SILL,'#8a7f6b',Object.assign({lit:0.62},DG));
+  for(const q of ARCH_INTRADOS) surf(q,'#c9b294',Object.assign({lit:0.56},DG));
+  surf(JAMB_L,'#c9b294',Object.assign({lit:0.68},DG));
+  surf(JAMB_R,'#c9b294',Object.assign({lit:0.50},DG));
+  surf(SILL,'#a89e93',Object.assign({lit:0.70},DG));
+
+  /* 4b. 拱腹上方的深木梁 + 两只托臂（参考图）。
+     放在门洞里侧，y 取到 |x|<=1.05 才不穿进拱肩，
+     端面压暗、底面最暗，读得出是一根实心梁。 */
+  /* 梁的两端嵌进墙里（|x| 到 1.42），中间悬空在拱洞上 */
+  const BY0=2.18, BY1=2.34, BX=1.42, BZ0=AZ0+0.06, BZ1=AZ0+0.34;
+  surf([P(-BX,BY0,BZ1),P(-BX,BY0,BZ0),P(-BX,BY1,BZ0),P(-BX,BY1,BZ1)],'#7a5330',{lit:0.50,fs:4,fe:24});
+  surf([P(BX,BY0,BZ0),P(BX,BY0,BZ1),P(BX,BY1,BZ1),P(BX,BY1,BZ0)],'#7a5330',{lit:0.50,fs:4,fe:24});
+  surf([P(-BX,BY0,BZ1),P(BX,BY0,BZ1),P(BX,BY1,BZ1),P(-BX,BY1,BZ1)],'#7a5330',{lit:0.42,fs:4,fe:24});
+  surf([P(-BX,BY0,BZ0),P(BX,BY0,BZ0),P(BX,BY1,BZ0),P(-BX,BY1,BZ0)],'#9d6c3c',{lit:0.94,fs:4,fe:24});
+  for(const sg of [-1,1]){
+    surf([P(sg*0.60,BY0-0.22,BZ0+0.02),P(sg*0.94,BY0-0.22,BZ0+0.02),
+          P(sg*0.94,BY0,BZ0+0.02),P(sg*0.60,BY0,BZ0+0.02)],'#8a5f34',{lit:0.84,fs:4,fe:24});
+  }
 
   /* 5. 前墙三段 */
-  surf(WALL_L,'#5c6473',{lit:0.62}); surf(WALL_R,'#5c6473',{lit:0.62}); surf(WALL_T,'#565e6d',{lit:0.58});
-  /* 墙面分缝 */
-  for(let x=-6;x<=-2.2;x+=1.9) drawLine(P(x,ROOM.yF,zW+.01),P(x,ROOM.yC,zW+.01),'#000',1,0.17);
-  for(let x=2.2;x<=6;x+=1.9)   drawLine(P(x,ROOM.yF,zW+.01),P(x,ROOM.yC,zW+.01),'#000',1,0.17);
-  drawLine(P(-ROOM.x,1.5,zW+.01),P(-ARCH.r,1.5,zW+.01),'#000',1,0.15);
-  drawLine(P(ARCH.r,1.5,zW+.01),P(ROOM.x,1.5,zW+.01),'#000',1,0.15);
+  /* 前墙：暖沙灰泥，底偏灰、顶偏暖 */
+  /* 墙面是连续的暖沙灰泥：左背光、右受光，拱肩略压暗。
+     不要画成上下两截异色 —— 参考图里那面墙是一整块。 */
+  surf(WALL_L,'#9a8672',{lit:0.56});
+  surf(WALL_R,'#a08a72',{lit:0.80});
+  surf(WALL_T,'#a89078',{lit:0.72});
+  /* 只用轻的石缝给大面结构，缝色跟墙同系 */
+  for(const q of [WALL_L,WALL_R]){
+    const x0=q[0].x, x1=q[1].x;
+    drawLine(P(x0,0.98,zW+.01),P(x1,0.98,zW+.01),'#7a6350',1,0.15);
+    drawLine(P(x0,-0.25,zW+.01),P(x1,-0.25,zW+.01),'#7a6350',1,0.12);
+  }
+  for(let x=-6;x<=-2.2;x+=1.9) drawLine(P(x,ROOM.yF,zW+.01),P(x,ROOM.yC,zW+.01),'#7a6350',1,0.12);
+  for(let x=2.2;x<=6;x+=1.9)   drawLine(P(x,ROOM.yF,zW+.01),P(x,ROOM.yC,zW+.01),'#7a6350',1,0.12);
+
+  /* 灰泥墙面的深浅水渍：不规则暖色斑块，参考图里那种涂抹感 */
+  const BLOTCH=[[-5.2,2.1,1.30],[-3.9,1.2,0.95],[-2.7,0.4,0.80],[-5.6,-0.7,1.05],
+                [2.8,1.9,1.15],[4.2,0.8,0.90],[5.6,2.2,0.85],[3.5,-0.6,1.00]];
+  for(const [bx,by,br] of BLOTCH){
+    const pts=[];
+    for(let i=0;i<9;i++){
+      const a=i/9*6.2832, rr=br*(0.42+0.28*((i*37)%7)/7);
+      pts.push(P(bx+Math.cos(a)*rr*1.25, by+Math.sin(a)*rr*0.85, ROOM.zW+0.012));
+    }
+    fillPoly(pts, by>0.9?'rgba(233,216,187,0.22)':'rgba(108,90,76,0.20)');
+  }
+
+  /* 墙上的白色检修片 */
+  const PLATES=[[-5.5,0.35],[-3.6,0.22],[2.9,0.28],[5.6,0.30],[4.2,-0.15]];
+  for(const [px,py] of PLATES){
+    surf([P(px-0.15,py,ROOM.zW+0.016),P(px+0.15,py,ROOM.zW+0.016),
+          P(px+0.15,py+0.21,ROOM.zW+0.016),P(px-0.15,py+0.21,ROOM.zW+0.016)],
+         '#ddd6c8',{lit:0.94,fs:5,fe:26});
+  }
+
+  /* 右墙壁灯：奶色外罩 + 亮内胆 */
+  surf([P(2.86,2.10,ROOM.zW+0.02),P(3.24,2.10,ROOM.zW+0.02),
+        P(3.24,2.44,ROOM.zW+0.02),P(2.86,2.44,ROOM.zW+0.02)],'#c9b791',{lit:0.96,fs:5,fe:26});
+  surf([P(2.94,2.18,ROOM.zW+0.05),P(3.16,2.18,ROOM.zW+0.05),
+        P(3.16,2.36,ROOM.zW+0.05),P(2.94,2.36,ROOM.zW+0.05)],'#f4e8ca',{lit:1.0,fs:5,fe:26});
 
   /* 6. 楔形拱石 + 门框柱（凸出墙面） */
-  VOUS.forEach((q,i)=>surf(q, i%2?'#807f8f':'#717784', {lit:0.86,fs:4,fe:26}));
-  for(const q of JAMB_COL) surf(q,'#767e8e',{lit:0.82,fs:4,fe:26});
+  /* 楔形拱石：奶白主环 + 交替加深，靠外一圈偏灰做阴影 */
+  VOUS.forEach((q,i)=>{
+    const t=i/(VOUS.length-1);
+    surf(q, mixHex(i%2?'#d8c2a2':'#e6d3b4', '#c8b394', t*0.5), {lit:0.92,fs:4,fe:26});
+  });
+  for(const q of JAMB_COL) surf(q,'#e0cfb2',{lit:0.85,fs:4,fe:26});
   if(archScreen){
     ctx.save(); pathFromScreen(archScreen);
-    ctx.strokeStyle='rgba(255,214,150,0.45)'; ctx.lineWidth=2; ctx.stroke(); ctx.restore();
+    ctx.strokeStyle='rgba(120,88,62,0.35)'; ctx.lineWidth=1.5; ctx.stroke(); ctx.restore();
   }
 
   /* 7. 玩家所在房间（远 → 近） */
   for(const [z0,z1] of [[4.2,zW],[0.4,4.2],[zB,0.4]]){
-    surf([P(-X,yF,z0),P(X,yF,z0),P(X,yF,z1),P(-X,yF,z1)],'#333a45',{lit:0.86});
-    surf([P(-X,yC,z0),P(X,yC,z0),P(X,yC,z1),P(-X,yC,z1)],'#20242c',{lit:0.46});
-    surf([P(-X,yF,z0),P(-X,yC,z0),P(-X,yC,z1),P(-X,yF,z1)],'#49515f',{lit:0.82});
-    surf([P(X,yF,z0),P(X,yC,z0),P(X,yC,z1),P(X,yF,z1)],'#49515f',{lit:0.60});
+    /* 玩家侧同化成暖沙色，亮面接近日光色、暗面偏灰绿 */
+    surf([P(-X,yF,z0),P(X,yF,z0),P(X,yF,z1),P(-X,yF,z1)],'#9d7c60',{lit:0.78});
+    surf([P(-X,yC,z0),P(X,yC,z0),P(X,yC,z1),P(-X,yC,z1)],'#6b5648',{lit:0.46});
+    surf([P(-X,yF,z0),P(-X,yC,z0),P(-X,yC,z1),P(-X,yF,z1)],'#9d7c60',{lit:0.72});
+    surf([P(X,yF,z0),P(X,yC,z0),P(X,yC,z1),P(X,yF,z1)],'#9d7c60',{lit:0.52});
   }
-  for(const q of BEAMS)      surf(q,'#2b3038',{lit:0.72,fs:6,fe:26});
-  for(const q of PILASTERS)  surf(q,'#5b6474',{lit:0.78,fs:5,fe:26});
-  for(const q of RAILS)      surf(q,'#666f80',{lit:0.82,fs:5,fe:26});
-  for(const q of BASEBOARDS) surf(q,'#20242c',{lit:0.74,fs:5,fe:26});
+  for(const q of BEAMS)      surf(q,'#584027',{lit:0.62,fs:6,fe:26});
+  for(const q of PILASTERS)  surf(q,'#c9b294',{lit:0.74,fs:5,fe:26});
+  for(const q of RAILS)      surf(q,'#c9b294',{lit:0.78,fs:5,fe:26});
+  for(const q of BASEBOARDS) surf(q,'#a89e93',{lit:0.64,fs:5,fe:26});
   /* 地砖 */
-  for(let z=zB;z<=zW;z+=1.4) drawLine(P(-X,yF+.01,z),P(X,yF+.01,z),'#9fb0c4',1,0.09);
-  for(let x=-6;x<=6;x+=1.4) drawLine(P(x,yF+.01,zB),P(x,yF+.01,zW),'#9fb0c4',1,0.09);
+  for(let z=zB;z<=zW;z+=1.4) drawLine(P(-X,yF+.01,z),P(X,yF+.01,z),'#7e573a',1,0.10);
+  for(let x=-6;x<=6;x+=1.4) drawLine(P(x,yF+.01,zB),P(x,yF+.01,zW),'#7e573a',1,0.10);
 
   /* 8. 身后墙 */
-  surf([P(-X,yF,zB),P(X,yF,zB),P(X,yC,zB),P(-X,yC,zB)],'#3a4150',{lit:0.72});
-  for(let x=-6;x<=6;x+=1.9) drawLine(P(x,ROOM.yF,zB-.01),P(x,ROOM.yC,zB-.01),'#000',1,0.18);
-  drawLine(P(-X,0,zB-.01),P(X,0,zB-.01),'#000',1,0.26);
+  surf([P(-X,yF,zB),P(X,yF,zB),P(X,yC,zB),P(-X,yC,zB)],'#8a6a4c',{lit:0.62});
+  for(let x=-6;x<=6;x+=1.9) drawLine(P(x,ROOM.yF,zB-.01),P(x,ROOM.yC,zB-.01),'#5c4230',1,0.14);
+  drawLine(P(-X,0,zB-.01),P(X,0,zB-.01),'#5c4230',1,0.20);
 
   /* 9. 门洞洒进来的暖光（加性混合） */
   ctx.save();
   ctx.globalCompositeOperation='lighter';
-  fillPoly(DOOR_LIGHT,'rgba(255,212,150,0.13)');
+  fillPoly(DOOR_LIGHT,'rgba(255,205,140,0.17)');
   ctx.restore();
 }
 function drawBox(b,col){
