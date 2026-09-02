@@ -109,6 +109,10 @@ try{
   ok(minGap>run('targetR()')*0.9,'最小间距 '+minGap.toFixed(3)+' > 靶点半径');
 
   console.log('[6] 蕾娜之眼：凭空出现 + 睁眼 + 近视');
+  /* 自动闪光必须在这整段之前就关掉：[6]/[6b]/[7] 里有几十次 step，
+     此时 reyna 已被启用，自动派发的若又是一只紫眼，
+     [7] 的 flashes.length===0 与 nearUntil===0 会一起随机红。 */
+  run('cfg.auto=false;');
   run('flashes=[];pops=[];blindUntil=0;blindDur=0;nearUntil=0;nearSrc=0;cfg.agents.reyna=true;spawnFlash("reyna");');
   const home=run('JSON.stringify(flashes[0].home)');
   step(10);

@@ -1040,7 +1040,7 @@ function spawnFlash(key){
   const popFrac=a.popVar?rand(a.popVar[0],a.popVar[1]):a.popFrac;
   const arcH=a.arc*0.55;
 
-  const S=P(side*4.60, rand(-0.35,0.35),        9.00);
+  let   S=P(side*4.60, rand(-0.35,0.35),        9.00);
   const A=P(side*2.30, 0.35+arcH*0.5,           7.80);
   const B=P(side*1.05, 0.70+arcH*0.6,           ROOM.zW);
   /* 落点要铺满整个拱门区域：左上/左下/右上/右下/正中都可能。
@@ -1053,12 +1053,20 @@ function spawnFlash(key){
      普通闪光仍是斜穿门洞的单向弧。控制点等距排布，拐点落在 u=0.5 上。 */
   let pts=[S,S,A,B,E,E], turnPos=null;
   if(a.hook){
-    const tx=side*rand(6.0,6.5), ty=rand(0.90,1.50);
-    turnPos=P(tx,ty,7.20);
+    /* 8 点 = 5 段，曲线依次穿过 u = 0/.2/.4/.6/.8/1。
+       两条硬约束：
+       a) 过墙面 z=6.5 时 |x| 必须小于拱门半宽 1.7，否则会从实体墙里穿出来
+          （上一版拐点 x=6.25、回到墙面时 x 还有 2.55，就是这个错）；
+       b) 拐点放 u=0.4，绕过来 u≈0.5 就从门洞里露出来 —— 一半藏墙后，一半可见。
+       x 先往外走到 4.7 再收回来，形成「可转弯」的回头弧。 */
+    S=P(side*3.40, rand(-0.20,0.30), 9.20);
+    const ty=rand(0.55,0.95);
+    turnPos=P(side*3.40, ty+0.30, 7.10);
     pts=[S, S,
-         P(side*5.60, rand(0.30,0.70), 8.10),
+         P(side*4.70, ty+0.05, 8.10),
          turnPos,
-         P(side*rand(2.20,2.90), ty+rand(0.00,0.20), 6.15),
+         P(side*1.45, ty+0.25, 6.72),
+         P(side*0.55, ty+0.20, 6.00),
          E, E];
   }
 
@@ -1387,17 +1395,31 @@ function velAngle(f){
 /* 菲尼克斯曲球：参考图拆成四件事 ——
    亮细圆环、环内暗红火絮、白热核心、沿速度方向拖出的能量束。
    光束用三层描边由粗到细叠出来，避免每帧新建渐变。 */
-function drawCurveball(sx,sy,rr,ang,rgb){
-  const R=rr*2.05;
-  ctx.save(); ctx.translate(sx,sy);
-  ctx.save(); ctx.rotate(ang); ctx.lineCap='round';
-  ctx.strokeStyle='rgba('+rgb+',0.26)'; ctx.lineWidth=R*0.46;
-  ctx.beginPath(); ctx.moveTo(-R*0.30,0); ctx.lineTo(-R*5.4,0); ctx.stroke();
-  ctx.strokeStyle='rgba('+rgb+',0.70)'; ctx.lineWidth=R*0.17;
-  ctx.beginPath(); ctx.moveTo(-R*0.30,0); ctx.lineTo(-R*4.7,0); ctx.stroke();
-  ctx.strokeStyle='rgba(255,236,222,0.92)'; ctx.lineWidth=Math.max(1,R*0.055);
-  ctx.beginPath(); ctx.moveTo(-R*0.28,0); ctx.lineTo(-R*4.1,0); ctx.stroke();
+/* 三层描边叠出一条能量束：粗而暗 -> 中 -> 细而近白。不用每帧建渐变 */
+function beamStroke(x0,y0,x1,y1,R,rgb){
+  ctx.save(); ctx.lineCap='round';
+  ctx.strokeStyle='rgba('+rgb+',0.24)'; ctx.lineWidth=R*0.44;
+  ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.stroke();
+  ctx.strokeStyle='rgba('+rgb+',0.68)'; ctx.lineWidth=R*0.16;
+  ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.stroke();
+  ctx.strokeStyle='rgba(255,236,222,0.95)'; ctx.lineWidth=Math.max(1,R*0.055);
+  ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.stroke();
   ctx.restore();
+}
+/* beam：{a:墙前那段端点, b:完整端点, behind:b 是否已穿到墙后}，null 表示不画 */
+function drawCurveball(sx,sy,rr,beam,rgb){
+  const R=rr*2.05;
+  /* 光束必须在 translate 之前画 —— 拱门裁剪路径是屏幕坐标，
+     在平移过的上下文里 clip 会整体偏移。 */
+  if(beam){
+    beamStroke(sx,sy,beam.a.x,beam.a.y,R,rgb);
+    if(beam.behind && archScreen){
+      ctx.save(); pathFromScreen(archScreen); ctx.clip();
+      beamStroke(sx,sy,beam.b.x,beam.b.y,R,rgb);
+      ctx.restore();
+    }
+  }
+  ctx.save(); ctx.translate(sx,sy);
   glowDot(0,0,R*1.75,rgb,0.42);
   ctx.save();
   ctx.globalCompositeOperation='lighter';
@@ -1581,8 +1603,10 @@ function drawFlashes(){
     ctx.save();
     if(behind && archScreen){ pathFromScreen(archScreen); ctx.clip(); }
 
-    /* 尾迹：头部粗亮、尾部细淡，长度 0.8s */
-    if(!f.a.noPath){
+    /* 尾迹：头部粗亮、尾部细淡，长度 0.8s。
+       曲球不画 —— 它自带一条直线能量束，两串叠在一起会读成两条轨迹。
+       注意 trail 仍然照常记录，velAngle() 要靠它算束的方向。 */
+    if(!f.a.noPath && kind!=='curve'){
       for(let i=0;i<f.trail.length;i++){
         const tp=f.trail[i];
         const age=(T-tp.t)/TRAIL_LIFE;
@@ -1603,7 +1627,33 @@ function drawFlashes(){
       ctx.fillStyle='#fff';
       ctx.beginPath(); ctx.arc(s.x,s.y,rr*0.5,0,6.2832); ctx.fill();
     }else if(kind==='curve'){
-      drawCurveball(s.x,s.y,rr,velAngle(f),f.a.rgb);
+      /* 光束尾端在世界坐标里算，并卡在墙面前停下：
+         光束在世界坐标里沿最近一小段轨迹往回取，并在墙面处切开：
+         墙前那段直接画，越过墙面的剩余部分裁进拱门洞。
+         不做切开的话，球已经进洞、光束还整条斜搭在实体墙上，
+         会把「绕拐角进来」读成「贴在墙上」。 */
+      let beam=null;
+      const tn=f.trail.length;
+      if(tn>=2){
+        const a1=f.trail[Math.max(0,tn-16)];
+        let dx=f.pos.x-a1.x, dy=f.pos.y-a1.y, dz=f.pos.z-a1.z;
+        const dl=Math.hypot(dx,dy,dz);
+        if(dl>1e-4){
+          dx/=dl; dy/=dl; dz/=dl;
+          const L0=2.6;
+          let lim=Infinity;
+          if(f.pos.z<ROOM.zW && dz<0) lim=(ROOM.zW-f.pos.z)/(-dz);
+          const L1=clamp(Math.min(L0,lim),0,L0);
+          const e1=toCam(P(f.pos.x-dx*L1, f.pos.y-dy*L1, f.pos.z-dz*L1));
+          const e2=toCam(P(f.pos.x-dx*L0, f.pos.y-dy*L0, f.pos.z-dz*L0));
+          if(e1.z>NEAR){
+            beam = (lim<L0 && e2.z>NEAR)
+              ? {a:proj(e1), b:proj(e2), behind:true}
+              : {a:proj(e1), b:proj(e1), behind:false};
+          }
+        }
+      }
+      drawCurveball(s.x,s.y,rr,beam,f.a.rgb);
     }else if(kind==='bird'){
       drawBird(s.x,s.y,rr*1.15,velAngle(f),f.a.rgb);
     }else if(kind==='cassette'){
