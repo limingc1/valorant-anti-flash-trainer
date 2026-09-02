@@ -382,7 +382,7 @@ try{
   const ys=[];
   for(let i=0;i<3000;i++){
     run('flashes=[]; spawnFlash("phoenix")');
-    ys.push(run('flashes[0].pts[4].y'));
+    ys.push(run('flashes[0].home.y'));      /* 用 home 而不是 pts[i]：曲球的控制点数量不同 */
   }
   const yLo=Math.min.apply(null,ys), yHi=Math.max.apply(null,ys);
   const below=(v)=>ys.filter(y=>y<v).length/ys.length*100;
@@ -393,7 +393,7 @@ try{
   let v=0;
   for(let i=0;i<600;i++){
     run('flashes=[]; spawnFlash("phoenix")');
-    if(run('flashVisible(flashes[0].pts[4])')) v++;
+    if(run('flashVisible(flashes[0].home)')) v++;
   }
   ok(v/600>0.5,'低落点仍在拱门洞内可见 '+Math.round(v/600*100)+'%');
 
