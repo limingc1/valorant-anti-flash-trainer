@@ -16,3 +16,6 @@ dist/
 Thumbs.db
 *.log
 node_modules/
+
+# workbuddy 本地笔记不入库
+.workbuddy/memory/
