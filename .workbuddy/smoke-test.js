@@ -415,6 +415,67 @@ try{
   run('cfg.auto=true; resetStats(true);');
   }
 
+  /* 曲球光束：既要沿真实轨迹画出来（不能是直线），又要卡在墙面切开（不能穿模） */
+  console.log('[21] 曲球光束：轨迹折线 + 墙面切开');
+  run('flashes=[];cfg.agents.phoenix=true;cfg.mode=0;spawnFlash("phoenix");');
+  ok(run('flashes[0].a.shape')==='curve','菲尼克斯走曲球形态');
+  ok(run('!!flashes[0].a.hook')===true,'曲球带回头弧控制点');
+  step(40);
+  const beamInfo=()=>JSON.parse(run(
+    '(function(){var f=flashes[0];var b=buildBeam(f);return JSON.stringify({'
+    +'n:f.trail.length, fp:b&&b.front?b.front.length:0, bp:b&&b.back?b.back.length:0,'
+    +'same:(b&&b.front&&b.front.length&&b.back&&b.back.length)?(b.front[b.front.length-1].x===b.back[0].x'
+    +'&&b.front[b.front.length-1].y===b.back[0].y):null});})()'));
+  const bm=beamInfo();
+  ok(bm.n>3,'轨迹有足够采样点（'+bm.n+' 个）');
+  /* 球在墙后时 front 只有一个墙面交点是正确行为（整条光束靠 back 裁剪） */
+  ok(bm.fp>=2 || bm.bp>=2,'光束是多点折线而非两端点直线（front '+bm.fp+' / back '+bm.bp+' 点）');
+  if(bm.fp===1 && bm.bp>0) ok(run('flashes[0].pos.z>ROOM.zW'),'front 仅有交点时球应在墙后');
+  if(bm.bp>0 && bm.fp>=2) ok(bm.same===true,'两段共用墙面交点：back 从墙面画起，不会从球心穿墙');
+  else ok(true,'本帧无需跨墙切分（front '+bm.fp+' 点：球在墙后整条光束靠裁剪，或全在墙前）');
+
+  /* 光束折线不得出现 V 形钩：采样越过拐点时方向翻转接近 180°，
+     参考图里光束是「从拐角平滑拉到球」的一条弧（尾巴钉在拐角） */
+  run('flashes=[];spawnFlash("phoenix");');
+  let hooks=0, checked=0;
+  for(let i=0;i<260 && run('flashes.length && flashes[0].popped===false');i++){
+    step(1);
+    const segs=JSON.parse(run(
+      '(function(){var f=flashes[0];if(!f||f.popped)return "null";var b=buildBeam(f);'
+      +'if(!b)return "null";return JSON.stringify([b.front||[],b.back||[]]);})()'));
+    if(!segs) continue;
+    for(const seg of segs){
+      const L=(a,b)=>Math.hypot(b.x-a.x,b.y-a.y);
+      for(let k=1;k<seg.length-1;k++){
+        if(L(seg[k-1],seg[k])<3 || L(seg[k],seg[k+1])<3) continue;   /* 过短段方向无意义 */
+        const a1=Math.atan2(seg[k].y-seg[k-1].y,seg[k].x-seg[k-1].x);
+        const a2=Math.atan2(seg[k+1].y-seg[k].y,seg[k+1].x-seg[k].x);
+        let d=Math.abs(a2-a1); if(d>Math.PI) d=2*Math.PI-d;
+        if(d>2.27) hooks++;               /* >130° 视为钩 */
+        checked++;
+      }
+    }
+  }
+  ok(checked>50,'光束逐帧检查了 '+checked+' 个转角');
+  ok(hooks===0,'光束上没有方向翻转的 V 形钩（发现 '+hooks+' 个）');
+
+  /* 过墙面那一刻 |x| 必须落在拱门半宽内，否则球会从实体墙里冒出来 */
+  const wallX=run('(function(){var f=flashes[0];var best=null,bd=1e9;'
+    +'for(var i=0;i<=400;i++){var p=pathAt(f,i/400);var d=Math.abs(p.z-ROOM.zW);'
+    +'if(d<bd){bd=d;best=p;}}return Math.abs(best.x);})()');
+  ok(wallX<run('ARCH.r'),'过墙面时 |x|='+wallX.toFixed(2)+' 在拱门半宽内（'+run('ARCH.r')+'）');
+
+  /* 球飞进房间后最容易穿模：光束尾部伸到墙后，切分必须生效 */
+  let gd=0;
+  while(run('flashes.length && flashes[0].pos.z>6.2 && flashes[0].popped===false') && gd++<300) step(1);
+  if(run('flashes.length && flashes[0].popped===false')){
+    const b2=beamInfo();
+    ok(b2.fp>=2,'球进房间后墙前段仍在（'+b2.fp+' 点）');
+    if(b2.bp>0) ok(b2.same===true,'球在房间内时越墙那段仍从墙面起画，不从球心穿墙');
+    else ok(true,'球在房间内时整条光束都在墙前');
+  }
+  run('flashes=[];');
+
   console.log('\n'+(fails?('有 '+fails+' 项失败'):'全部通过'));
   process.exit(fails?1:0);
 }catch(e){

@@ -1395,27 +1395,108 @@ function velAngle(f){
 /* 菲尼克斯曲球：参考图拆成四件事 ——
    亮细圆环、环内暗红火絮、白热核心、沿速度方向拖出的能量束。
    光束用三层描边由粗到细叠出来，避免每帧新建渐变。 */
-/* 三层描边叠出一条能量束：粗而暗 -> 中 -> 细而近白。不用每帧建渐变 */
-function beamStroke(x0,y0,x1,y1,R,rgb){
-  ctx.save(); ctx.lineCap='round';
-  ctx.strokeStyle='rgba('+rgb+',0.24)'; ctx.lineWidth=R*0.44;
-  ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.stroke();
-  ctx.strokeStyle='rgba('+rgb+',0.68)'; ctx.lineWidth=R*0.16;
-  ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.stroke();
-  ctx.strokeStyle='rgba(255,236,222,0.95)'; ctx.lineWidth=Math.max(1,R*0.055);
-  ctx.beginPath(); ctx.moveTo(x0,y0); ctx.lineTo(x1,y1); ctx.stroke();
+/* 三层描边叠出一条能量束：粗而暗 -> 中 -> 细而近白。不用每帧建渐变。
+   pts 是屏幕坐标采样点，用中点二次贝塞尔连成平滑曲线 ——
+   直接 lineTo 折线的话，拐点附近的采样点会让光束看起来有硬折角。 */
+function beamStroke(pts,R,rgb){
+  if(!pts || pts.length<2) return;
+  ctx.save(); ctx.lineCap='round'; ctx.lineJoin='round';
+  ctx.beginPath();
+  ctx.moveTo(pts[0].x,pts[0].y);
+  if(pts.length===2){
+    ctx.lineTo(pts[1].x,pts[1].y);
+  }else{
+    for(let i=1;i<pts.length-1;i++){
+      const mx=(pts[i].x+pts[i+1].x)/2, my=(pts[i].y+pts[i+1].y)/2;
+      ctx.quadraticCurveTo(pts[i].x,pts[i].y,mx,my);
+    }
+    ctx.lineTo(pts[pts.length-1].x,pts[pts.length-1].y);
+  }
+  const layers=[[ 'rgba('+rgb+',0.24)', R*0.44 ],
+                [ 'rgba('+rgb+',0.68)', R*0.16 ],
+                [ 'rgba(255,236,222,0.95)', Math.max(1,R*0.055) ]];
+  for(const [col,lw] of layers){
+    ctx.strokeStyle=col; ctx.lineWidth=lw; ctx.stroke();
+  }
   ctx.restore();
 }
-/* beam：{a:墙前那段端点, b:完整端点, behind:b 是否已穿到墙后}，null 表示不画 */
+/* 沿真实轨迹取一条能量束，并在墙面处切成两段：
+   front = 墙前可见的那截，直接画；
+   back  = 越过墙面的那截，必须裁进拱门洞，而且只能从墙面画起 ——
+           从球心画过去的话，球已经进房间了光束还整条斜穿实体墙，就是穿模。
+   采样在拐点处截断（尾巴钉在拐角）：曲球绕过拐角后方向翻转接近 180°，
+   采样点一旦越过拐点，光束就会折出一个突兀的 V 形钩，而不是参考图里
+   「从拐角平滑拉到球上」的那条弧。 */
+const BEAM_LEN=2.6;                      /* 光束长度（世界单位） */
+function buildBeam(f){
+  const tr=f.trail;
+  if(tr.length<2) return null;
+  /* 只在球已经绕过拐点后才把尾巴钉在拐点上；
+     球还在拐点前飞行的阶段，来路方向没有翻转，光束照常拖。 */
+  const pastTurn=f.turnAt?T>=f.turnAt:false;
+  const tMin=pastTurn?f.turnAt-0.05:-Infinity;
+  /* 由近及远采样，累计够 BEAM_LEN 就停。[0] 约等于球当前位置 */
+  const wp=[];
+  let acc=0;
+  for(let i=tr.length-1;i>=0;i--){
+    const p=tr[i];
+    if(p.t<tMin) break;
+    if(wp.length){
+      const q=wp[wp.length-1];
+      const d=Math.hypot(p.x-q.x,p.y-q.y,p.z-q.z);
+      if(d<0.015) continue;          /* 近重合点会让折线方向退化成噪声 */
+      acc+=d;
+    }
+    wp.push({x:p.x,y:p.y,z:p.z});
+    if(acc>=BEAM_LEN) break;
+  }
+  if(wp.length<2) return null;
+
+  /* 按 z 切分，跨界处补一个正好落在墙面上的点。
+     若第一个采样点就在墙后（球整个在墙后），不存在「跨界」，
+     front 为空、back 从轨迹点直接开始 —— 交点绝不能退化成 wp[0] 自己，
+     否则 back 的第一段方向就是噪声，光束上会看到一个突兀的钩。 */
+  const front=[], back=[];
+  let crossed=false;
+  for(let i=0;i<wp.length;i++){
+    const p=wp[i];
+    if(!crossed && p.z>ROOM.zW){
+      crossed=true;
+      if(i>0){
+        const q=wp[i-1];
+        const dz=p.z-q.z;
+        const tt=Math.abs(dz)<1e-6?0:clamp((ROOM.zW-q.z)/dz,0,1);
+        const m={x:q.x+(p.x-q.x)*tt, y:q.y+(p.y-q.y)*tt, z:ROOM.zW};
+        front.push(m); back.push(m);
+      }
+    }
+    if(crossed) back.push(p); else front.push(p);
+  }
+  /* 世界坐标 -> 屏幕坐标；遇到跑到相机背后的点就截断 */
+  const toScr=arr=>{
+    const o=[];
+    for(const p of arr){
+      const c=toCam(p);
+      if(c.z<=NEAR){ if(o.length) break; else continue; }
+      o.push(proj(c));
+    }
+    return o;
+  };
+  const F=toScr(front);
+  const B=crossed?toScr(back):null;
+  if(F.length<2 && (!B || B.length<2)) return null;
+  return {front:F, back:(B&&B.length>=2)?B:null};
+}
+/* beam：buildBeam() 的结果，{front, back}，null 表示不画 */
 function drawCurveball(sx,sy,rr,beam,rgb){
   const R=rr*2.05;
   /* 光束必须在 translate 之前画 —— 拱门裁剪路径是屏幕坐标，
      在平移过的上下文里 clip 会整体偏移。 */
   if(beam){
-    beamStroke(sx,sy,beam.a.x,beam.a.y,R,rgb);
-    if(beam.behind && archScreen){
+    beamStroke(beam.front,R,rgb);
+    if(beam.back && archScreen){
       ctx.save(); pathFromScreen(archScreen); ctx.clip();
-      beamStroke(sx,sy,beam.b.x,beam.b.y,R,rgb);
+      beamStroke(beam.back,R,rgb);
       ctx.restore();
     }
   }
@@ -1627,33 +1708,8 @@ function drawFlashes(){
       ctx.fillStyle='#fff';
       ctx.beginPath(); ctx.arc(s.x,s.y,rr*0.5,0,6.2832); ctx.fill();
     }else if(kind==='curve'){
-      /* 光束尾端在世界坐标里算，并卡在墙面前停下：
-         光束在世界坐标里沿最近一小段轨迹往回取，并在墙面处切开：
-         墙前那段直接画，越过墙面的剩余部分裁进拱门洞。
-         不做切开的话，球已经进洞、光束还整条斜搭在实体墙上，
-         会把「绕拐角进来」读成「贴在墙上」。 */
-      let beam=null;
-      const tn=f.trail.length;
-      if(tn>=2){
-        const a1=f.trail[Math.max(0,tn-16)];
-        let dx=f.pos.x-a1.x, dy=f.pos.y-a1.y, dz=f.pos.z-a1.z;
-        const dl=Math.hypot(dx,dy,dz);
-        if(dl>1e-4){
-          dx/=dl; dy/=dl; dz/=dl;
-          const L0=2.6;
-          let lim=Infinity;
-          if(f.pos.z<ROOM.zW && dz<0) lim=(ROOM.zW-f.pos.z)/(-dz);
-          const L1=clamp(Math.min(L0,lim),0,L0);
-          const e1=toCam(P(f.pos.x-dx*L1, f.pos.y-dy*L1, f.pos.z-dz*L1));
-          const e2=toCam(P(f.pos.x-dx*L0, f.pos.y-dy*L0, f.pos.z-dz*L0));
-          if(e1.z>NEAR){
-            beam = (lim<L0 && e2.z>NEAR)
-              ? {a:proj(e1), b:proj(e2), behind:true}
-              : {a:proj(e1), b:proj(e1), behind:false};
-          }
-        }
-      }
-      drawCurveball(s.x,s.y,rr,beam,f.a.rgb);
+      /* 光束沿真实轨迹采样，并在墙面处切开 —— 细节都在 buildBeam() 里 */
+      drawCurveball(s.x,s.y,rr,buildBeam(f),f.a.rgb);
     }else if(kind==='bird'){
       drawBird(s.x,s.y,rr*1.15,velAngle(f),f.a.rgb);
     }else if(kind==='cassette'){
