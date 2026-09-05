@@ -1,0 +1,20 @@
+name: CI
+
+# 部署不在这边做：Cloudflare Pages 已连接本仓库，push 到 main 自动构建上线
+# （含 functions/ 的 /api/room 后端）。这里只做冒烟测试这道闸门。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  smoke-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Run smoke tests
+        run: node .workbuddy/smoke-test.js

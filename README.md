@@ -106,10 +106,8 @@ git add -A && git commit -m "改了什么" && git push
 https://valorant-anti-flash-trainer.pages.dev/
 ```
 
-`git push` 之后约 1 分钟自动上线，不需要手动部署。另有两份备用：
+`git push` 之后约 1 分钟自动上线，不需要手动部署。另有备用：
 
-- `https://limingc1.github.io/valorant-anti-flash-trainer/` —— push 即上线，但
-  **大陆不开代理打不开**，自己测试用
 - `https://66e587e7751b4693b9d10586ece6a764.app.workbuddy.link` —— 旧链接，冻结快照，
   不会跟着更新，已退役
 

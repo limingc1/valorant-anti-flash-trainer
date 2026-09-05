@@ -35,8 +35,8 @@ function el(id){
     get className(){return [...cls].join(' ')},
     set className(v){ cls.clear(); String(v).split(/\s+/).forEach(c=>c&&cls.add(c)); },
     _text:'', title:'', volume:1, currentTime:0, src:'',
-    get innerHTML(){return ''},
-    set innerHTML(v){ if(v==='') this.children.length=0; },
+    get innerHTML(){return this._html||''},
+    set innerHTML(v){ this._html=String(v); if(v==='') this.children.length=0; },
     get textContent(){return this._text}, set textContent(v){this._text=v},
     get firstChild(){return this.children[0]},
     appendChild(c){this.children.push(c);return c},
@@ -54,6 +54,7 @@ const cache={};
 const document={
   getElementById(id){ return cache[id]||(cache[id]=el(id)); },
   createElement(t){ return el(t); },
+  querySelector(){ return el('q'); }, querySelectorAll(){ return []; },
   addEventListener(){}, removeEventListener(){},
   pointerLockElement:null, exitPointerLock(){}, body:el('body')
 };
@@ -64,7 +65,12 @@ const sandbox={
   requestAnimationFrame(cb){ rafCb=cb; return 1; },
   setTimeout, clearTimeout, setInterval, clearInterval,
   Math, Date, JSON, Promise, Object, Array, String, Number, Boolean, Error, isNaN, parseFloat, parseInt,
-  Audio: function(){ return el('audio'); }
+  Audio: function(){ return el('audio'); },
+  /* 联机代码会用到这些浏览器全局；给最小实现，让启动与降级路径都能跑 */
+  localStorage:{ _d:{}, getItem(k){ return k in this._d?this._d[k]:null; }, setItem(k,v){ this._d[k]=String(v); }, removeItem(k){ delete this._d[k]; } },
+  location:{ search:'', origin:'http://x', pathname:'/index.html', href:'http://x/index.html' },
+  navigator:{},
+  fetch:()=>Promise.reject(new Error('no-net'))   /* 触发 cloudGet/cloudPost 的降级分支 */
 };
 sandbox.window.document=document; sandbox.globalThis=sandbox;
 const ctx=vm.createContext(sandbox);
@@ -475,6 +481,47 @@ try{
     else ok(true,'球在房间内时整条光束都在墙前');
   }
   run('flashes=[];');
+
+  /* 联机对战：房码编解码 + 同种子确定性（这是「两人打同一局」能否成立的根） */
+  console.log('[22] 联机对战：房码编解码 + 同种子确定性');
+  let codecOK=true, samples=0;
+  for(let r=0;r<4;r++){ for(let k=0;k<9;k++){
+    const seed=(k*1000+r*7+1)&0xFFFFF;
+    const code=run('encodeRoom('+r+','+seed+')');
+    const dec=JSON.parse(run('JSON.stringify(decodeRoom("'+code+'"))'));
+    samples++;
+    if(!dec||dec.roundIdx!==r||dec.seed20!==seed) codecOK=false;
+  }}
+  ok(codecOK,'房码 encode/decode 往返一致（时长位+种子位，'+samples+' 组）');
+  ok(run('newRoomCode().length')===6,'生成的房码是 6 位');
+  ok(run('ROOM_RE.test(newRoomCode())')===true,'房码只用去混淆的 Crockford 字母表');
+
+  run('match.active=true; playing=true; paused=false; roundOver=false; cfg.auto=false;');
+  run('for(const k in cfg.agents) cfg.agents[k]=true; buildAgents();');
+  const seqScript=s=>'(function(){var a=[];match.seed='+s+';contentRnd=mulberry32(match.seed);flashes=[];flashSeq=0;'
+    +'for(var i=0;i<24;i++){var f=spawnFlash();a.push([f.key,f.side,+f.popFrac.toFixed(6),f.pts.length,'
+    +'+f.home.x.toFixed(3),+f.home.y.toFixed(3),+(f.turnAt||0).toFixed(4)]);}return JSON.stringify(a);})()';
+  const listA=JSON.parse(run(seqScript('424242')));
+  const listA2=JSON.parse(run(seqScript('424242')));
+  const listB=JSON.parse(run(seqScript('98765')));
+  ok(listA.length===24,'同一 seed 采样到 24 发闪光');
+  ok(JSON.stringify(listA)===JSON.stringify(listA2),'同一 seed → 两次逐字段完全一致（特工/左右/引爆时机/轨迹/落点）');
+  ok(JSON.stringify(listA)!==JSON.stringify(listB),'不同 seed → 序列不同（seed 确实生效）');
+  ok(run('(function(){match.seed=424242;var a=0,b=0;for(var i=0;i<8;i++)a+=gapFor(i);match.seed=424242;for(var i=0;i<8;i++)b+=gapFor(i);return a===b;})()')===true,'出闪光节奏 gapFor 是次数的纯函数，两人算出同一节奏');
+  const nAfterManual=run('(function(){flashes=[];manualFlash();return flashes.length;})()');
+  ok(nAfterManual===0,'对战中手动丢闪被禁用（否则一发就把两人序列错位）');
+
+  // 离线进房 → 结算对比渲染 → 退出复位（fetch 桩会 reject，走的正是降级分支）
+  run('match.active=false;');
+  const enterOK=run('(function(){try{var c=newRoomCode();var r=enterMatch(c);return (r&&match.active&&match.code===c&&ROOM_RE.test(c))?1:0;}catch(e){return -1;}})()');
+  ok(enterOK===1,'enterMatch 离线进房正常激活（房码合法、不抛异常）');
+  ok(run('$("bFlash").style.display')==='none','对战中隐藏手动闪光按钮（防破坏同步）');
+  const cmpOK=run('(function(){match.cloud=false;match.you="我";score=1234;st.trials=5;st.dodges=4;st.hits=3;st.shots=4;st.best=2;st.blinds=1;endRound();return (/1234/.test($("mCmp").innerHTML)&&$("mCmp").style.display!=="none")?1:0;})()');
+  ok(cmpOK===1,'离线结算：本局分数渲染进对战对比块（口头核对模式）');
+  const leaveOK=run('(function(){leaveMatch();return (!match.active&&contentRnd===Math.random&&$("bFlash").style.display==="")?1:0;})()');
+  ok(leaveOK===1,'退出对战：状态复位、内容流退回真随机、按钮恢复');
+
+  run('match.active=false; contentRnd=Math.random; flashes=[];');
 
   console.log('\n'+(fails?('有 '+fails+' 项失败'):'全部通过'));
   process.exit(fails?1:0);

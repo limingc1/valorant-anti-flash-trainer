@@ -204,6 +204,7 @@
       <div id="roundTag"></div>
       <div id="stateTag">模式 <b>综合训练</b> · <b>普通</b></div>
       <div id="agentTag"></div>
+      <div id="mTag" style="margin-top:8px;font-size:12px;font-weight:600;letter-spacing:.5px;color:var(--cyn);display:none"></div>
     </div>
     <button id="bSide" title="隐藏 / 显示右侧数据栏（H）">▸</button>
     <div id="combo"><span class="cx">COMBO</span><span class="cn">0</span><span class="cl">连击</span></div>
@@ -225,6 +226,7 @@
       <button id="bStart" class="pri">开始训练</button>
       <button id="bFlash">手动闪光<kbd>F</kbd></button>
       <button id="bAuto" class="on">自动<kbd>A</kbd></button>
+      <button id="bMatch">联机对战</button>
       <button id="bReset">重置统计</button>
     </div>
     <div id="ovl">
@@ -275,6 +277,7 @@
           <div><b id="resTrials">0</b><span>闪光总数</span></div>
         </div>
         <div id="resNote"></div>
+        <div id="mCmp" style="display:none;margin:2px 0 14px"></div>
         <div class="resBtns">
           <button id="resAgain" class="pri">再来一轮</button>
           <button id="resClose">继续自由练习</button>
@@ -299,7 +302,7 @@
           <div class="stat"><div class="v" id="sBlind">0</div><div class="k">被闪次数</div></div>
         </div>
       </div>
-      <div class="sec">
+      <div class="sec" data-lockfair>
         <h3>模式 / 难度</h3>
         <div class="row"><label>训练模式</label><div class="seg" id="segMode"></div></div>
         <div class="row"><label>难度曲线</label><div class="seg" id="segDiff"></div></div>
@@ -308,7 +311,7 @@
         <div class="row"><label>自动闪光频率 <b id="vInt">1.0×</b></label>
           <input type="range" id="rInt" min="0.3" max="1" step="0.1" value="1"></div>
       </div>
-      <div class="sec">
+      <div class="sec" data-lockfair>
         <h3>闪光类型 · 点击开关（后 3 种默认关闭）</h3>
         <div class="ags" id="agBox"></div>
       </div>
@@ -324,7 +327,7 @@
         </div>
         <div class="row"><label>靶点大小 <b id="vTr">0.10</b></label>
           <input type="range" id="rTr" min="0.04" max="0.15" step="0.01" value="0.1"></div>
-        <div class="row"><label>同时靶点数 <b id="vTn">5</b></label>
+        <div class="row" data-lockfair><label>同时靶点数 <b id="vTn">5</b></label>
           <input type="range" id="rTn" min="1" max="9" step="1" value="5"></div>
         <div class="row"><label>渲染画质</label><div class="seg" id="segQual"></div></div>
       </div>
@@ -351,7 +354,35 @@
         <div class="sfx" id="sfxState">使用内置合成音</div>
       </div>
       <div class="sec">
-        <h3>机制说明</h3>
+        <h3>联机对战 · 同一局比分数</h3>
+        <div id="mIdle">
+          <div class="row"><label>你的昵称</label>
+            <input id="mName" maxlength="10" placeholder="给自己起个名"
+              style="width:100%;background:var(--bg3);border:1px solid var(--line);border-radius:3px;
+              color:var(--txt);padding:6px 8px;font:inherit;font-size:12px"></div>
+          <div class="grid" style="grid-template-columns:1fr;margin-bottom:8px">
+            <button id="mCreate" class="pri">创建房间</button>
+          </div>
+          <div class="row"><label>或输入房码加入</label>
+            <div style="display:flex;gap:6px">
+              <input id="mJoin" maxlength="6" placeholder="如 AB3K7M" style="flex:1;min-width:0;text-transform:uppercase;
+                background:var(--bg3);border:1px solid var(--line);border-radius:3px;color:var(--txt);
+                padding:6px 8px;font:inherit;font-size:12px;letter-spacing:2px">
+              <button id="mJoinBtn">加入</button>
+            </div></div>
+          <div class="tip">创建后把链接发给朋友，双方点开即打<b>同一串闪光</b>，打完自动比分数。</div>
+        </div>
+        <div id="mActive" style="display:none">
+          <div class="stat g" style="margin-bottom:8px;text-align:center">
+            <div class="v" id="mCode" style="letter-spacing:4px">------</div><div class="k">房码</div></div>
+          <div class="grid" style="grid-template-columns:1fr;margin-bottom:8px">
+            <button id="mCopy">复制邀请链接</button></div>
+          <div class="tip" id="mStatus">等待对手…</div>
+          <div class="row" style="margin-top:10px">
+            <button id="mLeave" style="width:100%">退出对战</button></div>
+        </div>
+      </div>
+      <div class="sec">
         <div class="tip">
           <b>致盲判定</b>：引爆瞬间，视线与闪光方向夹角 θ 小于该特工锥角才被闪，
           <code>θ 越小 → 白屏越久</code>，最长约 2.2s。<br><br>
@@ -373,8 +404,21 @@
 /* ---------- 工具 ---------- */
 const clamp=(v,a,b)=>v<a?a:v>b?b:v;
 const lerp=(a,b,t)=>a+(b-a)*t;
+/* 联机对战的「公平」靠两条随机流分离来实现：
+   - 内容流（出哪种特工、从哪边飞、轨迹形状）走可播种的 mulberry32：
+     同一房间码 = 同一 seed = 两人看到逐帧一致的一串闪光，分数才可比；
+   - 靶点刷新位置、出闪光的节奏是「玩家各自操作的结果」，走普通 Math.random
+     或按次数取纯函数（见 gapFor），绝不进内容流 —— 否则一个人多打一发靶点，
+     就会把另一个人的整条闪光序列错位。
+   自由练习下 contentRnd 就是 Math.random，行为与从前完全一致。 */
+function mulberry32(a){ return function(){ a|=0; a=a+0x6D2B79F5|0;
+  let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t;
+  return ((t^t>>>14)>>>0)/4294967296; }; }
+let contentRnd=Math.random;
 const rand=(a,b)=>a+Math.random()*(b-a);
+const grand=(a,b)=>a+contentRnd()*(b-a);          /* grand / gpickEl 消耗内容流 */
 const pickEl=a=>a[(Math.random()*a.length)|0];
+const gpickEl=a=>a[(contentRnd()*a.length)|0];
 const DEG=180/Math.PI, RAD=Math.PI/180;
 const dot3=(a,b)=>a.x*b.x+a.y*b.y+a.z*b.z;
 const len3=a=>Math.hypot(a.x,a.y,a.z);
@@ -448,13 +492,30 @@ for(const k in AGENTS) AGENTS[k].key=k;   /* 便于回查音效来源 */
 let T=0;
 let playing=false, paused=false, pauseT=0;
 let flashes=[], pops=[];
-let targets=[], nextAutoAt=0, flashSeq=0;
+let targets=[], nextAutoAt=0, flashSeq=0, autoN=0;
 let blindUntil=0, blindDur=0, blindSrc=0, blindStart=0;
 let score=0, combo=0, shownScore=0;
 const st={trials:0,dodges:0,blinds:0,hits:0,shots:0,best:0,rtSum:0,rtN:0,rfSum:0,rfN:0};
 let reflickBase=0;
 /* 鼠标位移累积：同一帧内的多个 mousemove 合并后统一应用到相机 */
 let mdx=0, mdy=0;
+/* ---------- 联机对战（房间码 = round 5bit + seed 20bit，编成 6 位 base32） ---------- */
+const ROOM_API='/api/room';                     /* Pages Function；离线/file:// 时自动降级 */
+const B32='0123456789ABCDEFGHJKMNPQRSTVWXYZ';      /* Crockford Base32：32 符号，去掉 I L O U */
+const ROOM_RE=/^[0-9A-HJ-NP-TV-Z]{6}$/i;           /* 房码格式校验（同一套去混淆字符） */
+const match={ active:false, code:'', seed:0, you:'', foe:'', cloud:false,
+              resultSent:false, foeScore:null, poll:0, t0:0 };
+function encodeRoom(roundIdx,seed20){
+  const bits=((roundIdx&31)<<20)|(seed20&0xFFFFF);   /* 25 bit -> 6 个 base32 字符 */
+  let s=''; for(let i=5;i>=0;i--) s+=B32[(bits>>>(i*5))&31];
+  return s;
+}
+function decodeRoom(code){
+  let bits=0;
+  for(const ch of code.toUpperCase()){ const v=B32.indexOf(ch); if(v<0) return null; bits=bits*32+v; }
+  return { roundIdx:(bits>>>20)&31, seed20:bits&0xFFFFF };
+}
+function newRoomCode(){ return encodeRoom(cfg.roundIdx, (Math.random()*0xFFFFF)|0); }
 /* 帧率统计与渲染精度自适应 */
 let fpsT=0, fpsN=0, fps=60, dprCap=1.0, dprDrop=0, lastDt=0.0167;
 const QUAL_DPR=[0.75,1.0,2.0];   /* 流畅 / 标准 / 精细 */
@@ -1033,21 +1094,21 @@ function enabledAgents(){
   return ks.length?ks:['phoenix'];
 }
 function spawnFlash(key){
-  const a=AGENTS[key||pickEl(enabledAgents())]; if(!a) return null;
+  const a=AGENTS[key||gpickEl(enabledAgents())]; if(!a) return null;
   const d=DIFF[cfg.diff];
-  const side=Math.random()<0.5?-1:1;
-  const travel=a.travel*d.speed*rand(0.92,1.10);
-  const popFrac=a.popVar?rand(a.popVar[0],a.popVar[1]):a.popFrac;
+  const side=contentRnd()<0.5?-1:1;
+  const travel=a.travel*d.speed*grand(0.92,1.10);
+  const popFrac=a.popVar?grand(a.popVar[0],a.popVar[1]):a.popFrac;
   const arcH=a.arc*0.55;
 
-  let   S=P(side*4.60, rand(-0.35,0.35),        9.00);
+  let   S=P(side*4.60, grand(-0.35,0.35),        9.00);
   const A=P(side*2.30, 0.35+arcH*0.5,           7.80);
   const B=P(side*1.05, 0.70+arcH*0.6,           ROOM.zW);
   /* 落点要铺满整个拱门区域：左上/左下/右上/右下/正中都可能。
      以前 y 固定取 0.8~1.8，闪光永远只在拱门中上部爆开。 */
   const yLo=ROOM.yF+0.55, yHi=archTopAt(0)-0.55;
-  let   E=P(-side*rand(0.0,1.45), rand(yLo,yHi), rand(2.8,4.4));
-  if(a.noPath) E=P(side*rand(0.15,0.95), rand(0.3,1.5), 6.15);   /* 凭空出现，没有飞行段 */
+  let   E=P(-side*grand(0.0,1.45), grand(yLo,yHi), grand(2.8,4.4));
+  if(a.noPath) E=P(side*grand(0.15,0.95), grand(0.3,1.5), 6.15);   /* 凭空出现，没有飞行段 */
 
   /* 曲球：先朝拐角「外侧」抛出去，x 越过最外点后反向绕回门洞 —— 真正的回头弧。
      普通闪光仍是斜穿门洞的单向弧。控制点等距排布，拐点落在 u=0.5 上。 */
@@ -1059,8 +1120,8 @@ function spawnFlash(key){
           （上一版拐点 x=6.25、回到墙面时 x 还有 2.55，就是这个错）；
        b) 拐点放 u=0.4，绕过来 u≈0.5 就从门洞里露出来 —— 一半藏墙后，一半可见。
        x 先往外走到 4.7 再收回来，形成「可转弯」的回头弧。 */
-    S=P(side*3.40, rand(-0.20,0.30), 9.20);
-    const ty=rand(0.55,0.95);
+    S=P(side*3.40, grand(-0.20,0.30), 9.20);
+    const ty=grand(0.55,0.95);
     turnPos=P(side*3.40, ty+0.30, 7.10);
     pts=[S, S,
          P(side*4.70, ty+0.05, 8.10),
@@ -1083,9 +1144,8 @@ function spawnFlash(key){
   };
   if(a.throughWall){
     /* 只在墙面某一个点亮起提示，不要大面积铺开 */
-    const sg=Math.random()<0.5?-1:1;
-    f.charges=[{ x:sg*rand(2.1,3.9), y:rand(ROOM.yF+0.55,2.10), z:ROOM.zW-0.03, ph:rand(0,6.2832) }];
-  }
+    const sg=contentRnd()<0.5?-1:1;
+    f.charges=[{ x:sg*grand(2.1,3.9), y:grand(ROOM.yF+0.55,2.10), z:ROOM.zW-0.03, ph:grand(0,6.2832) }];  }
   flashes.push(f);
 
   /* 多靶点模式下闪光飞来不再整体重置靶点：位置乱跳会让回靶手感失真 */
@@ -1956,6 +2016,7 @@ function endRound(){
   $('roundTag').textContent='0s';
   fillResult();
   $('result').style.display='flex';
+  if(match.active) submitMyResult();   /* 对战：本轮分数自动上报云端 */
 }
 function pct(a,b){ return b?Math.round(a/b*100)+'%':'--'; }
 function fillResult(){
@@ -1988,14 +2049,25 @@ function fillResult(){
 /* 频率上限收窄到 1.0×：1.0 就是原先 0.7 的手感，所以这里补一个 0.7 的标定系数，
    滑到最大时节奏和改版前一致，再往上调到 2.5× 那种连珠炮已经没有训练意义了 */
 const RATE_CAL=0.7;
+/* 第 k 次出闪光与前一次的间隔：对战时取 seed+k 的纯函数（不消耗内容流），
+   这样两个玩家 60s 内出闪光的次数与节奏完全一致；自由练习退回真随机。 */
+function gapFor(k){
+  const [a,b]=DIFF[cfg.diff].gap;
+  if(match.active){ const r=mulberry32((match.seed^(k+1)*0x9E3779B1))(); return a+(b-a)*r; }
+  return rand(a,b);
+}
 function scheduleAuto(){
-  const d=DIFF[cfg.diff];
-  const [a,b]=d.gap;
-  nextAutoAt=T+rand(a,b)/Math.max(0.2,cfg.rate*RATE_CAL);
+  nextAutoAt=T+gapFor(autoN)/Math.max(0.2,cfg.rate*RATE_CAL);
 }
 function updateAuto(){
   if(!cfg.auto||cfg.mode===2){ nextAutoAt=T+2; return; }
-  if(T>=nextAutoAt){ spawnFlash(pickEl(enabledAgents())); scheduleAuto(); }
+  if(T>=nextAutoAt){ autoN++; spawnFlash(gpickEl(enabledAgents())); scheduleAuto(); }
+}
+/* 手动丢闪：对战模式禁用 —— 任何一侧多/少一发都会让两人的闪光序列整体错位 */
+function manualFlash(){
+  if(!playing||paused||roundOver) return;
+  if(match.active){ log('对战中由系统统一出闪光，不能手动','y'); return; }
+  spawnFlash(gpickEl(enabledAgents())); scheduleAuto();
 }
 
 /* ---------- 主循环 ---------- */
@@ -2085,7 +2157,7 @@ document.addEventListener('keydown',e=>{
     if(playing&&!paused) pause(); return;
   }
   if(k==='h'){ toggleSide(); return; }
-  if(k==='f'){ e.preventDefault(); if(playing&&!paused){ spawnFlash(pickEl(enabledAgents())); scheduleAuto(); } return; }
+  if(k==='f'){ e.preventDefault(); manualFlash(); return; }
   if(k==='r'){ if(playing&&!paused&&cfg.mode!==1) relocateTarget(); return; }
   if(k==='a'){ toggleAuto(); return; }
   if(k==='m'){ cfg.sound=!cfg.sound; syncChecks(); log(cfg.sound?'音效开':'静音','c'); return; }
@@ -2151,6 +2223,10 @@ function resetStats(silent){
   flashes=[]; pops=[]; blindUntil=0; blindDur=0; blindSrc=0; blindStart=0; reflickBase=T;
   nearUntil=0; nearSrc=0; nearStart=0; fogNear=0;
   cam.yaw=0; cam.pitch=0; mdx=0; mdy=0;
+  /* 对战：每轮把内容流重新播种到房间 seed，两人每轮看到完全相同的闪光。
+     自由练习：内容流退回真随机，每轮新鲜。 */
+  autoN=0;
+  contentRnd = match.active ? mulberry32(match.seed||1) : Math.random;
   relocateTarget(); scheduleAuto();
   updateStats();
   if(!silent) log('统计已重置','c');
@@ -2265,7 +2341,7 @@ function bindUI(){
   });
 
   $('bStart').onclick=()=>{ if(!playing) start(); else if(paused) resume(); else pause(); };
-  $('bFlash').onclick=e=>{ e.stopPropagation(); if(playing&&!paused){ spawnFlash(pickEl(enabledAgents())); scheduleAuto(); } };
+  $('bFlash').onclick=e=>{ e.stopPropagation(); manualFlash(); };
   $('bAuto').onclick=e=>{ e.stopPropagation(); toggleAuto(); };
   $('bReset').onclick=e=>{ e.stopPropagation(); resetStats(); };
   $('ovlBtn').onclick=e=>{ e.stopPropagation(); if(!playing) start(); else resume(); };
@@ -2277,11 +2353,195 @@ function bindUI(){
   syncSegs();
 }
 
+/* ---------- 联机对战控制器 ---------- */
+/* 房码本身携带「时长 + 种子」，保证就算完全离线、两人也能打同一串闪光；
+   云端（KV）只额外做两件事：① 把房主的其余公平设置同步给加入者，
+   ② 收拢双方分数、自动判胜负。云端不可用时（本地 file://、GitHub Pages）
+   自动降级为「同房码离线对战 + 口头比分」，功能不崩。 */
+const LS_NAME='aft_name';
+function urlRoom(){ const m=location.search.match(/[?&]r=([A-Za-z0-9]{6})/); return m?m[1].toUpperCase():''; }
+function shareLink(code){ return location.origin+location.pathname+'?r='+code; }
+function myName(){ return (localStorage.getItem(LS_NAME)||'').trim(); }
+function randNickname(){ return '训练者'+((Math.random()*9000+1000)|0); }
+function copyText(t){
+  if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(t).catch(()=>{}); return true; }
+  try{ const ta=document.createElement('textarea'); ta.value=t; document.body.appendChild(ta);
+    ta.select(); document.execCommand('copy'); ta.remove(); return true; }catch(e){ return false; }
+}
+/* 需要双方一致的「公平设置」：特工池 / 难度 / 模式 / 可见度 / 频率 / 靶点数。
+   灵敏度、FOV、准星、靶球大小、画质是个人手感，不同步。 */
+function packSync(){
+  return { agents:Object.assign({},cfg.agents), diff:cfg.diff, mode:cfg.mode,
+           vis:cfg.vis, roundIdx:cfg.roundIdx, rate:cfg.rate, targetN:cfg.targetN };
+}
+function applySync(s){
+  if(!s) return;
+  if(s.agents && typeof s.agents==='object'){
+    const a=Object.assign({},cfg.agents);
+    for(const k in a) if(typeof s.agents[k]==='boolean') a[k]=s.agents[k];   // 只认已知特工键
+    if(Object.values(a).some(Boolean)) cfg.agents=a;                          // 至少留一个开
+  }
+  // 数组索引一律夹到合法范围：云端值会直接驱动 DIFF[..]/MODES[..]，被写坏就会崩
+  if(Number.isInteger(s.diff) && DIFF[s.diff]!=null) cfg.diff=s.diff;
+  if(Number.isInteger(s.mode) && MODES[s.mode]!=null) cfg.mode=s.mode;
+  if(Number.isInteger(s.vis) && s.vis>=0 && s.vis<=2) cfg.vis=s.vis;
+  if(Number.isInteger(s.targetN) && s.targetN>=1 && s.targetN<=9) cfg.targetN=s.targetN;
+  if(typeof s.rate==='number' && s.rate>=0.3 && s.rate<=1) cfg.rate=s.rate;
+  if(s.roundIdx!=null && ROUNDS[s.roundIdx]) cfg.roundIdx=s.roundIdx;
+  buildAgents(); syncSegs();
+  $('rInt').value=cfg.rate; $('vInt').textContent=cfg.rate.toFixed(1)+'×';
+  $('rTn').value=cfg.targetN; $('vTn').textContent=cfg.targetN;
+}
+async function cloudGet(code){
+  try{ const r=await fetch(ROOM_API+'?code='+encodeURIComponent(code),{cache:'no-store'});
+    if(!r.ok) return null; return await r.json(); }catch(e){ return null; }
+}
+async function cloudPost(body){
+  try{ const r=await fetch(ROOM_API,{method:'POST',headers:{'content-type':'application/json'},
+    body:JSON.stringify(body)}); if(!r.ok) return null; return await r.json(); }catch(e){ return null; }
+}
+/* 进入一个对局：只做本地状态，不联网。seed/时长来自房码。 */
+function enterMatch(code){
+  const d=decodeRoom(code); if(!d) return false;
+  leaveMatch(true);
+  match.active=true; match.code=code; match.seed=d.seed20||1;
+  if(ROUNDS[d.roundIdx]) cfg.roundIdx=d.roundIdx;
+  cfg.auto=true; $('bAuto').classList.add('on');
+  syncSegs(); setMatchChrome(true);
+  return true;
+}
+function leaveMatch(silent){
+  clearInterval(match.poll); match.poll=0; stopPollingFoe();
+  match.active=false; match.cloud=false; match.code=''; match.seed=0;
+  match.resultSent=false; match.foe=''; match.foeScore=null;
+  contentRnd=Math.random;
+  setMatchChrome(false);
+  const cmp=$('mCmp'); if(cmp){ cmp.style.display='none'; cmp.innerHTML=''; }
+  if(!silent){ relocateTarget(); scheduleAuto(); log('已退出对战','c'); }
+}
+function setMatchChrome(on){
+  $('mIdle').style.display=on?'none':'';
+  $('mActive').style.display=on?'':'none';
+  $('mCode').textContent=match.code||'------';
+  $('bFlash').style.display=on?'none':'';      /* 对战中手动/自动/重置都收起来，避免破坏同步 */
+  $('bAuto').style.display=on?'none':'';
+  $('bReset').style.display=on?'none':'';
+  const lockSecs=document.querySelectorAll('#side [data-lockfair]');
+  for(const el of lockSecs){ el.style.opacity=on?'.45':''; el.style.pointerEvents=on?'none':''; }
+  updateMTag();
+}
+function updateMTag(){
+  const el=$('mTag'); if(!el) return;
+  if(!match.active){ el.style.display='none'; return; }
+  el.style.display='';
+  el.textContent='对战 '+match.code+' · 对手 '+(match.foeScore!=null?match.foe+' '+match.foeScore:(match.cloud?'等待中…':'离线'));
+}
+async function createMatch(){
+  const nm=myName()||randNickname(); localStorage.setItem(LS_NAME,nm);
+  const code=newRoomCode();
+  if(!enterMatch(code)) return;
+  match.you=nm; renderMatchCard();
+  const res=await cloudPost({code, cfg:packSync(), who:'host'});
+  match.cloud=!!(res&&res.ok); updateMTag(); renderMatchCard();
+  copyText(shareLink(code));
+  log('对战房间已创建 · 房码 '+code+'（邀请链接已复制）', match.cloud?'c':'y');
+  if(!match.cloud) log('未连云：设置以本地为准，双方报分口头核对', 'y');
+}
+async function joinMatch(code){
+  code=(code||'').trim().toUpperCase();
+  if(!ROOM_RE.test(code)){ log('房码格式不对（6 位，数字与大写字母）','b'); return; }
+  const nm=myName()||randNickname(); localStorage.setItem(LS_NAME,nm);
+  if(!enterMatch(code)) { log('房码无效','b'); leaveMatch(); return; }
+  match.you=nm;
+  const st=await cloudGet(code);
+  match.cloud=!!st;
+  if(st&&st.cfg) applySync(st.cfg);           /* 用房主设置覆盖，双方完全同一局 */
+  renderMatchCard();
+  log('已加入对战 · 房码 '+code+(match.cloud?' · 已同步房主设置':'（未联网：按房码离线打同一串闪光）'), match.cloud?'c':'y');
+  if(match.cloud) startPollingFoe();
+}
+function renderMatchCard(){
+  $('mCode').textContent=match.code||'------';
+  const s=$('mStatus');
+  if(!match.active){ return; }
+  s.innerHTML = match.cloud
+    ? '房码 <b>'+match.code+'</b> 已联网。把链接发给朋友 → 双方打完自动出胜负。'
+    : '离线模式：房码 <b>'+match.code+'</b>。朋友输入同房码即可打完全相同的一串闪光，比分自行核对。';
+  updateMTag();
+}
+/* 打完一轮：上报我的分，并尝试把双方比分摆出来 */
+async function submitMyResult(){
+  if(!match.active) return;
+  const detail={dodge:pct(st.dodges,st.trials), acc:pct(st.hits,st.shots), best:st.best, blind:st.blinds};
+  if(!match.cloud){ paintCompare([{name:match.you||'你',score,detail}], false); return; }
+  const res=await cloudPost({code:match.code, who:'score', name:match.you||'你', score, detail});
+  if(res&&res.ok&&Array.isArray(res.results)) paintCompare(res.results,true);
+  else { match.cloud=false; paintCompare([{name:match.you||'你',score,detail}],false); }
+  startPollingFoe();               /* 我交卷后，继续轮询等对方 */
+}
+/* 对战进行中就悄悄轮询对手是否在线/是否已有分（方案三「实时比分」的雏形，先靠轮询） */
+let foeWatch=0;
+function startPollingFoe(){
+  stopPollingFoe();
+  if(!match.cloud) return;
+  foeWatch=setInterval(async()=>{
+    const st=await cloudGet(match.code); if(!st||!Array.isArray(st.results)) return;
+    const others=st.results.filter(r=>r.name!==match.you);
+    if(others.length){ const o=others[0]; match.foe=o.name; match.foeScore=o.score; updateMTag(); }
+    if(st.results.length>=2){ paintCompare(st.results,true); if(!roundOver){/* 对手也交卷，收工 */} }
+  },3000);
+}
+function stopPollingFoe(){ if(foeWatch){ clearInterval(foeWatch); foeWatch=0; } }
+function paintCompare(results,live){
+  const box=$('mCmp'); if(!box) return;
+  box.style.display='';
+  const mine=(match.you||'').toLowerCase();
+  const rows=results.slice().sort((a,b)=>b.score-a.score);
+  const iFinished=rows.some(r=>(r.name||'').toLowerCase()===mine);
+  let html='<div style="font-size:11px;letter-spacing:2px;color:var(--txt2);margin-bottom:8px">'+
+           (live?'对战比分'+(rows.length>=2?'':'（等待对手）'):'对战 · 离线（口头核对）')+'</div>';
+  if(rows.length>=2){
+    const w=rows[0], l=rows[1];
+    const iWin=(w.name||'').toLowerCase()===mine;
+    html+='<div style="font-size:15px;font-weight:700;margin-bottom:10px;color:'+(iWin?'var(--grn)':'var(--red)')+'">'+
+          (w.score===l.score?'平 局':(iWin?'你 赢 了':'对 手 胜'))+'</div>';
+  }
+  html+='<div class="resGrid" style="grid-template-columns:1fr;gap:6px">';
+  for(const r of rows){
+    const me=(r.name||'').toLowerCase()===mine;
+    html+='<div style="display:flex;justify-content:space-between;align-items:center;background:var(--bg3);'+
+      'border:1px solid '+(me?'var(--grn)':'var(--line)')+';border-radius:6px;padding:8px 10px">'+
+      '<span style="font-size:12.5px">'+esc(me?(r.name+'（你）'):r.name)+'</span>'+
+      '<b style="font-size:18px;color:'+(me?'var(--grn)':'var(--txt)')+'">'+(r.score|0)+'</b></div>';
+  }
+  html+='</div>';
+  box.innerHTML=html;
+}
+function esc(s){ return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function initMatchUI(){
+  $('mName').value=myName();
+  $('mName').onchange=e=>localStorage.setItem(LS_NAME,e.target.value.trim());
+  $('mCreate').onclick=e=>{ e.stopPropagation(); createMatch(); };
+  $('mJoinBtn').onclick=e=>{ e.stopPropagation(); joinMatch($('mJoin').value); };
+  $('mJoin').onkeydown=e=>{ if(e.key==='Enter') joinMatch($('mJoin').value); };
+  $('mCopy').onclick=e=>{ e.stopPropagation();
+    if(copyText(shareLink(match.code))){ $('mCopy').textContent='已复制 ✓';
+      setTimeout(()=>$('mCopy').textContent='复制邀请链接',1400);} };
+  $('mLeave').onclick=e=>{ e.stopPropagation(); stopPollingFoe(); leaveMatch(); };
+  $('bMatch').onclick=e=>{ e.stopPropagation();
+    if($('side').classList.contains('hide')) toggleSide();   /* 数据栏收着就先展开 */
+    $('scroll').scrollTo({top:$('scroll').scrollHeight*0.5, behavior:'smooth'});
+  };
+  const rc=urlRoom();
+  if(rc) joinMatch(rc);
+}
+
 /* ---------- 启动 ---------- */
 resize();
 bindUI();
 buildAgents();
 syncChecks();
+initMatchUI();
 relocateTarget();
 updateStats();
 loadSfxFiles();

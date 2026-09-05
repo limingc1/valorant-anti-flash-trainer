@@ -1,6 +1,10 @@
 # 部署与更新
 
-纯静态单文件，任何静态托管都能跑，**不需要后端、不需要数据库**。
+纯静态单文件，任何静态托管都能跑。**训练功能不需要后端**；
+只有「联机对战自动比分数」用到 Cloudflare Pages Functions + KV（免费额度），见文末。
+
+> GitHub Pages 部署已移除（国内连不上，也没用上）。现在是 **Cloudflare Pages 单一发布**。
+> `.github/workflows/ci.yml` 只跑冒烟测试，不再发布任何东西。
 
 ## 结论先说
 
@@ -56,17 +60,19 @@ valorant-anti-flash-trainer.pages.dev/            200  1572 字节（跳转页�
 
 > 短链 `https://tinyurl.com/2yhunzc6` 本身也被墙，**已失效，不要再发**。
 
-## 各链接的分工
+## 部署入口（只有一个）
 
 | 链接 | 国内直连 | 自动更新 | 定位 |
 |---|---|---|---|
 | `https://valorant-anti-flash-trainer.pages.dev/` | **可** | push 约 1 分钟自动上线 | **主分享链接，发这个** |
-| GitHub 仓库 | 打不开 | push 即更新 | 源码 + CI，唯一编辑入口 |
-| `https://limingc1.github.io/valorant-anti-flash-trainer/` | 打不开 | push 即上线 | 备用，自己带代理时测试用 |
-| workbuddy | 可，2.0s | 需回平台手动重发 | 旧链接，可以删掉了 |
+| GitHub 仓库 | 打不开 | push 即触发 CI + CF 构建 | 源码 + CI，唯一编辑入口 |
 
-GitHub Pages 由 `.github/workflows/deploy.yml` 负责，Cloudflare Pages 由 CF 侧的 Git 集成负责，
-两边都是 push 自动触发，不用管。
+Cloudflare Pages 由 CF 侧的 Git 集成负责，push 到 `main` 自动构建发布，**不用管**。
+GitHub 上的 CI（`.github/workflows/ci.yml`）只跑冒烟测试，不再发布 GitHub Pages。
+
+> 关于 Functions（`/api/room`）：CF Pages 会自动识别仓库根的 `functions/` 目录，
+> 无需额外构建步骤。但要完成文末「联机对战后端一次性设置」里的 KV 绑定，
+> 否则 `/api/room` 返回 503，联机对战会降级成「离线同房码 + 口头比分」。
 
 ## 日常更新流程
 
@@ -79,8 +85,8 @@ git commit -m "说清楚改了什么"
 git push
 ```
 
-push 完 GitHub Actions 自动构建并发布 GitHub Pages；Cloudflare Pages 接了 Git 集成之后
-也会同时自动更新。**不需要手动 cp 文件、不需要去网页上传、不需要重新部署。**
+push 完 Cloudflare Pages 自动重新部署上线。**不需要手动 cp 文件、不需要去网页上传、
+不需要重新部署。**
 
 > 这台机器上 git 必须走代理。已经给本仓库配好了
 > `http.proxy = http://127.0.0.1:10808`，所以**代理客户端要开着**才能 push/fetch。
@@ -90,13 +96,6 @@ push 完 GitHub Actions 自动构建并发布 GitHub Pages；Cloudflare Pages �
 > git config http.proxy http://127.0.0.1:<你的端口>
 > git config https.proxy http://127.0.0.1:<你的端口>
 > ```
-
-`dist/` 已进 `.gitignore`，由 CI 现场生成，不再需要手工同步。
-只有手动 wrangler 上传、或本地起服务器自测时才需要跑：
-
-```
-powershell -ExecutionPolicy Bypass -File build-dist.ps1
-```
 
 ## 部署到 Cloudflare Pages
 
@@ -145,6 +144,28 @@ npx wrangler pages deploy dist --project-name=anti-flash-trainer
 
 它也支持连 GitHub 自动构建，配置思路和 Cloudflare 一样。实测 `edgeone.app` 握手 1.9s，
 比 `pages.dev` 快，如果访客基本都在国内，这个比 CF 更值。
+
+## 联机对战后端：一次性设置（只做一次）
+
+「联机对战」的房间同步接口在 `functions/api/room.js`（映射到 `/api/room`），
+随 Cloudflare Pages 自动部署，**代码不用你管**。你只需做一次绑定：
+
+1. Cloudflare Dashboard → **Storage & Databases → KV → Create namespace**，
+   名字随意（例如 `aft-rooms`）。免费额度（读 10 万/天、写 1000/天）对朋友对战绰绰有余。
+2. 进你的 **Pages 项目 → Settings → Functions**（或 Environment variables）→
+   **KV namespace bindings** → Add binding：
+   - Variable name：`ROOMS`（**必须完全一致**，代码按这个名字取）
+   - KV namespace：选第 1 步建的
+3. Save and deploy（重新部署一次让绑定生效）。
+
+之后 `/api/room` 就通了：房主点「创建房间」生成房码 + 邀请链接，朋友点开打同一局，
+双方打完各自分数自动上报，先交卷的一方轮询到对方分数后直接显示 **胜 / 负 / 平**。
+
+没做这一步会怎样：`/api/room` 返回 503，游戏**照常能玩**——
+房码本身已携带「时长 + 种子」，两人手动输同一段房码也能打完全相同的闪光序列，
+只是比分得口头核对，面板会提示「离线模式」。
+
+> 防作弊说明：分数由各自浏览器自报，属荣誉制，适合朋友间娱乐，不适合办正规比赛。
 
 ## 换音效需要注意
 
