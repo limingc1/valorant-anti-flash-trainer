@@ -198,15 +198,21 @@ Workers KV 免费额度是 **读 10 万/天、写 1000/天**，写才是瓶颈�
 > 代价是要在后台建库 + 绑定 + 建表，`room.js` 要改成 SQL。
 > 真正的「服务端推送实时比分」需要 Durable Objects，那个要 Workers 付费计划（$5/月起）。
 
-## 换音效需要注意
+## 换音效
 
-`sfx/` 里的音频文件被 `.gitignore` 排除（Riot 版权内容不入库），所以
-**连 Git 自动部署的线上版本只有内置合成音**。
+音频文件**已经入库**（2026-09-06 起不再被 `.gitignore` 排除），所以流程和改代码一样：
 
-要让线上带自定义音效，只能走手动上传：把音频放进 `sfx/` → 跑 `build-dist.ps1`
-（会一起复制进 `dist/sfx/`）→ 用 wrangler 上传 `dist/`。
+```
+把音频放进 sfx/  →  git add -A  →  commit  →  push
+```
 
-线上是 https 同源加载，比本地 `file://` 省事，不会有读不到文件的问题。
+push 完 Cloudflare Pages 自动部署，**线上也能听到自定义音效**，不需要 wrangler 手动上传。
+
+命名规则见 [`sfx/README.md`](sfx/README.md)。线上是 https 同源加载，不会有本地
+`file://` 那种读不到文件的限制。
+
+> 注意仓库体积：git 会永久保留每个版本的二进制。音效用 mp3、单个控制在几十 KB，
+> 别把整段录屏或长 wav 提交进来。
 
 ## 关于 Cloudflare 在国内的取舍
 

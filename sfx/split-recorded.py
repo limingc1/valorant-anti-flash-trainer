@@ -29,9 +29,11 @@ import sys
 import os
 import wave
 import array
+import math
 import argparse
 
 WIN_SEC = 0.01          # RMS 统计窗口
+PAIR_SEC = 2.5          # 出手与引爆之间最多隔多久，用来配对猜测
 
 
 def read_wav_mono(path):
@@ -110,28 +112,54 @@ def main():
 
     os.makedirs(a.outdir, exist_ok=True)
     pad_n = int(a.pad * sr)
-    n_out = 0
-    print('%-12s %-10s %-10s' % ('文件', '起点', '时长'))
-    print('-' * 34)
+
+    # 先把片段信息收齐，才能按「音量 + 间隔」猜出手/引爆
+    clips = []
     for s, e in merged:
         i0 = max(0, int(s * win) - pad_n)
         i1 = min(len(data), int(e * win) + pad_n)
         dur = (i1 - i0) / float(sr)
         if dur < a.min:
             continue
+        chunk = data[i0:i1]
+        pk = max(max(chunk), -min(chunk)) or 1
+        db = 20.0 * math.log10(pk / 32768.0)
+        clips.append({'i0': i0, 'i1': i1, 'dur': dur, 'db': db,
+                      't': i0 / float(sr), 'guess': ''})
+
+    # 猜测：技能音总是「出手（轻、短）」→ 约 1 秒 →「引爆（明显更响）」。
+    # 所以相邻两段若间隔在 PAIR_SEC 内、后一段更响 3dB 以上，就按这一对标注。
+    for i in range(len(clips) - 1):
+        cur, nxt = clips[i], clips[i + 1]
+        gap = nxt['t'] - (cur['t'] + cur['dur'])
+        if 0 <= gap <= PAIR_SEC and nxt['db'] - cur['db'] >= 3.0:
+            if not cur['guess']:
+                cur['guess'] = 'throw 出手?'
+            nxt['guess'] = 'pop 引爆?'
+
+    n_out = 0
+    print('%-13s %-9s %-8s %-9s %-8s %s' % ('文件', '起点', '时长', '峰值', '距上段', '猜测'))
+    print('-' * 62)
+    prev_end = None
+    for c in clips:
         n_out += 1
         name = 'clip_%03d.wav' % n_out
         with wave.open(os.path.join(a.outdir, name), 'wb') as w:
             w.setnchannels(1)
             w.setsampwidth(2)
             w.setframerate(sr)
-            w.writeframes(data[i0:i1].tobytes())
-        print('%-12s %-10s %-10s' % (name, '%.2fs' % (i0 / float(sr)), '%.2fs' % dur))
+            w.writeframes(data[c['i0']:c['i1']].tobytes())
+        gap_s = '--' if prev_end is None else '%.2fs' % (c['t'] - prev_end)
+        prev_end = c['t'] + c['dur']
+        print('%-13s %-9s %-8s %-9s %-8s %s' % (
+            name, '%.2fs' % c['t'], '%.2fs' % c['dur'],
+            '%.1fdB' % c['db'], gap_s, c['guess']))
 
     print('\n共 %d 段，输出在 %s/' % (n_out, a.outdir))
     if n_out:
-        print('照上面的起点时间，按你录制时的顺序重命名成 phoenix_pop.wav 之类，')
-        print('再放进 sfx/ 目录即可。')
+        print('「峰值」越大越响：一对里更响的那个基本就是引爆（pop），轻的是出手（throw）。')
+        print('「猜测」列只是启发式提示，务必自己听一遍再按下面的名字重命名：')
+        print('  phoenix_throw.wav / phoenix_pop.wav / skye_pop.wav ... 然后放进 sfx/')
     else:
         print('一段都没切出来，把 --threshold 调小试试（当前 %g）。' % a.threshold)
 

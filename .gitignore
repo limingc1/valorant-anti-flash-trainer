@@ -1,14 +1,7 @@
-# 用户自行放入的音效文件不入库（Riot 版权内容，见 sfx/README.md）
-sfx/*.mp3
-sfx/*.wav
-sfx/*.ogg
-sfx/*.m4a
-dist/sfx/*.mp3
-dist/sfx/*.wav
-dist/sfx/*.ogg
-dist/sfx/*.m4a
+# 音效文件现在入库：自己做着玩的项目，音效随代码一起 push 就能上线
+# （原先这里排除了 sfx/*.mp3 等，导致线上永远只有内置合成音）
 
-# dist 是部署产物，由 GitHub Actions 从源文件生成，不需要入库
+# dist 是部署产物，由 build-dist.ps1 / CF Pages 现场生成，不需要入库
 dist/
 
 # 杂项
