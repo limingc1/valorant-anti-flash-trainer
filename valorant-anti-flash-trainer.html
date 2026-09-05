@@ -86,7 +86,30 @@
   .resBtns{display:flex;gap:8px;justify-content:center}
   .resBtns button{padding:9px 16px}
   #hudTR{top:14px;right:16px;text-align:right}
-  #stateTag{font-size:11px;letter-spacing:1.5px;color:var(--txt2)}
+  /* ---- 对战大厅：双方准备 + 倒计时开局 ---- */
+  #lobby{position:absolute;inset:0;display:none;align-items:center;justify-content:center;
+         background:rgba(8,13,19,.9);backdrop-filter:blur(3px);cursor:default;z-index:24}
+  #lobbyBox{width:min(94%,430px);background:var(--bg2);border:1px solid var(--line);
+            border-top:2px solid var(--cyn);border-radius:12px;padding:22px 24px 18px;text-align:center}
+  #lobbyBox h2{font-size:13px;font-weight:500;letter-spacing:3px;color:var(--txt2);margin-bottom:14px}
+  #lbCode{font-size:34px;font-weight:700;letter-spacing:9px;line-height:1;color:var(--cyn);
+          text-shadow:0 0 18px rgba(79,240,192,.35)}
+  #lbCodeK{font-size:10px;letter-spacing:3px;color:var(--txt2);margin:6px 0 14px}
+  #lbLink{display:flex;gap:6px;margin-bottom:14px}
+  #lbLink input{flex:1;min-width:0;background:var(--bg3);border:1px solid var(--line);border-radius:3px;
+                color:var(--txt2);padding:7px 9px;font:inherit;font-size:11px}
+  #lbList{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+  .lbP{display:flex;align-items:center;gap:9px;background:var(--bg3);border:1px solid var(--line);
+       border-radius:7px;padding:9px 11px;font-size:12.5px}
+  .lbP.me{border-color:#3d556e}
+  .lbP .st{margin-left:auto;font-size:10.5px;padding:2px 8px;border-radius:9px;border:1px solid currentColor}
+  .lbP .st.y{color:var(--grn)} .lbP .st.n{color:var(--txt2)}
+  .lbP.hole{border-style:dashed;color:var(--txt2);justify-content:center}
+  #lbTip{font-size:11.5px;color:var(--txt2);line-height:1.7;margin-bottom:14px;min-height:20px}
+  #lbCount{font-size:56px;font-weight:700;line-height:1;color:var(--amb);margin:6px 0 12px;
+           letter-spacing:-2px;text-shadow:0 4px 20px rgba(255,176,46,.4)}
+  .lbBtns{display:flex;gap:8px}
+  .lbBtns button{flex:1;padding:10px 8px;font-size:13px}  #stateTag{font-size:11px;letter-spacing:1.5px;color:var(--txt2)}
   #stateTag b{color:var(--txt);font-weight:600}
   #agentTag{margin-top:6px;font-size:14px;font-weight:600;min-height:20px;opacity:0;transition:opacity .18s}
   #agentTag.on{opacity:1}
@@ -262,6 +285,24 @@
         <button id="ovlBtn" class="pri">点击进入 · 锁定鼠标</button>
       </div>
     </div>
+    <div id="lobby">
+      <div id="lobbyBox">
+        <h2 id="lbTitle">对战大厅</h2>
+        <div id="lbCode">------</div>
+        <div id="lbCodeK">房码 · 把它或下面的链接发给朋友</div>
+        <div id="lbLink">
+          <input id="lbUrl" readonly value="">
+          <button id="lbCopy">复制</button>
+        </div>
+        <div id="lbList"></div>
+        <div id="lbCount" style="display:none">3</div>
+        <div id="lbTip"></div>
+        <div class="lbBtns">
+          <button id="lbReady" class="pri">我准备好了</button>
+          <button id="lbLeave">退出</button>
+        </div>
+      </div>
+    </div>
     <div id="result">
       <div id="resBox">
         <h2>本轮结束</h2>
@@ -375,8 +416,9 @@
         <div id="mActive" style="display:none">
           <div class="stat g" style="margin-bottom:8px;text-align:center">
             <div class="v" id="mCode" style="letter-spacing:4px">------</div><div class="k">房码</div></div>
-          <div class="grid" style="grid-template-columns:1fr;margin-bottom:8px">
-            <button id="mCopy">复制邀请链接</button></div>
+          <div class="grid" style="grid-template-columns:1fr 1fr;margin-bottom:8px">
+            <button id="mCopy">复制链接</button>
+            <button id="mLobby">回大厅</button></div>
           <div class="tip" id="mStatus">等待对手…</div>
           <div class="row" style="margin-top:10px">
             <button id="mLeave" style="width:100%">退出对战</button></div>
@@ -503,8 +545,9 @@ let mdx=0, mdy=0;
 const ROOM_API='/api/room';                     /* Pages Function；离线/file:// 时自动降级 */
 const B32='0123456789ABCDEFGHJKMNPQRSTVWXYZ';      /* Crockford Base32：32 符号，去掉 I L O U */
 const ROOM_RE=/^[0-9A-HJ-NP-TV-Z]{6}$/i;           /* 房码格式校验（同一套去混淆字符） */
-const match={ active:false, code:'', seed:0, you:'', foe:'', cloud:false,
-              resultSent:false, foeScore:null, poll:0, t0:0 };
+const match={ active:false, code:'', seed:0, round:1, you:'', cloud:false,
+              players:[], startAt:0, iReady:false, phase:'idle',
+              foe:'', foeScore:null, quiet:0 };
 function encodeRoom(roundIdx,seed20){
   const bits=((roundIdx&31)<<20)|(seed20&0xFFFFF);   /* 25 bit -> 6 个 base32 字符 */
   let s=''; for(let i=5;i>=0;i--) s+=B32[(bits>>>(i*5))&31];
@@ -2043,6 +2086,9 @@ function fillResult(){
     }
   }
   $('resNote').textContent=note;
+  /* 对战里这两个按钮语义不同：再战要回大厅让双方重新确认，关闭等于退出对战 */
+  $('resAgain').textContent=match.active?'再战一轮（回大厅）':'再来一轮';
+  $('resClose').textContent=match.active?'退出对战':'继续自由练习';
 }
 
 /* ---------- 自动闪光调度 ---------- */
@@ -2053,7 +2099,7 @@ const RATE_CAL=0.7;
    这样两个玩家 60s 内出闪光的次数与节奏完全一致；自由练习退回真随机。 */
 function gapFor(k){
   const [a,b]=DIFF[cfg.diff].gap;
-  if(match.active){ const r=mulberry32((match.seed^(k+1)*0x9E3779B1))(); return a+(b-a)*r; }
+  if(match.active){ const r=mulberry32((matchSeed()^(k+1)*0x9E3779B1))(); return a+(b-a)*r; }
   return rand(a,b);
 }
 function scheduleAuto(){
@@ -2226,7 +2272,7 @@ function resetStats(silent){
   /* 对战：每轮把内容流重新播种到房间 seed，两人每轮看到完全相同的闪光。
      自由练习：内容流退回真随机，每轮新鲜。 */
   autoN=0;
-  contentRnd = match.active ? mulberry32(match.seed||1) : Math.random;
+  contentRnd = match.active ? mulberry32(matchSeed()) : Math.random;
   relocateTarget(); scheduleAuto();
   updateStats();
   if(!silent) log('统计已重置','c');
@@ -2308,9 +2354,12 @@ function bindUI(){
   buildSeg($('segRound'),ROUNDS,v=>v,i=>{ cfg.roundIdx=i; if(playing) startRound(); else { roundOver=false; roundEndAt=0; } });
 
   $('bSide').onclick=e=>{ e.stopPropagation(); toggleSide(); };
-  $('resAgain').onclick=e=>{ e.stopPropagation(); startRound(); relock(); };
+  $('resAgain').onclick=e=>{ e.stopPropagation();
+    if(match.active){ matchAgain(); return; }        /* 对战：回大厅重新准备，双方再确认一次 */
+    startRound(); relock(); };
   $('resClose').onclick=e=>{
     e.stopPropagation();
+    if(match.active){ leaveMatch(); $('result').style.display='none'; return; }
     cfg.roundIdx=ROUNDS.length-1;          /* 关掉面板就转自由练习，避免倒计时为 0 立刻又结算 */
     syncSegs();
     roundOver=false; roundEndAt=0; lastRoundSec=-1;
@@ -2393,29 +2442,46 @@ function applySync(s){
   $('rTn').value=cfg.targetN; $('vTn').textContent=cfg.targetN;
 }
 async function cloudGet(code){
-  try{ const r=await fetch(ROOM_API+'?code='+encodeURIComponent(code),{cache:'no-store'});
-    if(!r.ok) return null; return await r.json(); }catch(e){ return null; }
+  if(typeof fetch!=='function') return null;
+  try{
+    const r=await fetch(ROOM_API+'?code='+encodeURIComponent(code),{cache:'no-store'});
+    if(r.status===429){ cloudGaveUp('云端请求过于频繁（429）'); return null; }
+    if(!r.ok) return null;
+    return await r.json();
+  }catch(e){ return null; }
 }
 async function cloudPost(body){
-  try{ const r=await fetch(ROOM_API,{method:'POST',headers:{'content-type':'application/json'},
-    body:JSON.stringify(body)}); if(!r.ok) return null; return await r.json(); }catch(e){ return null; }
+  if(typeof fetch!=='function') return null;
+  try{
+    const r=await fetch(ROOM_API,{method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify(body)});
+    if(r.status===429){ cloudGaveUp('云端请求过于频繁（429）'); return null; }
+    if(!r.ok) return null;
+    return await r.json();
+  }catch(e){ return null; }
 }
 /* 进入一个对局：只做本地状态，不联网。seed/时长来自房码。 */
 function enterMatch(code){
   const d=decodeRoom(code); if(!d) return false;
   leaveMatch(true);
-  match.active=true; match.code=code; match.seed=d.seed20||1;
+  match.active=true; match.code=code; match.seed=d.seed20||1; match.round=1;
   if(ROUNDS[d.roundIdx]) cfg.roundIdx=d.roundIdx;
   cfg.auto=true; $('bAuto').classList.add('on');
   syncSegs(); setMatchChrome(true);
   return true;
 }
+/* 每轮的有效种子：混进 round，重赛就换一串新闪光，但两人仍然完全一致 */
+function matchSeed(){ return ((match.seed^((match.round||1)*0x85EBCA6B))>>>0)||1; }
 function leaveMatch(silent){
-  clearInterval(match.poll); match.poll=0; stopPollingFoe();
-  match.active=false; match.cloud=false; match.code=''; match.seed=0;
-  match.resultSent=false; match.foe=''; match.foeScore=null;
+  stopPoll(); stopCountdown();
+  if(match.active && match.cloud && match.you){
+    cloudPost({code:match.code, who:'leave', name:match.you});   /* 尽力而为，不等结果 */
+  }
+  match.active=false; match.cloud=false; match.code=''; match.seed=0; match.round=1;
+  match.players=[]; match.startAt=0; match.phase='idle';
+  match.foe=''; match.foeScore=null; match.iReady=false; match.quiet=0;
   contentRnd=Math.random;
-  setMatchChrome(false);
+  lobbyClose(); setMatchChrome(false);
   const cmp=$('mCmp'); if(cmp){ cmp.style.display='none'; cmp.innerHTML=''; }
   if(!silent){ relocateTarget(); scheduleAuto(); log('已退出对战','c'); }
 }
@@ -2434,81 +2500,227 @@ function updateMTag(){
   const el=$('mTag'); if(!el) return;
   if(!match.active){ el.style.display='none'; return; }
   el.style.display='';
-  el.textContent='对战 '+match.code+' · 对手 '+(match.foeScore!=null?match.foe+' '+match.foeScore:(match.cloud?'等待中…':'离线'));
+  const foe=match.players.filter(p=>p.name!==match.you)[0];
+  let s='对战 '+match.code;
+  if(!match.cloud) s+=' · 离线';
+  else if(!foe) s+=' · 等待对手加入';
+  else if(foe.score!=null) s+=' · '+foe.name+' '+foe.score;
+  else s+=' · '+foe.name+(match.phase==='playing'?' 进行中':(foe.ready?' 已准备':' 未准备'));
+  el.textContent=s;
+}
+/* ---------- 大厅：房码 + 玩家列表 + 双方准备 + 3s 倒计时 ---------- */
+function lobbyOpen(){
+  match.phase='lobby';
+  $('lobby').style.display='flex';
+  $('lbUrl').value=shareLink(match.code);
+  if(document.exitPointerLock) document.exitPointerLock();
+  renderLobby();
+}
+function lobbyClose(){
+  const el=$('lobby'); if(el) el.style.display='none';
+  stopCountdown();
+}
+function lobbyIsOpen(){ return $('lobby').style.display==='flex'; }
+function renderLobby(){
+  $('lbCode').textContent=match.code||'------';
+  const list=$('lbList');
+  let html='';
+  const ps=match.cloud?match.players:[{name:match.you,ready:match.iReady}];
+  for(const p of ps){
+    const me=p.name===match.you;
+    html+='<div class="lbP'+(me?' me':'')+'"><span>'+esc(p.name)+(me?'（你）':'')+'</span>'+
+          '<span class="st '+(p.ready?'y':'n')+'">'+(p.ready?'已准备':'未准备')+'</span></div>';
+  }
+  if(match.cloud && ps.length<2) html+='<div class="lbP hole">等待对手加入…</div>';
+  list.innerHTML=html;
+  const tip=$('lbTip');
+  if(!match.cloud){
+    tip.innerHTML='<b style="color:var(--amb)">离线模式</b>：云端不可用。让朋友在他那边输入房码 <b>'+
+      match.code+'</b>，双方各自开局也能打到完全相同的一串闪光，比分口头核对。';
+  }else if(ps.length<2){
+    tip.textContent='把房码或链接发给朋友。他进来后，双方都点「我准备好了」即自动开局。';
+  }else if(!ps.every(p=>p.ready)){
+    tip.textContent='双方都准备后开始 3 秒倒计时，同时开局。';
+  }else{
+    tip.textContent='双方就绪，即将开始…';
+  }
+  const rb=$('lbReady');
+  rb.textContent=match.iReady?'取消准备':'我准备好了';
+  rb.classList.toggle('pri',!match.iReady);
+  rb.disabled=!match.cloud&&false;
+}
+let cdTimer=0;
+function stopCountdown(){ if(cdTimer){ clearTimeout(cdTimer); cdTimer=0; } $('lbCount').style.display='none'; }
+/* 倒计时用「服务端 startAt - 服务端 now」算剩余毫秒，绕开两机时钟偏差 */
+function beginCountdown(ms){
+  if(match.phase==='countdown') return;
+  match.phase='countdown';
+  const el=$('lbCount'); el.style.display='';
+  const tick=()=>{
+    const left=ms-(Date.now()-t0);
+    if(left<=0){ el.textContent='GO'; stopPoll(); cdTimer=setTimeout(startMatchRound,220); return; }
+    el.textContent=String(Math.ceil(left/1000));
+    cdTimer=setTimeout(tick,120);
+  };
+  const t0=Date.now();
+  renderLobby(); tick();
+}
+function startMatchRound(){
+  stopCountdown(); lobbyClose();
+  match.phase='playing'; match.iReady=false;
+  if(!playing){ start(); }              /* start() 内部会 startRound() 播种 */
+  else { paused=false; startRound(); relock(); }
+  log('对战开始 · 房码 '+match.code+' · 第 '+match.round+' 轮','c');
+  updateMTag();
+}
+/* ---------- 云端状态同步 ---------- */
+function applyState(s){
+  if(!s) return;
+  const before=JSON.stringify([match.players,match.startAt,match.round]);
+  if(Array.isArray(s.players)) match.players=s.players;
+  if(Number.isInteger(s.round)) match.round=s.round;
+  const me=match.players.filter(p=>p.name===match.you)[0];
+  match.iReady=!!(me&&me.ready);
+  const foe=match.players.filter(p=>p.name!==match.you)[0];
+  match.foe=foe?foe.name:''; match.foeScore=foe&&foe.score!=null?foe.score:null;
+  match.startAt=s.startAt||0;
+  if(before===JSON.stringify([match.players,match.startAt,match.round])) match.quiet++;
+  else match.quiet=0;
+  updateMTag();
+  if(lobbyIsOpen()){
+    renderLobby();
+    /* 服务端已定开局时刻 → 双方一起倒计时 */
+    if(match.startAt && s.now && match.phase==='lobby'){
+      const left=match.startAt-s.now;
+      if(left>-1500) beginCountdown(Math.max(0,left));
+    }
+  }
+  if(roundOver && match.players.some(p=>p.score!=null)) paintCompare(match.players,true);
+}
+/* 轮询：只在「有事等」的阶段跑，页面隐藏就停，长期没变化就自动歇 —— KV 免费额度很省 */
+let pollTimer=0;
+function pollDelay(){
+  if(match.phase==='lobby')  return 2500;      /* 大厅有人在盯着，要灵敏 */
+  if(roundOver)              return 3000;      /* 等对手交卷 */
+  return 0;                                    /* 对战中不轮询：省额度，也没什么可等 */
+}
+function stopPoll(){ if(pollTimer){ clearTimeout(pollTimer); pollTimer=0; } }
+function startPoll(){
+  stopPoll();
+  if(!match.active||!match.cloud) return;
+  const step=async()=>{
+    pollTimer=0;
+    if(!match.active||!match.cloud) return;
+    const d=pollDelay();
+    if(!d) return;                                          /* 该阶段不需要轮询 */
+    if(match.quiet>96){ log('长时间无变化，已暂停云端同步（点「回大厅」可恢复）','y'); return; }
+    if(typeof document!=='undefined' && document.hidden){    /* 后台标签页不烧配额 */
+      pollTimer=setTimeout(step,4000); return;
+    }
+    const s=await cloudGet(match.code);
+    if(s) applyState(s);
+    const nd=pollDelay();
+    if(nd) pollTimer=setTimeout(step,nd);
+  };
+  pollTimer=setTimeout(step,pollDelay()||2500);
+}
+/* 429 或额度用尽：立刻停轮询、转离线，绝不继续打接口 */
+function cloudGaveUp(why){
+  if(!match.cloud) return;
+  match.cloud=false; stopPoll();
+  log('云端同步已停止：'+why+' → 转为离线对战（房码仍可用，比分口头核对）','b');
+  renderMatchCard(); if(lobbyIsOpen()) renderLobby();
 }
 async function createMatch(){
   const nm=myName()||randNickname(); localStorage.setItem(LS_NAME,nm);
   const code=newRoomCode();
   if(!enterMatch(code)) return;
-  match.you=nm; renderMatchCard();
-  const res=await cloudPost({code, cfg:packSync(), who:'host'});
-  match.cloud=!!(res&&res.ok); updateMTag(); renderMatchCard();
+  match.you=nm;
+  const res=await cloudPost({code, who:'host', name:nm, cfg:packSync()});
+  match.cloud=!!(res&&res.ok);
+  if(match.cloud) applyState(res);
+  renderMatchCard(); lobbyOpen();
   copyText(shareLink(code));
-  log('对战房间已创建 · 房码 '+code+'（邀请链接已复制）', match.cloud?'c':'y');
-  if(!match.cloud) log('未连云：设置以本地为准，双方报分口头核对', 'y');
+  log('房间已创建 · 房码 '+code+'（链接已复制）', match.cloud?'c':'y');
+  if(!match.cloud) log('云端不可用：转离线模式，让朋友输入同一房码','y');
+  else startPoll();
 }
 async function joinMatch(code){
   code=(code||'').trim().toUpperCase();
   if(!ROOM_RE.test(code)){ log('房码格式不对（6 位，数字与大写字母）','b'); return; }
   const nm=myName()||randNickname(); localStorage.setItem(LS_NAME,nm);
-  if(!enterMatch(code)) { log('房码无效','b'); leaveMatch(); return; }
+  if(!enterMatch(code)){ log('房码无效','b'); leaveMatch(true); return; }
   match.you=nm;
-  const st=await cloudGet(code);
-  match.cloud=!!st;
-  if(st&&st.cfg) applySync(st.cfg);           /* 用房主设置覆盖，双方完全同一局 */
-  renderMatchCard();
-  log('已加入对战 · 房码 '+code+(match.cloud?' · 已同步房主设置':'（未联网：按房码离线打同一串闪光）'), match.cloud?'c':'y');
-  if(match.cloud) startPollingFoe();
+  const res=await cloudPost({code, who:'join', name:nm});   /* 必须写一条，房主才看得见我 */
+  match.cloud=!!(res&&res.ok);
+  if(match.cloud){
+    if(res.cfg) applySync(res.cfg);        /* 套用房主的公平设置 */
+    applyState(res);
+  }else{
+    const s=await cloudGet(code);          /* 房间可能满了或还没建：读一次给个准确提示 */
+    if(s&&s.cfg) applySync(s.cfg);
+    match.cloud=!!s; if(s) applyState(s);
+  }
+  renderMatchCard(); lobbyOpen();
+  log('已进入房间 '+code+(match.cloud?' · 已同步房主设置':'（离线：按房码打同一串闪光）'), match.cloud?'c':'y');
+  if(match.cloud) startPoll();
+}
+async function toggleReady(){
+  if(!match.cloud){                        /* 离线：本地直接开局，不等对方 */
+    match.iReady=true; renderLobby(); startMatchRound(); return;
+  }
+  const want=!match.iReady;
+  match.iReady=want; renderLobby();        /* 先本地反馈，别等网络 */
+  const res=await cloudPost({code:match.code, who:'ready', name:match.you, ready:want});
+  if(res&&res.ok) applyState(res); else cloudGaveUp('准备状态没送达');
+  startPoll();
 }
 function renderMatchCard(){
   $('mCode').textContent=match.code||'------';
   const s=$('mStatus');
-  if(!match.active){ return; }
+  if(!match.active) return;
   s.innerHTML = match.cloud
-    ? '房码 <b>'+match.code+'</b> 已联网。把链接发给朋友 → 双方打完自动出胜负。'
+    ? '房码 <b>'+match.code+'</b> 已联网 · 第 '+match.round+' 轮。双方在大厅准备后自动开局。'
     : '离线模式：房码 <b>'+match.code+'</b>。朋友输入同房码即可打完全相同的一串闪光，比分自行核对。';
   updateMTag();
 }
-/* 打完一轮：上报我的分，并尝试把双方比分摆出来 */
+/* 打完一轮：上报我的分，然后等对方交卷 */
 async function submitMyResult(){
   if(!match.active) return;
+  match.phase='result';
   const detail={dodge:pct(st.dodges,st.trials), acc:pct(st.hits,st.shots), best:st.best, blind:st.blinds};
   if(!match.cloud){ paintCompare([{name:match.you||'你',score,detail}], false); return; }
   const res=await cloudPost({code:match.code, who:'score', name:match.you||'你', score, detail});
-  if(res&&res.ok&&Array.isArray(res.results)) paintCompare(res.results,true);
-  else { match.cloud=false; paintCompare([{name:match.you||'你',score,detail}],false); }
-  startPollingFoe();               /* 我交卷后，继续轮询等对方 */
+  if(res&&res.ok){ applyState(res); paintCompare(match.players,true); }
+  else { cloudGaveUp('比分没送达'); paintCompare([{name:match.you||'你',score,detail}],false); }
+  match.quiet=0; startPoll();             /* 继续等对方那一份 */
 }
-/* 对战进行中就悄悄轮询对手是否在线/是否已有分（方案三「实时比分」的雏形，先靠轮询） */
-let foeWatch=0;
-function startPollingFoe(){
-  stopPollingFoe();
-  if(!match.cloud) return;
-  foeWatch=setInterval(async()=>{
-    const st=await cloudGet(match.code); if(!st||!Array.isArray(st.results)) return;
-    const others=st.results.filter(r=>r.name!==match.you);
-    if(others.length){ const o=others[0]; match.foe=o.name; match.foeScore=o.score; updateMTag(); }
-    if(st.results.length>=2){ paintCompare(st.results,true); if(!roundOver){/* 对手也交卷，收工 */} }
-  },3000);
+/* 再战：清双方准备与分数、换一轮种子，回大厅重新准备 */
+async function matchAgain(){
+  $('result').style.display='none';
+  if(!match.cloud){ match.round++; lobbyOpen(); return; }
+  const res=await cloudPost({code:match.code, who:'again', name:match.you});
+  if(res&&res.ok) applyState(res); else match.round++;
+  match.iReady=false; match.quiet=0;
+  lobbyOpen(); startPoll();
 }
-function stopPollingFoe(){ if(foeWatch){ clearInterval(foeWatch); foeWatch=0; } }
 function paintCompare(results,live){
   const box=$('mCmp'); if(!box) return;
   box.style.display='';
-  const mine=(match.you||'').toLowerCase();
-  const rows=results.slice().sort((a,b)=>b.score-a.score);
-  const iFinished=rows.some(r=>(r.name||'').toLowerCase()===mine);
+  const rows=results.filter(r=>r.score!=null).slice().sort((a,b)=>b.score-a.score);
+  const mine=match.you||'';
   let html='<div style="font-size:11px;letter-spacing:2px;color:var(--txt2);margin-bottom:8px">'+
-           (live?'对战比分'+(rows.length>=2?'':'（等待对手）'):'对战 · 离线（口头核对）')+'</div>';
+           (live?('对战比分 · 第 '+match.round+' 轮'+(rows.length>=2?'':'（等待对手交卷…）'))
+                :'对战 · 离线（口头核对）')+'</div>';
   if(rows.length>=2){
     const w=rows[0], l=rows[1];
-    const iWin=(w.name||'').toLowerCase()===mine;
+    const iWin=w.name===mine;
     html+='<div style="font-size:15px;font-weight:700;margin-bottom:10px;color:'+(iWin?'var(--grn)':'var(--red)')+'">'+
           (w.score===l.score?'平 局':(iWin?'你 赢 了':'对 手 胜'))+'</div>';
   }
-  html+='<div class="resGrid" style="grid-template-columns:1fr;gap:6px">';
+  html+='<div style="display:flex;flex-direction:column;gap:6px">';
   for(const r of rows){
-    const me=(r.name||'').toLowerCase()===mine;
+    const me=r.name===mine;
     html+='<div style="display:flex;justify-content:space-between;align-items:center;background:var(--bg3);'+
       'border:1px solid '+(me?'var(--grn)':'var(--line)')+';border-radius:6px;padding:8px 10px">'+
       '<span style="font-size:12.5px">'+esc(me?(r.name+'（你）'):r.name)+'</span>'+
@@ -2526,16 +2738,29 @@ function initMatchUI(){
   $('mJoin').onkeydown=e=>{ if(e.key==='Enter') joinMatch($('mJoin').value); };
   $('mCopy').onclick=e=>{ e.stopPropagation();
     if(copyText(shareLink(match.code))){ $('mCopy').textContent='已复制 ✓';
-      setTimeout(()=>$('mCopy').textContent='复制邀请链接',1400);} };
-  $('mLeave').onclick=e=>{ e.stopPropagation(); stopPollingFoe(); leaveMatch(); };
+      setTimeout(()=>$('mCopy').textContent='复制链接',1400);} };
+  $('mLobby').onclick=e=>{ e.stopPropagation();
+    if(!match.active) return; match.quiet=0; lobbyOpen(); startPoll(); };
+  $('mLeave').onclick=e=>{ e.stopPropagation(); leaveMatch(); };
+  $('lbCopy').onclick=e=>{ e.stopPropagation();
+    if(copyText(shareLink(match.code))){ $('lbCopy').textContent='已复制';
+      setTimeout(()=>$('lbCopy').textContent='复制',1400);} };
+  $('lbReady').onclick=e=>{ e.stopPropagation(); toggleReady(); };
+  $('lbLeave').onclick=e=>{ e.stopPropagation(); leaveMatch(); };
   $('bMatch').onclick=e=>{ e.stopPropagation();
+    if(match.active){ match.quiet=0; lobbyOpen(); startPoll(); return; }
     if($('side').classList.contains('hide')) toggleSide();   /* 数据栏收着就先展开 */
     $('scroll').scrollTo({top:$('scroll').scrollHeight*0.5, behavior:'smooth'});
   };
+  /* 切回前台时补一次同步，别让大厅停在旧状态 */
+  if(typeof document.addEventListener==='function'){
+    document.addEventListener('visibilitychange',()=>{
+      if(!document.hidden && match.active && match.cloud){ match.quiet=0; startPoll(); }
+    });
+  }
   const rc=urlRoom();
   if(rc) joinMatch(rc);
 }
-
 /* ---------- 启动 ---------- */
 resize();
 bindUI();

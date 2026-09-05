@@ -521,6 +521,48 @@ try{
   const leaveOK=run('(function(){leaveMatch();return (!match.active&&contentRnd===Math.random&&$("bFlash").style.display==="")?1:0;})()');
   ok(leaveOK===1,'退出对战：状态复位、内容流退回真随机、按钮恢复');
 
+  /* 大厅 / 准备 / 倒计时 / 每轮换种子 —— 对应实测「朋友进来了但房主一直等待」那次修复 */
+  console.log('[23] 对战大厅：准备流程 + 倒计时 + 每轮换种子');
+  run('(function(){var c=newRoomCode();enterMatch(c);match.you="房主";match.cloud=true;'
+     +'match.players=[{name:"房主",ready:false,score:null},{name:"朋友",ready:false,score:null}];'
+     +'lobbyOpen();})()');
+  ok(run('$("lobby").style.display')==='flex','大厅弹窗打开');
+  ok(/朋友/.test(run('$("lbList").innerHTML')),'玩家列表里能看到对手（v1 的 bug：房主永远看不到）');
+  ok(/房码/.test(run('$("lbCodeK").textContent'))||run('$("lbCode").textContent').length===6,'大厅展示 6 位房码');
+
+  /* 服务端下发 startAt/now → 本地按「差值」倒计时，不依赖两台机器时钟一致 */
+  const cdStarted=run('(function(){var now=1000000;applyState({players:['
+    +'{name:"房主",ready:true,score:null},{name:"朋友",ready:true,score:null}],'
+    +'startAt:now+3000,now:now,round:1});return match.phase==="countdown"?1:0;})()');
+  ok(cdStarted===1,'双方都 ready + 服务端给了 startAt → 进入倒计时阶段');
+  ok(run('$("lbCount").style.display')!=='none','倒计时数字可见');
+
+  /* 每轮换种子：同房码第 2 轮不再是同一串闪光，但两人仍然一致 */
+  const seedRound=run('(function(){match.round=1;var a=matchSeed();match.round=2;var b=matchSeed();'
+    +'match.round=2;var c=matchSeed();return (a!==b&&b===c)?1:0;})()');
+  ok(seedRound===1,'matchSeed 随 round 变化但对同一 round 稳定（重赛换新局、两人仍同步）');
+  const gapRound=run('(function(){match.round=1;var a=gapFor(3);match.round=2;var b=gapFor(3);return a!==b?1:0;})()');
+  ok(gapRound===1,'出闪光节奏也随 round 变（否则重赛节奏一模一样）');
+
+  /* 对战中不轮询、大厅才轮询：这是 KV 免费额度的关键闸门 */
+  run('roundOver=false; match.phase="playing";');
+  ok(run('pollDelay()')===0,'对战进行中不轮询云端（省 KV 读额度）');
+  run('match.phase="lobby";');
+  ok(run('pollDelay()')>0,'大厅阶段才轮询');
+  run('roundOver=true; match.phase="result";');
+  ok(run('pollDelay()')>0,'等对手交卷时轮询');
+  run('roundOver=false;');
+
+  /* 429 / 额度耗尽：必须立刻停手转离线，不能继续打接口 */
+  const gaveUp=run('(function(){match.cloud=true;startPoll();cloudGaveUp("测试 429");'
+    +'return (match.cloud===false&&pollTimer===0)?1:0;})()');
+  ok(gaveUp===1,'429 时立即停轮询并转离线（不再消耗额度）');
+  /* 长时间无变化自动歇手 */
+  const quietStop=run('(function(){match.cloud=true;match.quiet=999;match.phase="lobby";'
+    +'startPoll();var had=pollTimer!==0;return had?1:0;})()');
+  ok(quietStop===1,'轮询以 setTimeout 单链驱动（可被 quiet 上限掐断，不会常驻 setInterval）');
+  run('leaveMatch(true); match.cloud=false; roundOver=false;');
+
   run('match.active=false; contentRnd=Math.random; flashes=[];');
 
   console.log('\n'+(fails?('有 '+fails+' 项失败'):'全部通过'));

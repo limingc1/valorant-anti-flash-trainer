@@ -18,3 +18,5 @@ jobs:
           node-version: '20'
       - name: Run smoke tests
         run: node .workbuddy/smoke-test.js
+      - name: Run API tests
+        run: node .workbuddy/api-test.mjs

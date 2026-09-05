@@ -19,3 +19,6 @@ node_modules/
 
 # workbuddy 本地笔记不入库
 .workbuddy/memory/
+
+# 后端测试的临时副本
+.workbuddy/_api_under_test.mjs
