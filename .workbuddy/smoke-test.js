@@ -563,6 +563,46 @@ try{
   ok(quietStop===1,'轮询以 setTimeout 单链驱动（可被 quiet 上限掐断，不会常驻 setInterval）');
   run('leaveMatch(true); match.cloud=false; roundOver=false;');
 
+  /* ↓ 这一组是花了 939 次 KV 写（免费额度 1000/天）换来的回归，别删 ↓
+     旧 updateRound 的闸门是 if(roundOver && roundEndAt) return —— roundEndAt 为 0 时失效，
+     left 恒为 0，于是每帧 endRound() -> 每帧 submitMyResult() -> 每帧一次 KV 写。
+     触发路径：刚开页面还没点开始（roundEndAt=0）+ 进房把时长设成 60s。 */
+  console.log('[24] 每帧重复结算 / 重复上报的防线（KV 额度事故回归）');
+  run('playing=false; paused=false; roundOver=false; roundEndAt=0; cfg.roundIdx=1;');
+  ok(run('roundSec()')>0,'前提：当前模式有时长（roundSec>0）');
+  const noEnd=run('(function(){var n=0;var real=endRound;endRound=function(){n++;};'
+    +'for(var i=0;i<40;i++) updateRound();endRound=real;return n;})()');
+  ok(noEnd===0,'未开局(playing=false, roundEndAt=0)时 updateRound 不会结算（旧代码此处每帧一次）');
+
+  run('playing=true; roundOver=false; roundEndAt=0;');
+  const noEnd2=run('(function(){var n=0;var real=endRound;endRound=function(){n++;};'
+    +'for(var i=0;i<40;i++) updateRound();endRound=real;return n;})()');
+  ok(noEnd2===0,'roundEndAt=0（这一轮没真开过）时也不结算');
+
+  /* endRound 幂等 + 每轮只上报一次 */
+  run('playing=true; startRound();');
+  const posts=run('(function(){var n=0;match.active=true;match.cloud=true;match.you="我";'
+    +'var realPost=cloudPost;cloudPost=function(){n++;return Promise.resolve(null);};'
+    +'for(var i=0;i<30;i++) endRound();'
+    +'cloudPost=realPost;return n;})()');
+  ok(posts===1,'连调 30 次 endRound 只上报 1 次比分（幂等 + match.sent 闸门），实测得到 '+posts);
+  run('startRound();');
+  const posts2=run('(function(){var n=0;var realPost=cloudPost;'
+    +'cloudPost=function(){n++;return Promise.resolve(null);};'
+    +'endRound();cloudPost=realPost;return n;})()');
+  ok(posts2===1,'新一轮开始后允许再上报一次（match.sent 已复位）');
+
+  /* 兜底：客户端写预算 —— 任何同类 bug 都不该再烧穿额度 */
+  const budget=run('(function(){postLog=[];var okN=0;'
+    +'for(var i=0;i<40;i++){ if(postBudgetOK()) okN++; }return okN;})()');
+  ok(budget<=12,'写预算闸门把 20s 内的写请求压在 '+budget+' 次（上限 12）');
+  const degrade=run('(function(){postLog=[];match.active=true;match.cloud=true;'
+    +'for(var i=0;i<20;i++) postBudgetOK();'
+    +'var realGave=cloudGaveUp,hit=0;cloudGaveUp=function(){hit++;match.cloud=false;};'
+    +'cloudPost({code:"AAAAAA",who:"score",name:"x"});cloudGaveUp=realGave;return hit;})()');
+  ok(degrade===1,'预算超限时触发降级（cloudGaveUp），不再打接口');
+  run('postLog=[]; playing=false; roundOver=false; roundEndAt=0;');
+
   run('match.active=false; contentRnd=Math.random; flashes=[];');
 
   console.log('\n'+(fails?('有 '+fails+' 项失败'):'全部通过'));

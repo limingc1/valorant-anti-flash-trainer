@@ -546,7 +546,7 @@ const ROOM_API='/api/room';                     /* Pages Function；离线/file:
 const B32='0123456789ABCDEFGHJKMNPQRSTVWXYZ';      /* Crockford Base32：32 符号，去掉 I L O U */
 const ROOM_RE=/^[0-9A-HJ-NP-TV-Z]{6}$/i;           /* 房码格式校验（同一套去混淆字符） */
 const match={ active:false, code:'', seed:0, round:1, you:'', cloud:false,
-              players:[], startAt:0, iReady:false, phase:'idle',
+              players:[], startAt:0, iReady:false, phase:'idle', sent:false,
               foe:'', foeScore:null, quiet:0 };
 function encodeRoom(roundIdx,seed20){
   const bits=((roundIdx&31)<<20)|(seed20&0xFFFFF);   /* 25 bit -> 6 个 base32 字符 */
@@ -2033,16 +2033,25 @@ function startRound(){
   roundOver=false;
   roundEndAt = roundSec()>0 ? T+roundSec() : 0;
   lastRoundSec=-1;
+  match.sent=false;                /* 新一轮：允许再上报一次比分 */
   $('result').style.display='none';
   resetStats(true);
   log('新一轮开始 · '+ROUNDS[cfg.roundIdx].n,'c');
 }
 function updateRound(){
   const el=$('roundTag');
-  if(!roundSec()){ if(el.textContent){ el.textContent=''; lastRoundSec=-1; } return; }
-  if(roundOver && roundEndAt){          /* 结算面板开着时冻结倒计时 */
+  /* 三个必须同时成立的前提，缺一个就不该有倒计时，更不该结算：
+     - 正在游戏中（updateRound 在主循环里是无条件调用的，playing=false 也会跑到这）
+     - 当前模式有时长（「不限」不计时）
+     - 这一轮确实开过（roundEndAt 有值）
+     曾经这里只写了 if(roundOver && roundEndAt) return，roundEndAt 为 0 时闸门失效：
+     left 恒为 0 -> 每帧 endRound() -> 每帧上报一次比分，几十秒烧穿 KV 日额度。
+     触发路径是「刚开页面没点开始 + 进房把时长改成 60s」。 */
+  if(!playing || !roundSec() || !roundEndAt){
+    if(el.textContent){ el.textContent=''; lastRoundSec=-1; }
     return;
   }
+  if(roundOver) return;                 /* 结算面板开着时冻结倒计时 */
   const left=Math.max(0,roundEndAt-T);
   const s=Math.ceil(left);
   if(s!==lastRoundSec){
@@ -2053,6 +2062,7 @@ function updateRound(){
   if(left<=0) endRound();
 }
 function endRound(){
+  if(roundOver) return;            /* 幂等：重复调用只结算一次 */
   roundOver=true;
   mdx=0; mdy=0;                    /* 别把结束瞬间的位移攒到下一轮开局 */
   if(document.exitPointerLock) document.exitPointerLock();
@@ -2450,8 +2460,24 @@ async function cloudGet(code){
     return await r.json();
   }catch(e){ return null; }
 }
+/* 写预算闸门（兜底）：KV 免费额度只有 1000 写/天，而一次「每帧都写」的 bug
+   十几秒就能烧穿。正常一整局只需 3~4 次写，所以给个宽松上限；一旦越界就
+   彻底停手转离线，宁可功能降级也不要把额度打光。 */
+const POST_WINDOW=20000, POST_MAX=12;
+let postLog=[];
+function postBudgetOK(){
+  const now=Date.now();
+  postLog=postLog.filter(t=>now-t<POST_WINDOW);
+  if(postLog.length>=POST_MAX) return false;
+  postLog.push(now);
+  return true;
+}
 async function cloudPost(body){
   if(typeof fetch!=='function') return null;
+  if(!postBudgetOK()){
+    cloudGaveUp('本地写预算超限（'+POST_MAX+' 次/'+(POST_WINDOW/1000)+'s，疑似有 bug 在刷接口）');
+    return null;
+  }
   try{
     const r=await fetch(ROOM_API,{method:'POST',headers:{'content-type':'application/json'},
       body:JSON.stringify(body)});
@@ -2479,7 +2505,7 @@ function leaveMatch(silent){
   }
   match.active=false; match.cloud=false; match.code=''; match.seed=0; match.round=1;
   match.players=[]; match.startAt=0; match.phase='idle';
-  match.foe=''; match.foeScore=null; match.iReady=false; match.quiet=0;
+  match.foe=''; match.foeScore=null; match.iReady=false; match.quiet=0; match.sent=false;
   contentRnd=Math.random;
   lobbyClose(); setMatchChrome(false);
   const cmp=$('mCmp'); if(cmp){ cmp.style.display='none'; cmp.innerHTML=''; }
@@ -2687,6 +2713,8 @@ function renderMatchCard(){
 /* 打完一轮：上报我的分，然后等对方交卷 */
 async function submitMyResult(){
   if(!match.active) return;
+  if(match.sent) return;           /* 每轮只上报一次：写 KV 是最贵的操作 */
+  match.sent=true;
   match.phase='result';
   const detail={dodge:pct(st.dodges,st.trials), acc:pct(st.hits,st.shots), best:st.best, blind:st.blinds};
   if(!match.cloud){ paintCompare([{name:match.you||'你',score,detail}], false); return; }
