@@ -138,7 +138,7 @@
   #hint b{color:var(--txt)}
 
   #ovl{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
-       background:rgba(8,13,18,.9);backdrop-filter:blur(3px);cursor:pointer;z-index:20}
+       background:rgba(8,13,18,.9);backdrop-filter:blur(3px);cursor:default;z-index:20}
   #ovlBox{max-width:560px;padding:28px 32px;background:var(--bg2);
           border:1px solid var(--line);border-top:2px solid var(--red);border-radius:4px}
   #ovlBox h1{font-size:22px;font-weight:600;letter-spacing:.5px;margin-bottom:4px}
@@ -150,6 +150,38 @@
                 padding-top:14px;line-height:1.9}
   #ovlBox .keys b{color:var(--amb);font-weight:600}
   #ovlBtn{width:100%;padding:11px;font-size:14px;font-weight:600;margin-top:18px}
+  /* ---- 统一菜单（开屏 / 暂停 / 设置 / 对战） ---- */
+  #ovlBox{width:min(94%,620px);max-height:90vh;display:flex;flex-direction:column;padding:0;overflow:hidden}
+  #menuHead{padding:22px 26px 0;text-align:center}
+  #menuHead h1{font-size:20px;margin-bottom:3px}
+  #menuHead .sub{margin-bottom:14px}
+  #menuTabs{display:flex;gap:6px;border-top:1px solid var(--line);padding-top:14px}
+  #menuTabs .tab{flex:1;padding:9px;font-size:13px;background:transparent;border:1px solid var(--line);
+                 color:var(--txt2);border-radius:3px;cursor:pointer}
+  #menuTabs .tab:hover{color:var(--txt);border-color:#3d556e}
+  #menuTabs .tab.act{background:var(--red);border-color:var(--red);color:#fff;font-weight:600}
+  #menuBody{overflow-y:auto;padding:18px 26px 24px;text-align:left}
+  #menuBody::-webkit-scrollbar{width:8px}
+  #menuBody::-webkit-scrollbar-thumb{background:#2b3b4d;border-radius:4px}
+  .tabpage{display:none}
+  .tabpage.act{display:block}
+  #tab-solo ul{list-style:none;font-size:12.5px;line-height:1.95;color:#cfd8e0;margin-bottom:14px}
+  #tab-solo li b{color:var(--txt);display:inline-block;min-width:76px;font-weight:600}
+  #tab-solo .keys{font-size:11.5px;color:var(--txt2);border-top:1px solid var(--line);
+                  padding-top:14px;line-height:1.9}
+  #tab-solo .keys b{color:var(--amb);font-weight:600}
+  #tab-set .sec{margin-top:18px}
+  #tab-set .sec:first-child{margin-top:2px}
+  .tabBtns{display:flex;gap:8px;margin-top:18px}
+  .tabBtns button{flex:1;padding:10px;font-size:13px}
+  /* ---- 常驻精简统计（游戏中 HUD） ---- */
+  #miniStats{position:absolute;left:16px;bottom:70px;display:flex;flex-direction:column;gap:2px;
+             font-size:11.5px;color:var(--txt2);pointer-events:none;
+             text-shadow:0 1px 3px rgba(0,0,0,.9)}
+  #miniStats.hide{display:none}
+  #miniStats b{color:var(--txt);font-weight:600;font-variant-numeric:tabular-nums}
+  #miniStats b.d{color:var(--grn)} #miniStats b.a{color:var(--blu)}
+  #miniStats b.c{color:var(--red)} #miniStats b.k{color:var(--cyn)}
 
   #side{width:296px;flex:none;background:var(--bg2);border-left:1px solid var(--line);
         display:flex;flex-direction:column;overflow:hidden}
@@ -229,7 +261,6 @@
       <div id="agentTag"></div>
       <div id="mTag" style="margin-top:8px;font-size:12px;font-weight:600;letter-spacing:.5px;color:var(--cyn);display:none"></div>
     </div>
-    <button id="bSide" title="隐藏 / 显示右侧数据栏（H）">▸</button>
     <div id="combo"><span class="cx">COMBO</span><span class="cn">0</span><span class="cl">连击</span></div>
     <div id="watermark" aria-hidden="true">
       <svg width="15" height="15" viewBox="0 0 64 64">
@@ -242,8 +273,13 @@
     <div id="log"></div>
     <div class="hud" id="hint">
       <b>操作</b>：移动鼠标转身 · 左键/空格 射击<br>
-      <b>F</b> 手动闪光 · <b>R</b> 换靶 · <b>H</b> 收起数据栏<br>
+      <b>F</b> 手动闪光 · <b>R</b> 换靶 · <b>H</b> 收起统计 · <b>Esc</b> 菜单<br>
       <b>要点</b>：闪光飞出先转身躲，再回靶打掉
+    </div>
+    <div class="hud" id="miniStats">
+      <div>分数 <b class="c" id="sScore">0</b> &nbsp; 躲闪率 <b class="d" id="sDodge">--</b> &nbsp; 命中率 <b class="a" id="sAcc">--</b></div>
+      <div>最高连击 <b class="c" id="sCombo">0</b> &nbsp; 被闪 <b class="k" id="sBlind">0</b></div>
+      <div>转身 <b id="sRT">--</b>ms · 回靶 <b id="sRF">--</b>ms · 命中 <b id="sHit">0 / 0</b></div>
     </div>
     <div id="bar">
       <button id="bStart" class="pri">开始训练</button>
@@ -254,35 +290,151 @@
     </div>
     <div id="ovl">
       <div id="ovlBox">
-        <svg class="logo" viewBox="0 0 512 512" width="104" height="104" aria-label="LIMING 的背闪模拟器标识">
-          <rect x="16" y="16" width="480" height="480" rx="76" fill="#16222e" stroke="#ff4655" stroke-width="10"/>
-          <circle cx="330" cy="168" r="118" fill="#ff4655" opacity="0.13"/>
-          <path d="M330,58 Q356,142 440,168 Q356,194 330,278 Q304,194 220,168 Q304,142 330,58 Z" fill="#ff4655"/>
-          <path d="M330,108 Q346,152 390,168 Q346,184 330,228 Q314,184 270,168 Q314,152 330,108 Z" fill="#ffd7dc"/>
-          <circle cx="330" cy="168" r="14" fill="#ffffff"/>
-          <g stroke="#ece8e1" stroke-width="15" stroke-linecap="round">
-            <line x1="216" y1="252" x2="216" y2="188"/>
-            <line x1="216" y1="320" x2="216" y2="384"/>
-            <line x1="182" y1="286" x2="118" y2="286"/>
-            <line x1="250" y1="286" x2="314" y2="286"/>
-          </g>
-          <circle cx="216" cy="286" r="14" fill="#ff4655" stroke="#ece8e1" stroke-width="4"/>
-        </svg>
-        <h1>无畏契约 · 背闪模拟器</h1>
-        <div class="sub">ANTI-FLASH TRAINER &nbsp;/&nbsp; 反应 · 转身 · 回靶 &nbsp;·&nbsp; MADE BY LIMING</div>
-        <ul>
-          <li><b>场景</b>你面朝城墙，正中一道拱门，墙后是走廊</li>
-          <li><b>闪光</b>从拱门左右随机飞出，轨迹藏在墙后</li>
-          <li><b>躲闪</b>引爆瞬间闪光在视野锥内 → 白屏致盲</li>
-          <li><b>得分</b>躲开后立刻回靶打掉小球，越快分越高</li>
-          <li><b>注意</b>致盲中看不见靶点，命中无效</li>
-        </ul>
-        <div class="keys">
-          <b>鼠标</b> 转视角 &nbsp;·&nbsp; <b>左键 / 空格</b> 射击 &nbsp;·&nbsp; <b>F</b> 手动闪光<br>
-          <b>R</b> 刷新靶点 &nbsp;·&nbsp; <b>A</b> 自动开关 &nbsp;·&nbsp; <b>H</b> 收起数据栏<br>
-          <b>M</b> 静音 &nbsp;·&nbsp; <b>Esc</b> 暂停
+        <div id="menuHead">
+          <svg class="logo" viewBox="0 0 512 512" width="84" height="84" aria-label="LIMING 的背闪模拟器标识">
+            <rect x="16" y="16" width="480" height="480" rx="76" fill="#16222e" stroke="#ff4655" stroke-width="10"/>
+            <circle cx="330" cy="168" r="118" fill="#ff4655" opacity="0.13"/>
+            <path d="M330,58 Q356,142 440,168 Q356,194 330,278 Q304,194 220,168 Q304,142 330,58 Z" fill="#ff4655"/>
+            <path d="M330,108 Q346,152 390,168 Q346,184 330,228 Q314,184 270,168 Q314,152 330,108 Z" fill="#ffd7dc"/>
+            <circle cx="330" cy="168" r="14" fill="#ffffff"/>
+            <g stroke="#ece8e1" stroke-width="15" stroke-linecap="round">
+              <line x1="216" y1="252" x2="216" y2="188"/>
+              <line x1="216" y1="320" x2="216" y2="384"/>
+              <line x1="182" y1="286" x2="118" y2="286"/>
+              <line x1="250" y1="286" x2="314" y2="286"/>
+            </g>
+            <circle cx="216" cy="286" r="14" fill="#ff4655" stroke="#ece8e1" stroke-width="4"/>
+          </svg>
+          <h1>无畏契约 · 背闪模拟器</h1>
+          <div class="sub">ANTI-FLASH TRAINER &nbsp;/&nbsp; 反应 · 转身 · 回靶 &nbsp;·&nbsp; MADE BY LIMING</div>
+          <div id="menuTabs">
+            <button class="tab act" data-tab="solo">单人训练</button>
+            <button class="tab" data-tab="battle">联机对战</button>
+            <button class="tab" data-tab="set">设置</button>
+          </div>
         </div>
-        <button id="ovlBtn" class="pri">点击进入 · 锁定鼠标</button>
+        <div id="menuBody">
+          <!-- 单人训练 -->
+          <div class="tabpage act" id="tab-solo">
+            <ul>
+              <li><b>场景</b>你面朝城墙，正中一道拱门，墙后是走廊</li>
+              <li><b>闪光</b>从拱门左右随机飞出，轨迹藏在墙后</li>
+              <li><b>躲闪</b>引爆瞬间闪光在视野锥内 → 白屏致盲</li>
+              <li><b>得分</b>躲开后立刻回靶打掉小球，越快分越高</li>
+              <li><b>注意</b>致盲中看不见靶点，命中无效</li>
+            </ul>
+            <div class="keys">
+              <b>鼠标</b> 转视角 &nbsp;·&nbsp; <b>左键 / 空格</b> 射击 &nbsp;·&nbsp; <b>F</b> 手动闪光<br>
+              <b>R</b> 刷新靶点 &nbsp;·&nbsp; <b>A</b> 自动开关 &nbsp;·&nbsp; <b>H</b> 收起统计<br>
+              <b>M</b> 静音 &nbsp;·&nbsp; <b>Esc</b> 菜单 / 设置
+            </div>
+          </div>
+          <!-- 联机对战 -->
+          <div class="tabpage" id="tab-battle">
+            <div id="mIdle">
+              <div class="row"><label>你的昵称</label>
+                <input id="mName" maxlength="10" placeholder="给自己起个名"
+                  style="width:100%;background:var(--bg3);border:1px solid var(--line);border-radius:3px;
+                  color:var(--txt);padding:6px 8px;font:inherit;font-size:12px"></div>
+              <div class="grid" style="grid-template-columns:1fr;margin-bottom:8px">
+                <button id="mCreate" class="pri">创建房间</button>
+              </div>
+              <div class="row"><label>或输入房码加入</label>
+                <div style="display:flex;gap:6px">
+                  <input id="mJoin" maxlength="6" placeholder="如 AB3K7M" style="flex:1;min-width:0;text-transform:uppercase;
+                    background:var(--bg3);border:1px solid var(--line);border-radius:3px;color:var(--txt);
+                    padding:6px 8px;font:inherit;font-size:12px;letter-spacing:2px">
+                  <button id="mJoinBtn">加入</button>
+                </div></div>
+              <div class="tip">创建后把链接发给朋友，双方在大厅点「准备」→ 3 秒倒计时同时开局，打完自动比分数。</div>
+            </div>
+            <div id="mActive" style="display:none">
+              <div class="stat g" style="margin-bottom:8px;text-align:center">
+                <div class="v" id="mCode" style="letter-spacing:4px">------</div><div class="k">房码</div></div>
+              <div class="grid" style="grid-template-columns:1fr 1fr;margin-bottom:8px">
+                <button id="mCopy">复制链接</button>
+                <button id="mLobby">回大厅</button></div>
+              <div class="tip" id="mStatus">等待对手…</div>
+              <div class="row" style="margin-top:10px">
+                <button id="mLeave" style="width:100%">退出对战</button></div>
+            </div>
+          </div>
+          <!-- 设置 -->
+          <div class="tabpage" id="tab-set">
+            <div id="scroll">
+              <div class="sec">
+                <h3>声音</h3>
+                <div class="row"><label>全局音量 <b id="vGain">80%</b></label>
+                  <input type="range" id="rGain" min="0" max="1" step="0.05" value="0.8"></div>
+                <div class="row"><label>闪光音量 <b id="vFgain">100%</b></label>
+                  <input type="range" id="rFgain" min="0" max="1" step="0.05" value="1"></div>
+                <div class="sfx" id="sfxState">使用内置合成音</div>
+              </div>
+              <div class="sec" data-lockfair>
+                <h3>模式 / 难度</h3>
+                <div class="row"><label>训练模式</label><div class="seg" id="segMode"></div></div>
+                <div class="row"><label>难度曲线</label><div class="seg" id="segDiff"></div></div>
+                <div class="row"><label>闪光轨迹可见度</label><div class="seg" id="segVis"></div></div>
+                <div class="row"><label>单轮时长</label><div class="seg" id="segRound"></div></div>
+                <div class="row"><label>自动闪光频率 <b id="vInt">1.0×</b></label>
+                  <input type="range" id="rInt" min="0.3" max="1" step="0.1" value="1"></div>
+              </div>
+              <div class="sec" data-lockfair>
+                <h3>闪光类型 · 点击开关（后 3 种默认关闭）</h3>
+                <div class="ags" id="agBox"></div>
+              </div>
+              <div class="sec">
+                <h3>手感</h3>
+                <div class="row"><label>鼠标灵敏度 <b id="vSens">0.80</b></label>
+                  <input type="range" id="rSens" min="0.15" max="4" step="0.05" value="0.8"></div>
+                <div class="row"><label>视场角 FOV <b id="vFov">103°</b></label>
+                  <input type="range" id="rFov" min="70" max="125" step="1" value="103"></div>
+                <div class="tip" style="margin:-2px 0 6px">
+                  这里调的是<b>水平</b> FOV。<code>103°</code> 是瓦罗兰特锁定值，默认即原值；
+                  在 16:9 下相当于垂直约 70°。
+                </div>
+                <div class="row"><label>靶点大小 <b id="vTr">0.10</b></label>
+                  <input type="range" id="rTr" min="0.04" max="0.15" step="0.01" value="0.1"></div>
+                <div class="row" data-lockfair><label>同时靶点数 <b id="vTn">5</b></label>
+                  <input type="range" id="rTn" min="1" max="9" step="1" value="5"></div>
+                <div class="row"><label>渲染画质</label><div class="seg" id="segQual"></div></div>
+              </div>
+              <div class="sec">
+                <h3>准星</h3>
+                <div class="row"><label>样式</label><div class="seg" id="segCross"></div></div>
+                <div class="row"><label>颜色</label><div class="seg" id="segCrossC"></div></div>
+                <div class="row"><label>长度 <b id="vCLen">4</b></label>
+                  <input type="range" id="rCLen" min="2" max="22" step="1" value="4"></div>
+                <div class="row"><label>粗细 <b id="vCTh">2</b></label>
+                  <input type="range" id="rCTh" min="1" max="6" step="1" value="2"></div>
+                <div class="row"><label>中心间隙 <b id="vCGap">2</b></label>
+                  <input type="range" id="rCGap" min="0" max="20" step="1" value="2"></div>
+                <div class="row"><label>中心点</label><div class="seg" id="segCrossDot"></div></div>
+              </div>
+              <div class="sec">
+                <h3>辅助</h3>
+                <div class="chk" id="chkBox">
+                  <button data-k="sound" class="act">音效</button>
+                  <button data-k="blur" class="act">动态模糊</button>
+                  <button data-k="edge">边缘提示</button>
+                  <button data-k="invert">反转 Y 轴</button>
+                </div>
+              </div>
+              <div class="sec">
+                <div class="tip">
+                  <b>致盲判定</b>：引爆瞬间，视线与闪光方向夹角 θ 小于该特工锥角才被闪，
+                  <code>θ 越小 → 白屏越久</code>，最长约 2.2s。<br><br>
+                  <b>布雷奇穿墙闪</b>在墙后引爆：墙面先亮起<b>一颗黄点</b>，随后从该点爆开，反应窗口很短。<br><br>
+                  <b>蕾娜之眼</b>可击毁：看到紫球直接打掉即免盲。<br><br>
+                  <b>推荐练法</b>：先「纯躲闪」把躲闪率练到 90%，再切「综合训练」加回靶。
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="tabBtns">
+          <button id="ovlBtn" class="pri">开始训练 · 锁定鼠标</button>
+        </div>
       </div>
     </div>
     <div id="lobby">
@@ -327,114 +479,6 @@
     </div>
   </div>
 
-  <aside id="side">
-    <header><h2>训练数据</h2><p>REAL-TIME STATS</p></header>
-    <div id="scroll">
-      <div class="sec">
-        <h3>本局统计</h3>
-        <div class="grid">
-          <div class="stat y"><div class="v" id="sScore">0</div><div class="k">总分</div></div>
-          <div class="stat r"><div class="v" id="sCombo">0</div><div class="k">最高连击</div></div>
-          <div class="stat g"><div class="v" id="sDodge">--</div><div class="k">躲闪率</div></div>
-          <div class="stat w"><div class="v" id="sAcc">--</div><div class="k">命中率</div></div>
-          <div class="stat"><div class="v" id="sRT">--</div><div class="k">转身反应 ms</div></div>
-          <div class="stat"><div class="v" id="sRF">--</div><div class="k">回靶耗时 ms</div></div>
-          <div class="stat"><div class="v" id="sHit">0 / 0</div><div class="k">命中 / 出手</div></div>
-          <div class="stat"><div class="v" id="sBlind">0</div><div class="k">被闪次数</div></div>
-        </div>
-      </div>
-      <div class="sec" data-lockfair>
-        <h3>模式 / 难度</h3>
-        <div class="row"><label>训练模式</label><div class="seg" id="segMode"></div></div>
-        <div class="row"><label>难度曲线</label><div class="seg" id="segDiff"></div></div>
-        <div class="row"><label>闪光轨迹可见度</label><div class="seg" id="segVis"></div></div>
-        <div class="row"><label>单轮时长</label><div class="seg" id="segRound"></div></div>
-        <div class="row"><label>自动闪光频率 <b id="vInt">1.0×</b></label>
-          <input type="range" id="rInt" min="0.3" max="1" step="0.1" value="1"></div>
-      </div>
-      <div class="sec" data-lockfair>
-        <h3>闪光类型 · 点击开关（后 3 种默认关闭）</h3>
-        <div class="ags" id="agBox"></div>
-      </div>
-      <div class="sec">
-        <h3>手感</h3>
-        <div class="row"><label>鼠标灵敏度 <b id="vSens">1.20</b></label>
-          <input type="range" id="rSens" min="0.15" max="4" step="0.05" value="1.2"></div>
-        <div class="row"><label>视场角 FOV <b id="vFov">103°</b></label>
-          <input type="range" id="rFov" min="70" max="125" step="1" value="103"></div>
-        <div class="tip" style="margin:-2px 0 6px">
-          这里调的是<b>水平</b> FOV。<code>103°</code> 是瓦罗兰特锁定值，默认即原值；
-          在 16:9 下相当于垂直约 70°。
-        </div>
-        <div class="row"><label>靶点大小 <b id="vTr">0.10</b></label>
-          <input type="range" id="rTr" min="0.04" max="0.15" step="0.01" value="0.1"></div>
-        <div class="row" data-lockfair><label>同时靶点数 <b id="vTn">5</b></label>
-          <input type="range" id="rTn" min="1" max="9" step="1" value="5"></div>
-        <div class="row"><label>渲染画质</label><div class="seg" id="segQual"></div></div>
-      </div>
-      <div class="sec">
-        <h3>准星</h3>
-        <div class="row"><label>样式</label><div class="seg" id="segCross"></div></div>
-        <div class="row"><label>颜色</label><div class="seg" id="segCrossC"></div></div>
-        <div class="row"><label>长度 <b id="vCLen">4</b></label>
-          <input type="range" id="rCLen" min="2" max="22" step="1" value="4"></div>
-        <div class="row"><label>粗细 <b id="vCTh">2</b></label>
-          <input type="range" id="rCTh" min="1" max="6" step="1" value="2"></div>
-        <div class="row"><label>中心间隙 <b id="vCGap">2</b></label>
-          <input type="range" id="rCGap" min="0" max="20" step="1" value="2"></div>
-        <div class="row"><label>中心点</label><div class="seg" id="segCrossDot"></div></div>
-      </div>
-      <div class="sec">
-        <h3>辅助</h3>
-        <div class="chk" id="chkBox">
-          <button data-k="sound" class="act">音效</button>
-          <button data-k="blur" class="act">动态模糊</button>
-          <button data-k="edge">边缘提示</button>
-          <button data-k="invert">反转 Y 轴</button>
-        </div>
-        <div class="sfx" id="sfxState">使用内置合成音</div>
-      </div>
-      <div class="sec">
-        <h3>联机对战 · 同一局比分数</h3>
-        <div id="mIdle">
-          <div class="row"><label>你的昵称</label>
-            <input id="mName" maxlength="10" placeholder="给自己起个名"
-              style="width:100%;background:var(--bg3);border:1px solid var(--line);border-radius:3px;
-              color:var(--txt);padding:6px 8px;font:inherit;font-size:12px"></div>
-          <div class="grid" style="grid-template-columns:1fr;margin-bottom:8px">
-            <button id="mCreate" class="pri">创建房间</button>
-          </div>
-          <div class="row"><label>或输入房码加入</label>
-            <div style="display:flex;gap:6px">
-              <input id="mJoin" maxlength="6" placeholder="如 AB3K7M" style="flex:1;min-width:0;text-transform:uppercase;
-                background:var(--bg3);border:1px solid var(--line);border-radius:3px;color:var(--txt);
-                padding:6px 8px;font:inherit;font-size:12px;letter-spacing:2px">
-              <button id="mJoinBtn">加入</button>
-            </div></div>
-          <div class="tip">创建后把链接发给朋友，双方点开即打<b>同一串闪光</b>，打完自动比分数。</div>
-        </div>
-        <div id="mActive" style="display:none">
-          <div class="stat g" style="margin-bottom:8px;text-align:center">
-            <div class="v" id="mCode" style="letter-spacing:4px">------</div><div class="k">房码</div></div>
-          <div class="grid" style="grid-template-columns:1fr 1fr;margin-bottom:8px">
-            <button id="mCopy">复制链接</button>
-            <button id="mLobby">回大厅</button></div>
-          <div class="tip" id="mStatus">等待对手…</div>
-          <div class="row" style="margin-top:10px">
-            <button id="mLeave" style="width:100%">退出对战</button></div>
-        </div>
-      </div>
-      <div class="sec">
-        <div class="tip">
-          <b>致盲判定</b>：引爆瞬间，视线与闪光方向夹角 θ 小于该特工锥角才被闪，
-          <code>θ 越小 → 白屏越久</code>，最长约 2.2s。<br><br>
-          <b>布雷奇穿墙闪</b>在墙后引爆：墙面先亮起<b>一颗黄点</b>，随后从该点爆开，反应窗口很短。<br><br>
-          <b>蕾娜之眼</b>可击毁：看到紫球直接打掉即免盲。<br><br>
-          <b>推荐练法</b>：先「纯躲闪」把躲闪率练到 90%，再切「综合训练」加回靶。
-        </div>
-      </div>
-    </div>
-  </aside>
 </div>
 
 <script>
@@ -476,10 +520,10 @@ const fwdVec=()=>{const cp=Math.cos(cam.pitch);
 
 /* ---------- 配置 ---------- */
 const cfg={
-  sens:1.2, fov:103, invertY:false, targetR:0.1, targetN:5, quality:1,
+  sens:0.8, fov:103, invertY:false, targetR:0.1, targetN:5, quality:1,
   diff:0, mode:0, vis:0, auto:true, rate:1, roundIdx:1,
   crossKind:0, crossColor:0, crossLen:4, crossThick:2, crossGap:2, crossDot:false,
-  sound:true, blur:true, edge:false,
+  sound:true, blur:true, edge:false, gain:0.8, flashGain:1.0,
   agents:{phoenix:true,skye:true,breach:true,kayo:false,yoru:false,reyna:false}
 };
 const DIFF=[
@@ -516,7 +560,7 @@ const AGENTS={
   breach:{zh:'布雷奇',en:'闪光点 Flash Point',color:'#7fb2ff',rgb:'127,178,255',
     shape:'wall',travel:0.95,popFrac:0.44,coneHalf:70,dur:[0.40,2.20],arc:0.15,vf:0.0,
     throughWall:true,note:'墙后引爆：先在墙面亮起一个黄色光点'},
-  kayo:{zh:'恺',en:'闪光驱动 FLASH/drive',color:'#9fe8ff',rgb:'159,232,255',
+  kayo:{zh:'KO',en:'闪光驱动 FLASH/drive',color:'#9fe8ff',rgb:'159,232,255',
     shape:'cassette',travel:1.05,popFrac:0.80,coneHalf:58,dur:[0.35,2.10],arc:0.6,vf:0.32,
     note:'蓝色长方体，飞行中有滴答声'},
   yoru:{zh:'夜露',en:'致盲球 Blindside',color:'#c79bff',rgb:'199,155,255',
@@ -772,14 +816,22 @@ const COLUMNS=(()=>{
 const DOOR_LIGHT=[P(-ARCH.r,ROOM.yF+0.012,AZ0),P(ARCH.r,ROOM.yF+0.012,AZ0),
                   P(4.0,ROOM.yF+0.012,0.4),P(-2.8,ROOM.yF+0.012,0.4)];
 /* ---------- 音效（WebAudio 合成，无外部依赖） ---------- */
-let AC=null, master=null;
+let AC=null, master=null, busFlash=null, bus=null;
+const GAIN_HEADROOM=0.62;               // 对齐改版前 master=0.5 的响度：cfg.gain 0.8 时≈0.5
 function audio(){
   if(!AC){
     const C=window.AudioContext||window.webkitAudioContext; if(!C) return null;
-    AC=new C(); master=AC.createGain(); master.gain.value=0.5; master.connect(AC.destination);
+    AC=new C();
+    master=AC.createGain(); master.gain.value=cfg.gain*GAIN_HEADROOM; master.connect(AC.destination);
+    busFlash=AC.createGain(); busFlash.gain.value=cfg.flashGain; busFlash.connect(master);
   }
   if(AC.state==='suspended') AC.resume();
   return AC;
+}
+/* 音量滑杆调用：合成音改节点 gain，文件音在下一次播放时按 cfg 现算 */
+function applyVolume(){
+  if(master) master.gain.value=cfg.gain*GAIN_HEADROOM;
+  if(busFlash) busFlash.gain.value=cfg.flashGain;
 }
 function tone(freq,dur,type,gain,slideTo){
   if(!cfg.sound) return; const a=audio(); if(!a) return;
@@ -789,7 +841,7 @@ function tone(freq,dur,type,gain,slideTo){
   g.gain.setValueAtTime(0.0001,t);
   g.gain.linearRampToValueAtTime(gain,t+0.008);
   g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
-  o.connect(g); g.connect(master); o.start(t); o.stop(t+dur+0.03);
+  o.connect(g); g.connect(bus||master); o.start(t); o.stop(t+dur+0.03);
 }
 function noise(dur,gain,f0,f1){
   if(!cfg.sound) return; const a=audio(); if(!a) return;
@@ -802,7 +854,7 @@ function noise(dur,gain,f0,f1){
   const g=a.createGain();
   g.gain.setValueAtTime(gain,a.currentTime);
   g.gain.exponentialRampToValueAtTime(0.0001,a.currentTime+dur);
-  src.connect(bp); bp.connect(g); g.connect(master); src.start();
+  src.connect(bp); bp.connect(g); g.connect(bus||master); src.start();
 }
 /* 自定义音频：把音频文件放进 HTML 同目录的 sfx/ 文件夹，按下列名字命名即可自动生效。
    支持 mp3 / wav / ogg / m4a。没放文件或加载失败时，自动回退到下面的合成音。 */
@@ -842,20 +894,25 @@ function loadSfxFiles(){
   }
   setTimeout(sfxTag,1500);
 }
-function playFile(name,vol){
+function playFile(name,vol,mul){
   const src=sfxFile[name]; if(!src) return false;
   let a=src;
   try{ a=src.cloneNode(true); }catch(e){ a=src; a.currentTime=0; }
-  a.volume=clamp(vol===undefined?1:vol,0,1);
+  a.volume=clamp((vol===undefined?1:vol)*(mul===undefined?1:mul),0,1);
   const p=a.play(); if(p&&p.catch) p.catch(()=>{});
   return true;
 }
-/* 先找特工专属音（如 phoenix_pop），再找通用音（pop），都没有才合成 */
-function snd(specific,generic,vol,synth){
+/* 先找特工专属音（如 phoenix_pop），再找通用音（pop），都没有才合成。
+   cat='flash' 时额外乘闪光音量，其余只受全局音量控制。 */
+function snd(specific,generic,vol,synth,cat){
   if(!cfg.sound) return;
-  if(specific && playFile(specific,vol)) return;
-  if(generic  && playFile(generic,vol))  return;
+  const mul=clamp(cfg.gain*(cat==='flash'?cfg.flashGain:1),0,1);
+  if(specific && playFile(specific,vol,mul)) return;
+  if(generic  && playFile(generic,vol,mul))  return;
+  const ac=audio();
+  bus = (ac && cat==='flash') ? busFlash : master;
   synth();
+  bus = null;
 }
 
 /* 每种闪光的引爆音色（合成回退用，尽量贴近各技能的手感） */
@@ -877,15 +934,15 @@ const THROW_SYNTH={
 };
 
 const sfx={
-  throw(k){ snd(k?k+'_throw':null,'throw',0.95,()=>(THROW_SYNTH[k]||THROW_SYNTH.phoenix)()); },
-  beep(k){  snd(k?k+'_beep':null,'beep',0.85,()=>tone(1250,0.045,'square',0.07)); },
-  pop(k){   snd(k?k+'_pop':null,'pop',1,()=>(POP_SYNTH[k]||POP_SYNTH.phoenix)()); },
+  throw(k){ snd(k?k+'_throw':null,'throw',0.95,()=>(THROW_SYNTH[k]||THROW_SYNTH.phoenix)(),'flash'); },
+  beep(k){  snd(k?k+'_beep':null,'beep',0.85,()=>tone(1250,0.045,'square',0.07),'flash'); },
+  pop(k){   snd(k?k+'_pop':null,'pop',1,()=>(POP_SYNTH[k]||POP_SYNTH.phoenix)(),'flash'); },
   hit(){    snd(null,'hit',0.9,()=>tone(880,0.07,'square',0.10,1400)); },
   miss(){   snd(null,'miss',0.8,()=>tone(190,0.10,'sine',0.07,120)); },
   dodge(){  snd(null,'dodge',0.9,()=>{ tone(620,0.06,'sine',0.08); setTimeout(()=>tone(930,0.08,'sine',0.08),55); }); },
   breakEye(){ snd(null,'breakEye',0.95,()=>{ noise(0.20,0.30,3000,400); tone(700,0.12,'sawtooth',0.08,200); }); },
-  leer(){     snd(null,'leer',0.95,()=>{ tone(150,0.55,'sawtooth',0.07,430); noise(0.34,0.22,780,170); }); },
-  charge(k){ snd(k?k+'_charge':null,'charge',0.9,()=>{ tone(260,0.5,'sawtooth',0.05,1500); noise(0.45,0.10,400,3000); }); },
+  leer(){     snd(null,'leer',0.95,()=>{ tone(150,0.55,'sawtooth',0.07,430); noise(0.34,0.22,780,170); },'flash'); },
+  charge(k){ snd(k?k+'_charge':null,'charge',0.9,()=>{ tone(260,0.5,'sawtooth',0.05,1500); noise(0.45,0.10,400,3000); },'flash'); },
   over(){   snd(null,'over',0.7,()=>tone(300,0.14,'sine',0.05,150)); }
 };
 
@@ -1191,13 +1248,23 @@ function spawnFlash(key){
     f.charges=[{ x:sg*grand(2.1,3.9), y:grand(ROOM.yF+0.55,2.10), z:ROOM.zW-0.03, ph:grand(0,6.2832) }];  }
   flashes.push(f);
 
-  /* 多靶点模式下闪光飞来不再整体重置靶点：位置乱跳会让回靶手感失真 */
-  sfx.throw(a.key);
+  /* 出手音效：要等球真正出现在画面上再播（音画同步）。
+     闪光前半程藏在墙后，t=0 屏幕上什么都没有，声音却在响 ——
+     听感就是「音效快一拍」。可见时刻 = popFrac 减去可见窗口
+     （drawFlashes 里 fromU 的算法照搬过来），breach/reyna 例外：
+     黄点/紫眼 t=0 就出现，所以立刻播。 */
+  if(a.noPath || a.throughWall){
+    sfx.throw(a.key);
+  }else{
+    const visMul=[1.45,0.70,0][cfg.vis];
+    const fromU=popFrac-(a.vf||0.25)*visMul;
+    const delay=Math.max(0, travel*fromU);
+    setTimeout(()=>{ if(!f.popped) sfx.throw(a.key); }, delay*1000);
+  }
   if(a.throughWall){
     const lead=Math.max(0,(f.popAt-T)-chargeTime())*1000;
     setTimeout(()=>{ if(!f.popped) sfx.charge(a.key); }, lead);
   }
-  if(key==='kayo'){ for(let i=1;i<=3;i++) setTimeout(()=>{if(!f.popped) sfx.beep(a.key);}, i*travel*250); }
   showAgent(a);
   st.trials++;
   return f;
@@ -1652,7 +1719,7 @@ function drawBird(sx,sy,rr,ang,rgb){
   ctx.beginPath(); ctx.arc(rr*1.12,-rr*0.16,rr*0.11,0,6.2832); ctx.fill();
   ctx.restore();
 }
-/* 恺闪光弹：蓝色长方体，翻滚旋转 */
+/* KO 闪光弹：蓝色长方体，翻滚旋转 */
 function drawCassette(sx,sy,rr,ang,rgb){
   ctx.save(); ctx.translate(sx,sy); ctx.rotate(ang);
   glowDot(0,0,rr*3.2,rgb,0.5,0.5);
@@ -2210,9 +2277,12 @@ document.addEventListener('keydown',e=>{
   if(k===' '||e.code==='Space'){ e.preventDefault(); if(playing&&!paused) shoot(); return; }
   if(k==='escape'){
     if(roundOver){ $('resClose').click(); return; }
-    if(playing&&!paused) pause(); return;
+    if(menuIsOpen()){ resume(); return; }      /* 菜单开着：再按 Esc = 继续 */
+    if(playing) pause();                        /* 游戏中：暂停并开菜单 */
+    else openMenu('solo');                      /* 停在开屏：点一下菜单 */
+    return;
   }
-  if(k==='h'){ toggleSide(); return; }
+  if(k==='h'){ toggleMini(); return; }
   if(k==='f'){ e.preventDefault(); manualFlash(); return; }
   if(k==='r'){ if(playing&&!paused&&cfg.mode!==1) relocateTarget(); return; }
   if(k==='a'){ toggleAuto(); return; }
@@ -2257,21 +2327,34 @@ function pause(){
   if(!playing||paused) return;
   paused=true; pauseT=T; mdx=0; mdy=0;
   $('bStart').textContent='继续';
-  const box=$('ovl');
-  box.style.display='flex';
-  box.querySelector('h1').textContent='已暂停';
-  box.querySelector('.sub').textContent='PAUSED · 点击任意处继续';
-  $('ovlBtn').textContent='点击继续';
+  openMenu('solo', true);
   if(document.exitPointerLock) document.exitPointerLock();
 }
 function resume(){
-  paused=false; mdx=0; mdy=0;
-  shiftTime(T-pauseT);
-  $('ovl').style.display='none';
-  $('bStart').textContent='暂停';
-  relock();
-  blindUntil=0; blindDur=0; blindSrc=0; blindStart=0; scheduleAuto();
+  if(paused){
+    paused=false; mdx=0; mdy=0;
+    shiftTime(T-pauseT);
+    $('bStart').textContent='暂停';
+    blindUntil=0; blindDur=0; blindSrc=0; blindStart=0; scheduleAuto();
+  }
+  closeMenu();
+  if(playing) relock();
 }
+/* ---------- 统一菜单（开屏 / 暂停） ---------- */
+function menuIsOpen(){ return $('ovl').style.display!=='none'; }
+function closeMenu(){ $('ovl').style.display='none'; }
+function openMenu(tab, isPause){
+  $('ovl').style.display='flex';
+  $('ovlBtn').textContent = isPause ? '继续训练' : (playing ? '继续训练' : '开始训练 · 锁定鼠标');
+  if(tab) selectTab(tab);
+}
+function selectTab(name){
+  const tabs=$('menuTabs').children;
+  for(const b of tabs) b.classList.toggle('act', b.dataset.tab===name);
+  for(const pg of ['solo','battle','set'])
+    $('tab-'+pg).classList.toggle('act', pg===name);
+}
+function toggleMini(){ $('miniStats').classList.toggle('hide'); }
 function resetStats(silent){
   score=0; combo=0; shownScore=0;
   st.trials=st.dodges=st.blinds=st.hits=st.shots=st.best=0;
@@ -2301,11 +2384,6 @@ function relock(){
     const p=stage.requestPointerLock({unadjustedMovement:true});
     if(p&&p.catch) p.catch(fallback);
   }catch(e){ fallback(); }
-}
-function toggleSide(){
-  const hidden=$('side').classList.toggle('hide');
-  $('bSide').textContent=hidden?'◂':'▸';
-  resize();                       /* 画布要跟着变宽重新取尺寸 */
 }
 function toggleAuto(){
   cfg.auto=!cfg.auto;
@@ -2358,12 +2436,15 @@ function syncChecks(){
   [...$('chkBox').children].forEach(b=>b.classList.toggle('act',!!cfg[b.dataset.k]));
 }
 function bindUI(){
-  buildSeg($('segMode'),MODES,v=>v,i=>{cfg.mode=i;relocateTarget();updateStats();});
-  buildSeg($('segDiff'),DIFF,v=>v,i=>{cfg.diff=i;relocateTarget();updateStats();});
-  buildSeg($('segVis'),[{n:'正常'},{n:'短暂'},{n:'无'}],v=>v,i=>{cfg.vis=i;});
-  buildSeg($('segRound'),ROUNDS,v=>v,i=>{ cfg.roundIdx=i; if(playing) startRound(); else { roundOver=false; roundEndAt=0; } });
+  buildSeg($('segMode'),MODES,v=>v,i=>{cfg.mode=i;relocateTarget();updateStats();saveCfg();});
+  buildSeg($('segDiff'),DIFF,v=>v,i=>{cfg.diff=i;relocateTarget();updateStats();saveCfg();});
+  buildSeg($('segVis'),[{n:'正常'},{n:'短暂'},{n:'无'}],v=>v,i=>{cfg.vis=i;saveCfg();});
+  buildSeg($('segRound'),ROUNDS,v=>v,i=>{ cfg.roundIdx=i; if(playing) startRound(); else { roundOver=false; roundEndAt=0; } saveCfg(); });
 
-  $('bSide').onclick=e=>{ e.stopPropagation(); toggleSide(); };
+  /* 菜单页签切换 */
+  for(const b of $('menuTabs').children)
+    b.onclick=e=>{ e.stopPropagation(); selectTab(b.dataset.tab); };
+
   $('resAgain').onclick=e=>{ e.stopPropagation();
     if(match.active){ matchAgain(); return; }        /* 对战：回大厅重新准备，双方再确认一次 */
     startRound(); relock(); };
@@ -2377,26 +2458,30 @@ function bindUI(){
     relock();
   };
 
-  $('rInt').oninput=e=>{ cfg.rate=+e.target.value; $('vInt').textContent=cfg.rate.toFixed(1)+'×'; scheduleAuto(); };
-  $('rSens').oninput=e=>{ cfg.sens=+e.target.value; $('vSens').textContent=cfg.sens.toFixed(2); };
-  $('rFov').oninput=e=>{ cfg.fov=+e.target.value; $('vFov').textContent=cfg.fov+'°'; updateF(); };
+  $('rInt').oninput=e=>{ cfg.rate=+e.target.value; $('vInt').textContent=cfg.rate.toFixed(1)+'×'; scheduleAuto(); saveCfg(); };
+  $('rSens').oninput=e=>{ cfg.sens=+e.target.value; $('vSens').textContent=cfg.sens.toFixed(2); saveCfg(); };
+  $('rFov').oninput=e=>{ cfg.fov=+e.target.value; $('vFov').textContent=cfg.fov+'°'; updateF(); saveCfg(); };
   $('rTr').oninput=e=>{ cfg.targetR=+e.target.value; $('vTr').textContent=cfg.targetR.toFixed(2);
-                        for(const t of targets) t.r=targetR(); };
-  $('rTn').oninput=e=>{ cfg.targetN=+e.target.value; $('vTn').textContent=cfg.targetN; fillTargets(); };
+                        for(const t of targets) t.r=targetR(); saveCfg(); };
+  $('rTn').oninput=e=>{ cfg.targetN=+e.target.value; $('vTn').textContent=cfg.targetN; fillTargets(); saveCfg(); };
+  $('rGain').oninput=e=>{ cfg.gain=+e.target.value; $('vGain').textContent=Math.round(cfg.gain*100)+'%';
+                         applyVolume(); saveCfg(); };
+  $('rFgain').oninput=e=>{ cfg.flashGain=+e.target.value; $('vFgain').textContent=Math.round(cfg.flashGain*100)+'%';
+                          applyVolume(); saveCfg(); };
   buildSeg($('segQual'),[{n:'流畅'},{n:'标准'},{n:'精细'}],v=>v,i=>{
-    cfg.quality=i; dprDrop=0; dprCap=QUAL_DPR[i]; resize();
+    cfg.quality=i; dprDrop=0; dprCap=QUAL_DPR[i]; resize(); saveCfg();
   });
-  buildSeg($('segCross'),CROSS_KINDS,v=>v,i=>{ cfg.crossKind=i; });
-  buildSeg($('segCrossC'),CROSS_COLORS,v=>v,i=>{ cfg.crossColor=i; });
+  buildSeg($('segCross'),CROSS_KINDS,v=>v,i=>{ cfg.crossKind=i; saveCfg(); });
+  buildSeg($('segCrossC'),CROSS_COLORS,v=>v,i=>{ cfg.crossColor=i; saveCfg(); });
   /* 中心点单独做成「关闭 / 开启」，比藏在辅助区的勾选按钮好找。
      注意样式选「点」时中心点强制显示，否则准星就空了。 */
-  buildSeg($('segCrossDot'),[{n:'关闭'},{n:'开启'}],v=>cfg.crossDot?1:0,i=>{ cfg.crossDot=!!i; });
-  $('rCLen').oninput=e=>{ cfg.crossLen=+e.target.value; $('vCLen').textContent=cfg.crossLen; };
-  $('rCTh').oninput =e=>{ cfg.crossThick=+e.target.value; $('vCTh').textContent=cfg.crossThick; };
-  $('rCGap').oninput=e=>{ cfg.crossGap=+e.target.value; $('vCGap').textContent=cfg.crossGap; };
+  buildSeg($('segCrossDot'),[{n:'关闭'},{n:'开启'}],v=>cfg.crossDot?1:0,i=>{ cfg.crossDot=!!i; saveCfg(); });
+  $('rCLen').oninput=e=>{ cfg.crossLen=+e.target.value; $('vCLen').textContent=cfg.crossLen; saveCfg(); };
+  $('rCTh').oninput =e=>{ cfg.crossThick=+e.target.value; $('vCTh').textContent=cfg.crossThick; saveCfg(); };
+  $('rCGap').oninput=e=>{ cfg.crossGap=+e.target.value; $('vCGap').textContent=cfg.crossGap; saveCfg(); };
 
   [...$('chkBox').children].forEach(b=>{
-    b.onclick=()=>{ cfg[b.dataset.k]=!cfg[b.dataset.k]; syncChecks(); };
+    b.onclick=()=>{ cfg[b.dataset.k]=!cfg[b.dataset.k]; syncChecks(); saveCfg(); };
   });
 
   $('bStart').onclick=()=>{ if(!playing) start(); else if(paused) resume(); else pause(); };
@@ -2404,7 +2489,8 @@ function bindUI(){
   $('bAuto').onclick=e=>{ e.stopPropagation(); toggleAuto(); };
   $('bReset').onclick=e=>{ e.stopPropagation(); resetStats(); };
   $('ovlBtn').onclick=e=>{ e.stopPropagation(); if(!playing) start(); else resume(); };
-  $('ovl').onclick=()=>{ if(!playing) start(); else resume(); };
+  /* 注意：不能再给整个 #ovl 挂「点任意处开始」—— 菜单里有滑杆/按钮，
+     点设置会被误判成开始。只有 #ovlBtn 触发开始/继续。 */
 
   /* 必须放在所有 buildSeg 之后：buildSeg 只建按钮，高亮靠 syncSegs 刷。
      原来这里在 segQual / segCross / segCrossC 创建前就调用了一次，
@@ -2418,6 +2504,40 @@ function bindUI(){
    ② 收拢双方分数、自动判胜负。云端不可用时（本地 file://、GitHub Pages）
    自动降级为「同房码离线对战 + 口头比分」，功能不崩。 */
 const LS_NAME='aft_name';
+/* ---------- 设置持久化（localStorage）：音量/灵敏度等刷新后保持 ---------- */
+const LS_CFG='aft_cfg';
+function saveCfg(){
+  if(typeof localStorage==='undefined') return;
+  try{ localStorage.setItem(LS_CFG, JSON.stringify(cfg)); }catch(e){}
+}
+function loadCfg(){
+  if(typeof localStorage==='undefined') return;
+  let s=null; try{ s=JSON.parse(localStorage.getItem(LS_CFG)||'null'); }catch(e){}
+  if(!s||typeof s!=='object') return;
+  for(const k in s){
+    if(k==='agents' && s.agents && typeof s.agents==='object')
+      cfg.agents=Object.assign({},cfg.agents,s.agents);
+    else if(typeof cfg[k]===typeof s[k]) cfg[k]=s[k];     // 类型对得上才覆盖，挡脏数据
+  }
+  cfg.gain=clamp(cfg.gain||0.8,0,1); cfg.flashGain=clamp(cfg.flashGain==null?1:cfg.flashGain,0,1);
+}
+/* 把 cfg 现值刷回控件（含音量），启动时 loadCfg 之后调一次 */
+function applyCfgToUI(){
+  const setR=(id,val)=>{ const el=$(id); if(el) el.value=val; };
+  const setT=(id,txt)=>{ const el=$(id); if(el) el.textContent=txt; };
+  setR('rSens',cfg.sens);  setT('vSens',cfg.sens.toFixed(2));
+  setR('rFov',cfg.fov);    setT('vFov',cfg.fov+'°');
+  setR('rTr',cfg.targetR); setT('vTr',cfg.targetR.toFixed(2));
+  setR('rTn',cfg.targetN); setT('vTn',cfg.targetN);
+  setR('rInt',cfg.rate);   setT('vInt',cfg.rate.toFixed(1)+'×');
+  setR('rGain',cfg.gain);       setT('vGain',Math.round(cfg.gain*100)+'%');
+  setR('rFgain',cfg.flashGain); setT('vFgain',Math.round(cfg.flashGain*100)+'%');
+  setR('rCLen',cfg.crossLen); setT('vCLen',cfg.crossLen);
+  setR('rCTh',cfg.crossThick); setT('vCTh',cfg.crossThick);
+  setR('rCGap',cfg.crossGap);  setT('vCGap',cfg.crossGap);
+  buildAgents(); syncSegs(); syncChecks(); applyVolume(); updateF();
+  for(const t of targets) t.r=targetR();
+}
 function urlRoom(){ const m=location.search.match(/[?&]r=([A-Za-z0-9]{6})/); return m?m[1].toUpperCase():''; }
 function shareLink(code){ return location.origin+location.pathname+'?r='+code; }
 function myName(){ return (localStorage.getItem(LS_NAME)||'').trim(); }
@@ -2518,7 +2638,7 @@ function setMatchChrome(on){
   $('bFlash').style.display=on?'none':'';      /* 对战中手动/自动/重置都收起来，避免破坏同步 */
   $('bAuto').style.display=on?'none':'';
   $('bReset').style.display=on?'none':'';
-  const lockSecs=document.querySelectorAll('#side [data-lockfair]');
+  const lockSecs=document.querySelectorAll('#tab-set [data-lockfair]');
   for(const el of lockSecs){ el.style.opacity=on?'.45':''; el.style.pointerEvents=on?'none':''; }
   updateMTag();
 }
@@ -2777,8 +2897,9 @@ function initMatchUI(){
   $('lbLeave').onclick=e=>{ e.stopPropagation(); leaveMatch(); };
   $('bMatch').onclick=e=>{ e.stopPropagation();
     if(match.active){ match.quiet=0; lobbyOpen(); startPoll(); return; }
-    if($('side').classList.contains('hide')) toggleSide();   /* 数据栏收着就先展开 */
-    $('scroll').scrollTo({top:$('scroll').scrollHeight*0.5, behavior:'smooth'});
+    /* 对战入口移进菜单的「联机对战」页签：开菜单并定位到该页 */
+    if(playing && !paused) pause();
+    openMenu('battle', paused);
   };
   /* 切回前台时补一次同步，别让大厅停在旧状态 */
   if(typeof document.addEventListener==='function'){
@@ -2791,16 +2912,19 @@ function initMatchUI(){
 }
 /* ---------- 启动 ---------- */
 resize();
+loadCfg();
 bindUI();
 buildAgents();
 syncChecks();
+applyCfgToUI();
 initMatchUI();
 relocateTarget();
 updateStats();
 loadSfxFiles();
-log('点击画面开始训练','c');
+if(urlRoom()) { /* 带 ?r= 房码进来，initMatchUI 已尝试进房，菜单直接定位到对战页 */ selectTab('battle'); }
+log('点击「开始训练」进入 · 按 Esc 打开菜单','c');
 log('拱门内同时出现多颗靶球，打掉一颗就地补一颗','y');
-log('提示：恺 / 夜露 / 蕾娜 默认关闭，可在右侧开启','y');
+log('提示：KO / 夜露 / 蕾娜 默认关闭，可在设置里开启','y');
 requestAnimationFrame(frame);
 </script>
 </body>

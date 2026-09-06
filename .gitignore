@@ -15,3 +15,11 @@ node_modules/
 
 # 后端测试的临时副本
 .workbuddy/_api_under_test.mjs
+
+# 音效源素材压缩包不入库（切分后的成品在 sfx/ 里）
+*.zip
+__pycache__/
+
+# 切分脚本的工作目录（源素材已解压备份，不入库）
+.workbuddy/_sfx_raw/
+.workbuddy/_sfx_split/

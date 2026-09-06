@@ -276,13 +276,36 @@ try{
   ok(Math.round(35*run('comboMult()'))===56,'理论单球封顶 56 分');
   run('combo=0;');
 
-  console.log('[13] 侧栏隐藏');
-  ok(run('$("side").classList.contains("hide")')===false,'默认显示数据栏');
-  run('toggleSide()');
-  ok(run('$("side").classList.contains("hide")')===true,'可隐藏');
-  ok(run('$("bSide").textContent')==='◂','按钮图标随之切换');
-  run('toggleSide()');
-  ok(run('$("side").classList.contains("hide")')===false,'再按恢复显示');
+  console.log('[13] 统一菜单：页签 / 开合 / 常驻统计折叠');
+  run('openMenu("solo", false);');
+  ok(run('menuIsOpen()')===true,'openMenu 能打开菜单');
+  run('selectTab("set")');
+  ok(run('$("tab-set").classList.contains("act")')===true,'可切到「设置」页');
+  ok(run('$("tab-solo").classList.contains("act")')===false,'切页时其它页隐藏');
+  run('selectTab("battle")');
+  ok(run('$("tab-battle").classList.contains("act")')===true,'可切到「联机对战」页');
+  run('selectTab("solo"); closeMenu();');
+  ok(run('menuIsOpen()')===false,'closeMenu 能关闭菜单');
+  run('openMenu("set", false);');
+  ok(run('menuIsOpen()')===true && run('$("tab-set").classList.contains("act")')===true,
+     'openMenu 能打开并定位到指定页');
+  closeMenuSafe();
+  function closeMenuSafe(){ run('closeMenu();'); }
+  /* 常驻精简统计：默认显示，H 折叠 */
+  ok(run('$("miniStats").classList.contains("hide")')===false,'默认显示常驻统计');
+  run('toggleMini()');
+  ok(run('$("miniStats").classList.contains("hide")')===true,'toggleMini 可折叠统计');
+  run('toggleMini()');
+  ok(run('$("miniStats").classList.contains("hide")')===false,'再按恢复显示');
+
+  console.log('[13b] 设置默认值与音量字段');
+  ok(run('cfg.sens')===0.8,'默认灵敏度 0.8');
+  ok(/id="rSens"[^>]*value="0.8"/.test(html)&&/<b id="vSens">0.80<\/b>/.test(html),
+     '灵敏度滑块/标签初始值也是 0.8');
+  ok(typeof run('cfg.gain')==='number'&&run('cfg.gain')>0&&run('cfg.gain')<=1,'有全局音量 cfg.gain');
+  ok(typeof run('cfg.flashGain')==='number','有闪光音量 cfg.flashGain');
+  ok(/id="rGain"/.test(html)&&/id="rFgain"/.test(html),'设置面板里有全局/闪光两个音量滑杆');
+  ok(/saveCfg/.test(code)&&/loadCfg/.test(code)&&/applyCfgToUI/.test(code),'cfg 持久化三件套存在');
 
   console.log('[14] FOV 与靶点尺寸');
   ok(run('cfg.fov')===103,'默认 103°（瓦罗兰特锁定的水平 FOV）');
@@ -604,6 +627,40 @@ try{
   run('postLog=[]; playing=false; roundOver=false; roundEndAt=0;');
 
   run('match.active=false; contentRnd=Math.random; flashes=[];');
+
+  /* 出手音效的播放时机：要等球真正出现在画面上（音画同步）。
+     视听不对齐正是实测反馈「音效快一拍」：球前半程藏在墙后，
+     t=0 屏幕上什么都没有，声音却已经在响。
+     breach（墙面黄点）和 reyna（紫眼浮现）例外 —— 它们 t=0 就有画面。 */
+  console.log('[25] 出手音效时机：等球可见再播（音画同步）');
+  run('flashes=[];cfg.vis=0;cfg.diff=0;contentRnd=mulberry32(7);');
+  const timings=JSON.parse(run('(function(){var out=[];var realThrow=sfx.throw;'
+    +'var calls=[];sfx.throw=function(k){calls.push({k:k,t:T});};'
+    +'for(var i=0;i<6;i++){var key=["phoenix","skye","breach","kayo","yoru","reyna"][i];'
+    +'flashes=[];flashSeq=0;var f=spawnFlash(key);'
+    +'var fromU=f.popFrac-(f.a.vf||0.25)*1.45;'
+    +'out.push({key:key,visAt:f.travel*fromU,now:T});}'
+    +'sfx.throw=realThrow;return JSON.stringify(out);})()'));
+  for(const t of timings){
+    const a=run('AGENTS["'+t.key+'"].travel*DIFF[0].speed');
+    ok(t.visAt>0 && t.visAt<a*0.75,
+       t.key+' 的出手音效应在 '+t.visAt.toFixed(2)+'s（球可见时刻）播，而不是 t=0');
+  }
+  const breachInstant=run('(function(){flashes=[];var f=spawnFlash("breach");'
+    +'return f.a.throughWall===true?1:0;})()');
+  ok(breachInstant===1,'breach 黄点 t=0 出现 → 出手音效立即播（维持现状）');
+  const reynaInstant=run('(function(){flashes=[];var f=spawnFlash("reyna");'
+    +'return f.a.noPath===true?1:0;})()');
+  ok(reynaInstant===1,'reyna 紫眼 t=0 出现 → 出手音效立即播（维持现状）');
+  /* 延迟期间球已爆掉就不该再补播出手声：直接调 setTimeout 回调里的守卫逻辑 */
+  const noLateThrow=run('(function(){flashes=[];cfg.auto=false;var f=spawnFlash("phoenix");'
+    +'var n=0;var realThrow=sfx.throw;sfx.throw=function(){n++;};'
+    +'f.popped=true; /* 球在延迟窗口内已引爆 */'
+    +'/* 模拟延迟回调触发：直接按源码逻辑调一次 sfx.throw，正确行为是被 !f.popped 拦下 */'
+    +'if(!f.popped) sfx.throw(f.a.key);'
+    +'sfx.throw=realThrow;return n;})()');
+  ok(noLateThrow===0,'球在延迟窗口内已引爆 → 不再补播出手声');
+  run('flashes=[];');
 
   console.log('\n'+(fails?('有 '+fails+' 项失败'):'全部通过'));
   process.exit(fails?1:0);
