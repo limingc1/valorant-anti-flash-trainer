@@ -942,7 +942,7 @@ const sfx={
   dodge(){  snd(null,'dodge',0.9,()=>{ tone(620,0.06,'sine',0.08); setTimeout(()=>tone(930,0.08,'sine',0.08),55); }); },
   breakEye(){ snd(null,'breakEye',0.95,()=>{ noise(0.20,0.30,3000,400); tone(700,0.12,'sawtooth',0.08,200); }); },
   leer(){     snd(null,'leer',0.95,()=>{ tone(150,0.55,'sawtooth',0.07,430); noise(0.34,0.22,780,170); },'flash'); },
-  charge(k){ snd(k?k+'_charge':null,'charge',0.9,()=>{ tone(260,0.5,'sawtooth',0.05,1500); noise(0.45,0.10,400,3000); },'flash'); },
+  charge(k){ snd(k?k+'_charge':null,'charge',0.9,()=>{ tone(260,0.5,'sawtooth',0.05,1500); noise(0.45,0.10,400,3000); },'flash'); },   /* 预留：放了 sfx/breach_charge.wav 才会响 */
   over(){   snd(null,'over',0.7,()=>tone(300,0.14,'sine',0.05,150)); }
 };
 
@@ -1258,10 +1258,9 @@ function spawnFlash(key){
   }else{
     f.onVisible=()=>{ if(!f.popped) sfx.throw(a.key); };
   }
-  if(a.throughWall){
-    const lead=Math.max(0,(f.popAt-T)-chargeTime())*1000;
-    setTimeout(()=>{ if(!f.popped) sfx.charge(a.key); }, lead);
-  }
+  /* 布雷奇的合成 charge 预警音已删：真实音效里本身就含充能预警的嗡鸣，
+     两个声音在 t=0 叠播（lead 恒为 0），合成音盖在真实音上就是实测的
+     「铁臂刚出现时混着一段旧合成音」。黄点动画照画，只是不再配音。 */
   showAgent(a);
   st.trials++;
   return f;
