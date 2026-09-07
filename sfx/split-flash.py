@@ -44,10 +44,7 @@ VIS_AT = {'phoenix': 0.60, 'skye': 0.35, 'breach': 0.0,
           'kayo': 0.48, 'yoru': 0.37, 'reyna': 0.0}
 # 个别音效的 pop 尾巴太长，硬截到指定秒数（120ms 淡出），实测 breach 尾音拖沓
 POP_TAIL_CUT = {'breach': 0.70}
-# throw 段按游戏可见窗口截短（窗口 = 最早引爆 - 球可见时刻，取困难难度更短值）：
-# 录音是原版游戏节奏（可见→引爆约 1 秒+），训练器窗口只有 0.2~0.6s，
-# 不截的话 throw 会压过引爆（实测「动画都结束声音才出来」）。80ms 淡出。
-THROW_WINDOW = {'phoenix': 0.53, 'skye': 0.20, 'kayo': 0.40, 'yoru': 0.35}
+
 
 
 def normalize(buf, target_db):
@@ -210,16 +207,6 @@ def process(path, outdir, keep_stereo, override=None, norm=True,
     if norm:
         normalize(thr_buf, peak_throw)
         normalize(pop_buf, peak_pop)
-
-    tw = THROW_WINDOW.get(base)
-    if tw:
-        keep_i = int(tw * sr) * och
-        if keep_i < len(thr_buf):
-            fade_n2 = int(0.08 * sr) * och
-            thr_buf = thr_buf[:keep_i]
-            for i in range(min(fade_n2, len(thr_buf))):
-                j = len(thr_buf) - 1 - i
-                thr_buf[j] = int(thr_buf[j] * (i / fade_n2))
 
     hard = POP_TAIL_CUT.get(base)
     if hard:
