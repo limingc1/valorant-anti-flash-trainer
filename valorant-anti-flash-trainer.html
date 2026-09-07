@@ -1248,18 +1248,15 @@ function spawnFlash(key){
     f.charges=[{ x:sg*grand(2.1,3.9), y:grand(ROOM.yF+0.55,2.10), z:ROOM.zW-0.03, ph:grand(0,6.2832) }];  }
   flashes.push(f);
 
-  /* 出手音效：要等球真正出现在画面上再播（音画同步）。
-     闪光前半程藏在墙后，t=0 屏幕上什么都没有，声音却在响 ——
-     听感就是「音效快一拍」。可见时刻 = popFrac 减去可见窗口
-     （drawFlashes 里 fromU 的算法照搬过来），breach/reyna 例外：
-     黄点/紫眼 t=0 就出现，所以立刻播。 */
+  /* 出手音效：挂在「画面第一次真正画出球的那一帧」触发，而不是 setTimeout 定时。
+     定时器和渲染帧是两套时钟——机器卡一下（掉帧/开录屏/后台抢占），声音照走，
+     画面却停了，听感就是「声音先出现」。改成帧同步后，声音永远跟着画面走：
+     drawFlashes 里球第一次通过可见判定时调 f.onVisible()，见 drawFlashes()。
+     breach（墙面黄点）和 reyna（紫眼浮现）t=0 就有画面，立即播。 */
   if(a.noPath || a.throughWall){
     sfx.throw(a.key);
   }else{
-    const visMul=[1.45,0.70,0][cfg.vis];
-    const fromU=popFrac-(a.vf||0.25)*visMul;
-    const delay=Math.max(0, travel*fromU);
-    setTimeout(()=>{ if(!f.popped) sfx.throw(a.key); }, delay*1000);
+    f.onVisible=()=>{ if(!f.popped) sfx.throw(a.key); };
   }
   if(a.throughWall){
     const lead=Math.max(0,(f.popAt-T)-chargeTime())*1000;
@@ -1844,6 +1841,10 @@ function drawFlashes(){
       const fromU=f.popFrac-(f.a.vf||0.25)*visMul;
       if(u<fromU) continue;
     }
+
+    /* 音画同步：这是「球第一次通过可见判定」的帧 —— 出手音效在这里触发。
+       挂帧不挂 setTimeout 的原因：两套时钟在掉帧时漂移（声音先出），挂帧则永远同步。 */
+    if(f.onVisible){ const cb=f.onVisible; f.onVisible=null; cb(); }
 
     const c=toCam(f.pos); if(c.z<NEAR) continue;
     const s=proj(c);
@@ -2759,7 +2760,9 @@ function startPoll(){
     if(!match.active||!match.cloud) return;
     const d=pollDelay();
     if(!d) return;                                          /* 该阶段不需要轮询 */
-    if(match.quiet>96){ log('长时间无变化，已暂停云端同步（点「回大厅」可恢复）','y'); return; }
+    /* 长时间完全无变化才歇手（大厅等人正需要等变化，所以给得很宽：约 100 分钟）。
+       曾经阈值是 96 次≈4 分钟 —— 朋友晚进来就永远看不见，实测踩过。 */
+    if(match.quiet>2400){ log('长时间无变化，已暂停云端同步（点「回大厅」可恢复）','y'); return; }
     if(typeof document!=='undefined' && document.hidden){    /* 后台标签页不烧配额 */
       pollTimer=setTimeout(step,4000); return;
     }

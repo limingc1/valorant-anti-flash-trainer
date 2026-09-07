@@ -628,38 +628,51 @@ try{
 
   run('match.active=false; contentRnd=Math.random; flashes=[];');
 
-  /* 出手音效的播放时机：要等球真正出现在画面上（音画同步）。
-     视听不对齐正是实测反馈「音效快一拍」：球前半程藏在墙后，
-     t=0 屏幕上什么都没有，声音却已经在响。
-     breach（墙面黄点）和 reyna（紫眼浮现）例外 —— 它们 t=0 就有画面。 */
-  console.log('[25] 出手音效时机：等球可见再播（音画同步）');
+  /* 出手音效的播放时机：挂在「画面第一次画出球的帧」（onVisible 回调），不再用 setTimeout。
+     原因是实测的「掉帧漂移」：setTimeout 与渲染帧是两套时钟，机器卡一下声音照走画面停了。
+     breach（墙面黄点）和 reyna（紫眼浮现）t=0 就有画面，立即播。 */
+  console.log('[25] 出手音效时机：挂帧触发（音画同步，免疫掉帧）');
   run('flashes=[];cfg.vis=0;cfg.diff=0;contentRnd=mulberry32(7);');
-  const timings=JSON.parse(run('(function(){var out=[];var realThrow=sfx.throw;'
-    +'var calls=[];sfx.throw=function(k){calls.push({k:k,t:T});};'
-    +'for(var i=0;i<6;i++){var key=["phoenix","skye","breach","kayo","yoru","reyna"][i];'
+  /* 1) 飞行型特工：spawnFlash 只登记 onVisible 回调，不立刻出声 */
+  const reg=JSON.parse(run('(function(){var out={};var realThrow=sfx.throw;var n=0;'
+    +'sfx.throw=function(){n++;};'
+    +'for(var i=0;i<4;i++){var key=["phoenix","skye","kayo","yoru"][i];'
     +'flashes=[];flashSeq=0;var f=spawnFlash(key);'
-    +'var fromU=f.popFrac-(f.a.vf||0.25)*1.45;'
-    +'out.push({key:key,visAt:f.travel*fromU,now:T});}'
+    +'out[key]={hasCb:typeof f.onVisible==="function",played:n};}'
     +'sfx.throw=realThrow;return JSON.stringify(out);})()'));
-  for(const t of timings){
-    const a=run('AGENTS["'+t.key+'"].travel*DIFF[0].speed');
-    ok(t.visAt>0 && t.visAt<a*0.75,
-       t.key+' 的出手音效应在 '+t.visAt.toFixed(2)+'s（球可见时刻）播，而不是 t=0');
-  }
-  const breachInstant=run('(function(){flashes=[];var f=spawnFlash("breach");'
-    +'return f.a.throughWall===true?1:0;})()');
-  ok(breachInstant===1,'breach 黄点 t=0 出现 → 出手音效立即播（维持现状）');
-  const reynaInstant=run('(function(){flashes=[];var f=spawnFlash("reyna");'
-    +'return f.a.noPath===true?1:0;})()');
-  ok(reynaInstant===1,'reyna 紫眼 t=0 出现 → 出手音效立即播（维持现状）');
-  /* 延迟期间球已爆掉就不该再补播出手声：直接调 setTimeout 回调里的守卫逻辑 */
-  const noLateThrow=run('(function(){flashes=[];cfg.auto=false;var f=spawnFlash("phoenix");'
+  ok(Object.keys(reg).length===4,'4 个飞行型特工全部完成 spawnFlash');
+  ok(Object.keys(reg).every(k=>reg[k].hasCb),'spawnFlash 时登记 onVisible 回调（不出声）');
+  ok(Object.keys(reg).every(k=>reg[k].played===0),'spawnFlash 时不立刻播（等可见帧）');
+  /* 2) drawFlashes 画到球的第一帧 → 回调恰好触发一次 */
+  const fireOnce=run('(function(){flashes=[];flashSeq=0;cfg.auto=false;var f=spawnFlash("phoenix");'
     +'var n=0;var realThrow=sfx.throw;sfx.throw=function(){n++;};'
-    +'f.popped=true; /* 球在延迟窗口内已引爆 */'
-    +'/* 模拟延迟回调触发：直接按源码逻辑调一次 sfx.throw，正确行为是被 !f.popped 拦下 */'
-    +'if(!f.popped) sfx.throw(f.a.key);'
+    +'var u0=f.popFrac-(f.a.vf||0.25)*1.45;'
+    +'T=f.t0+f.travel*u0+0.05;drawFlashes();   /* 球可见帧 */'
+    +'var first=n;drawFlashes();drawFlashes(); /* 后续帧不得重复触发 */'
+    +'sfx.throw=realThrow;return (first===1&&n===1)?1:0;})()');
+  ok(fireOnce===1,'球可见帧触发一次出手声，后续帧不重复（挂帧语义）');
+  /* 3) 球可见前 drawFlashes 不触发 */
+  const notBefore=run('(function(){flashes=[];flashSeq=0;var f=spawnFlash("kayo");'
+    +'var n=0;var realThrow=sfx.throw;sfx.throw=function(){n++;};'
+    +'T=f.t0+f.travel*(f.popFrac-(f.a.vf||0.25)*1.45)*0.5;drawFlashes(); /* 还不可见 */'
     +'sfx.throw=realThrow;return n;})()');
-  ok(noLateThrow===0,'球在延迟窗口内已引爆 → 不再补播出手声');
+  ok(notBefore===0,'球不可见的帧不播（可见性判定先行）');
+  /* 4) 球已爆掉（onVisible 残留）→ 不补播 */
+  const noLate=run('(function(){flashes=[];flashSeq=0;var f=spawnFlash("phoenix");'
+    +'var n=0;var realThrow=sfx.throw;sfx.throw=function(){n++;};'
+    +'f.popped=true;var cb=f.onVisible;f.onVisible=null;if(cb)cb();'
+    +'sfx.throw=realThrow;return n;})()');
+  ok(noLate===0,'球已引爆时不补播出手声（!f.popped 守卫）');
+  /* 5) breach / reyna：t=0 立即播，不挂回调 */
+  const instant=JSON.parse(run('(function(){var out={};var realThrow=sfx.throw;'
+    +'for(var i=0;i<2;i++){var key=["breach","reyna"][i];'
+    +'var n=0;sfx.throw=function(){n++;};'   /* n 在每次 spawn 前清零 */
+    +'flashes=[];flashSeq=0;var f=spawnFlash(key);out[key]={played:n,cb:typeof f.onVisible};}'
+    +'sfx.throw=realThrow;return JSON.stringify(out);})()'));
+  ok(instant.breach.played===1&&instant.breach.cb==='undefined',
+     'breach 黄点 t=0 出现 → 立即播，不挂回调');
+  ok(instant.reyna.played===1&&instant.reyna.cb==='undefined',
+     'reyna 紫眼 t=0 出现 → 立即播，不挂回调');
   run('flashes=[];');
 
   console.log('\n'+(fails?('有 '+fails+' 项失败'):'全部通过'));
