@@ -175,9 +175,9 @@
   .tabBtns{display:flex;gap:8px;margin-top:18px}
   .tabBtns button{flex:1;padding:10px;font-size:13px}
   /* ---- 常驻精简统计（游戏中 HUD） ---- */
-  #miniStats{position:absolute;left:16px;bottom:70px;display:flex;flex-direction:column;gap:2px;
-             font-size:11.5px;color:var(--txt2);pointer-events:none;
-             text-shadow:0 1px 3px rgba(0,0,0,.9)}
+  /* 统计挂在右上角 hudTR 内部（非绝对定位），右对齐跟着 HUD 走 */
+  #miniStats{display:flex;flex-direction:column;align-items:flex-end;gap:2px;margin-top:10px;
+             font-size:11.5px;color:var(--txt2);pointer-events:none}
   #miniStats.hide{display:none}
   #miniStats b{color:var(--txt);font-weight:600;font-variant-numeric:tabular-nums}
   #miniStats b.d{color:var(--grn)} #miniStats b.a{color:var(--blu)}
@@ -260,6 +260,11 @@
       <div id="stateTag">模式 <b>综合训练</b> · <b>普通</b></div>
       <div id="agentTag"></div>
       <div id="mTag" style="margin-top:8px;font-size:12px;font-weight:600;letter-spacing:.5px;color:var(--cyn);display:none"></div>
+      <div id="miniStats">
+        <div>躲闪率 <b class="d" id="sDodge">--</b> &nbsp; 命中率 <b class="a" id="sAcc">--</b> &nbsp; 连击 <b class="c" id="sCombo">0</b></div>
+        <div>被闪 <b class="k" id="sBlind">0</b> &nbsp; 转身 <b id="sRT">--</b>ms &nbsp; 回靶 <b id="sRF">--</b>ms</div>
+        <div>命中 <b id="sHit">0 / 0</b> &nbsp; 总分 <b class="c" id="sScore">0</b></div>
+      </div>
     </div>
     <div id="combo"><span class="cx">COMBO</span><span class="cn">0</span><span class="cl">连击</span></div>
     <div id="watermark" aria-hidden="true">
@@ -275,11 +280,6 @@
       <b>操作</b>：移动鼠标转身 · 左键/空格 射击<br>
       <b>F</b> 手动闪光 · <b>R</b> 换靶 · <b>H</b> 收起统计 · <b>Esc</b> 菜单<br>
       <b>要点</b>：闪光飞出先转身躲，再回靶打掉
-    </div>
-    <div class="hud" id="miniStats">
-      <div>分数 <b class="c" id="sScore">0</b> &nbsp; 躲闪率 <b class="d" id="sDodge">--</b> &nbsp; 命中率 <b class="a" id="sAcc">--</b></div>
-      <div>最高连击 <b class="c" id="sCombo">0</b> &nbsp; 被闪 <b class="k" id="sBlind">0</b></div>
-      <div>转身 <b id="sRT">--</b>ms · 回靶 <b id="sRF">--</b>ms · 命中 <b id="sHit">0 / 0</b></div>
     </div>
     <div id="bar">
       <button id="bStart" class="pri">开始训练</button>
@@ -1281,6 +1281,19 @@ function spawnFlash(key){
   st.trials++;
   return f;
 }
+/* 回靶计时的起点 = 「最早能出手」的时刻。
+   两个老 bug 曾让回靶数据系统性虚高（实测反馈）：
+   ① 残余白屏中躲开新闪光，基线被重置到引爆瞬间——可那时还白着，根本打不了，
+      白屏剩余时间全被算进回靶；
+   ② 被闪分支把基线定在「白屏完全散尽」，而实际上强度降到 0.35 以下就能射击了。
+   这里把两条都收敛：白屏按可射击阈值（shoot() 吞弹线 0.35）倒推、
+   近视按 nearUntil 倒推退潮。躲开/被闪/紫眼各分支统一走这个函数。 */
+function reflickStart(now){
+  let t=now;
+  if(blindUntil>t) t=Math.max(t, blindUntil-0.35*blindDur);   // amount 降到 0.35 的时刻
+  if(nearUntil>t)  t=Math.max(t, nearUntil-0.07);             // 近视退潮最后 ~0.45s×0.15
+  return t;
+}
 function popFlash(f){
   f.popped=true; f.deadAt=T; f.popPos={...f.pos};
   pops.push({x:f.popPos.x,y:f.popPos.y,z:f.popPos.z,t:T,rgb:f.a.rgb,dur:0.8});
@@ -1309,7 +1322,7 @@ function popFlash(f){
     blindDur=Math.max(0.001,blindUntil-blindStart);
     blindSrc=f.id;
     log('被 '+a.zh+' 闪到 '+dur.toFixed(1)+'s','b');
-    reflickBase=blindUntil;
+    reflickBase=reflickStart(T);           /* 起点=还能出手的时刻，不是完全散尽 */
   }else{
     st.dodges++;
     combo++; if(combo>st.best) st.best=combo;
@@ -1317,7 +1330,7 @@ function popFlash(f){
     addScore(bonus);
     log('躲开 '+a.zh+'   +'+bonus,'g');
     sfx.dodge();
-    reflickBase=T;
+    reflickBase=reflickStart(T);           /* 残余白屏里躲开的，别把白屏剩余算进回靶 */
   }
   if(f.dodgeAt && f.lookedAtVis){
     const rt=f.dodgeAt-(f.visAt||f.t0);
@@ -1368,7 +1381,7 @@ function openLeer(f){
     nearStart=T; nearUntil=f.dieAt; nearSrc=f.id;
     sfx.leer();
     log('蕾娜之眼睁开 · 近视生效，击毁紫眼解除','b');
-    reflickBase=f.dieAt;
+    reflickBase=reflickStart(T);           /* 近视退潮（fogNear≤0.15）就能打，不必等完全消散 */
   }else{
     st.dodges++;
     combo++; if(combo>st.best) st.best=combo;
@@ -1376,7 +1389,7 @@ function openLeer(f){
     addScore(bonus);
     log('躲开 '+f.a.zh+'   +'+bonus,'g');
     sfx.dodge();
-    reflickBase=T;
+    reflickBase=reflickStart(T);
   }
   if(f.dodgeAt && f.lookedAtVis){
     const rt=f.dodgeAt-(f.visAt||f.t0);

@@ -675,6 +675,31 @@ try{
      'reyna 紫眼 t=0 出现 → 立即播，不挂回调');
   run('flashes=[];');
 
+  /* 回靶计时起点修正：白屏没散尽就躲开下一发，不该把「还打不了」的时间算进回靶 */
+  console.log('[26] 回靶计时起点 = 最早能出手的时刻（不是完全散尽/引爆瞬间）');
+  // 场景：正在被闪（blindDur=2.0, blindUntil=T+2.0），此刻躲开下一发
+  run('flashes=[];playing=true;paused=false;roundOver=false;cfg.auto=false;');
+  const dodgeDuringBlind=run('(function(){'
+    +'blindStart=T; blindDur=2.0; blindUntil=T+2.0;'
+    +'var f={id:999,a:{zh:"测",key:"phoenix",coneHalf:60,dur:[0.35,2.05]},pos:P(9,0,9),'
+    +'popPos:P(9,0,9),popped:false,dead:false,deadAt:0,t0:T,trail:[],dodgeAt:T,visAt:T,lookedAtVis:true,'
+    +'home:P(9,0,9)};'
+    +'st.dodges=0;st.rfSum=0;st.rfN=0;combo=0;'
+    +'popFlash(f);'
+    +'return Math.round((reflickBase-T)*1000);'
+    +'})()');
+  ok(dodgeDuringBlind>500&&dodgeDuringBlind<1400,
+     '残余白屏中躲开 → 回靶基线推到有 35% 白屏能出手时（+'+dodgeDuringBlind+'ms，非 0 非满 2000）');
+  // 反证：完全没被闪时躲开，基线就在当下
+  const dodgeClean=run('(function(){'
+    +'blindUntil=0;blindDur=0;flashes=[];'
+    +'var f={id:998,a:{zh:"测",key:"phoenix",coneHalf:60,dur:[0.35,2.05]},pos:P(9,0,9),'
+    +'popPos:P(9,0,9),popped:false,dead:false,deadAt:0,t0:T,trail:[],dodgeAt:T,visAt:T,lookedAtVis:true,'
+    +'home:P(9,0,9)};'
+    +'combo=0;popFlash(f);return Math.round((reflickBase-T)*1000);})()');
+  ok(dodgeClean>=-1&&dodgeClean<=1,'无白屏时躲开 → 基线就在当下（回靶从这一刻算）');
+  run('blindUntil=0;blindDur=0;blindStart=0;playing=false;');
+
   console.log('\n'+(fails?('有 '+fails+' 项失败'):'全部通过'));
   process.exit(fails?1:0);
 }catch(e){
