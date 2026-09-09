@@ -368,6 +368,12 @@
                   <input type="range" id="rGain" min="0" max="1" step="0.05" value="0.8"></div>
                 <div class="row"><label>闪光音量 <b id="vFgain">100%</b></label>
                   <input type="range" id="rFgain" min="0" max="1" step="0.05" value="1"></div>
+                <div class="row"><label>出手声提前 <b id="vLead">0.25s</b></label>
+                  <input type="range" id="rLead" min="0" max="0.6" step="0.05" value="0.25"></div>
+                <div class="tip" style="margin:-2px 0 6px">
+                  出手声比<b>球出现在画面上</b>提前这么多秒响，给你一点预警转身的时间。
+                  0 = 音画严格同步；越大越靠声音背闪。困难模式建议 0.3~0.5s。
+                </div>
                 <div class="sfx" id="sfxState">使用内置合成音</div>
               </div>
               <div class="sec" data-lockfair>
@@ -523,7 +529,7 @@ const cfg={
   sens:0.8, fov:103, invertY:false, targetR:0.1, targetN:5, quality:1,
   diff:0, mode:0, vis:0, auto:true, rate:1, roundIdx:1,
   crossKind:0, crossColor:0, crossLen:4, crossThick:2, crossGap:2, crossDot:false,
-  sound:true, blur:true, edge:false, gain:0.8, flashGain:1.0,
+  sound:true, blur:true, edge:false, gain:0.8, flashGain:1.0, audioLead:0.25,
   agents:{phoenix:true,skye:true,breach:true,kayo:false,yoru:false,reyna:false}
 };
 const DIFF=[
@@ -579,7 +585,7 @@ let T=0;
 let playing=false, paused=false, pauseT=0;
 let flashes=[], pops=[];
 let targets=[], nextAutoAt=0, flashSeq=0, autoN=0;
-let blindUntil=0, blindDur=0, blindSrc=0, blindStart=0;
+let blindUntil=0, blindDur=0, blindSrc=0, blindStart=0, blindPeak=1;
 let score=0, combo=0, shownScore=0;
 const st={trials:0,dodges:0,blinds:0,hits:0,shots:0,best:0,rtSum:0,rtN:0,rfSum:0,rfN:0};
 let reflickBase=0;
@@ -1264,15 +1270,19 @@ function spawnFlash(key){
     f.charges=[{ x:sg*grand(2.1,3.9), y:grand(ROOM.yF+0.55,2.10), z:ROOM.zW-0.03, ph:grand(0,6.2832) }];  }
   flashes.push(f);
 
-  /* 出手音效：挂在「画面第一次真正画出球的那一帧」触发，而不是 setTimeout 定时。
-     定时器和渲染帧是两套时钟——机器卡一下（掉帧/开录屏/后台抢占），声音照走，
-     画面却停了，听感就是「声音先出现」。改成帧同步后，声音永远跟着画面走：
-     drawFlashes 里球第一次通过可见判定时调 f.onVisible()，见 drawFlashes()。
-     breach（墙面黄点）和 reyna（紫眼浮现）t=0 就有画面，立即播。 */
+  /* 出手音效时机：用「游戏时钟」判定（每帧在 updateFlashes 里查），不用 setTimeout。
+     原因：setTimeout 与渲染帧两套时钟，掉帧时声音照走画面停 → 漂移；挂帧回调虽然
+     同步但没法「提前」——这里要让玩家自定义声音比画面早多久（背闪预警）。
+     audOff = 从 t0 起到该出声的秒数 = 球可见时刻 - 提前量。
+     存相对 t0 的偏移而非绝对时刻，shiftTime(暂停补时) 挪 t0 时自动跟着走，天然免疫暂停。
+     breach/reyna t=0 就有画面，audOff=0（不提前，也没有可提前）；提前量只对飞行型生效。 */
   if(a.noPath || a.throughWall){
-    sfx.throw(a.key);
+    f.audOff=0; f.audioPlayed=false;
   }else{
-    f.onVisible=()=>{ if(!f.popped) sfx.throw(a.key); };
+    const visMul=[1.45,0.70,0][cfg.vis];
+    const fromU=popFrac-(a.vf||0.25)*visMul;
+    f.audOff=Math.max(0, travel*fromU - cfg.audioLead);
+    f.audioPlayed=false;
   }
   /* 布雷奇的合成 charge 预警音已删：真实音效里本身就含充能预警的嗡鸣，
      两个声音在 t=0 叠播（lead 恒为 0），合成音盖在真实音上就是实测的
@@ -1302,10 +1312,16 @@ function popFlash(f){
   const ang=Math.acos(clamp(dot3(norm3(f.popPos),fwdVec()),-1,1))*DEG;
   const dist=len3(f.popPos), a=f.a;
   const losOK = a.throughWall || f.popPos.z<=ROOM.zW+0.02 || flashVisible(f.popPos);
-  let flashed=false, dur=0;
+  let flashed=false, dur=0, peak=0;
 
   if(ang<=a.coneHalf && dist<=22 && losOK){
-    dur=lerp(a.dur[0],a.dur[1],Math.pow(1-ang/a.coneHalf,0.7));
+    /* 视角盖（cover）：正脸=1、擦到锥角边缘=0。它同时决定：
+       - 白多久（时长：正脸 dur[1]、擦边 dur[0]）
+       - 白多重（起跳强度 blindPeak：正脸全白 1.0、擦边只半白 0.5）
+       完全背过去（ang>coneHalf）压根进不了这个分支 → 不致盲、判躲开。 */
+    const cover=Math.pow(1-ang/a.coneHalf,0.7);
+    dur=lerp(a.dur[0],a.dur[1],cover);
+    peak=0.5+0.5*cover;
     flashed=true;
   }
   if(flashed){
@@ -1313,15 +1329,15 @@ function popFlash(f){
     const remain=Math.max(0,blindUntil-T);
     if(remain>0.02){
       /* 已经在致盲中：只把结束时刻往后推，绝不把强度重新拉回满值。
-         旧写法把 blindDur 重设成「剩余时长」，blindAmount 于是又变回 1.0，
-         连续闪光下白屏被反复续满，射击长时间被吞 —— 就是「被闪后左键不管用」。 */
+         连续闪光取两者更强的起跳强度（刚被正脸闪，不该被随后擦过的一发冲淡）。 */
       blindUntil=T+Math.max(dur,remain);
+      blindPeak=Math.max(blindPeak,peak);
     }else{
-      blindStart=T; blindUntil=T+dur;
+      blindStart=T; blindUntil=T+dur; blindPeak=peak;
     }
     blindDur=Math.max(0.001,blindUntil-blindStart);
     blindSrc=f.id;
-    log('被 '+a.zh+' 闪到 '+dur.toFixed(1)+'s','b');
+    log('被 '+a.zh+' 闪到 '+dur.toFixed(1)+'s'+(peak<0.8?'（轻）':''),'b');
     reflickBase=reflickStart(T);           /* 起点=还能出手的时刻，不是完全散尽 */
   }else{
     st.dodges++;
@@ -1352,6 +1368,13 @@ function updateFlashes(){
         if(!tl || T-tl.t>=1/70) f.trail.push({x:f.pos.x,y:f.pos.y,z:f.pos.z,t:T});
         while(f.trail.length && T-f.trail[0].t>TRAIL_LIFE) f.trail.shift();
         if(f.trail.length>80) f.trail.shift();
+      }
+
+      /* 出手音效：游戏时钟到点就播（相对 t0 的 audOff，见 spawnFlash）。
+         掉帧时画面和这个判定同一套时钟一起慢，不会各走各的。 */
+      if(!f.audioPlayed && T-f.t0>=f.audOff){
+        f.audioPlayed=true;
+        sfx.throw(f.a.key);
       }
 
       if(flashVisible(f.pos) && !f.visAt){
@@ -1420,7 +1443,9 @@ function angleTo(p){
 }
 function blindAmount(){
   if(T>=blindUntil||blindDur<=0) return 0;
-  return clamp((blindUntil-T)/blindDur,0,1);
+  /* 起跳强度按「背闪角度」定：正脸爆=1.0 全白，越靠锥角边缘=白得越轻。
+     强度 = blindPeak × 剩余时长占比，淡出曲线不变，只是不再一律从满白起跳。 */
+  return clamp(blindPeak*(blindUntil-T)/blindDur,0,1);
 }
 
 /* ---------- 靶点：拱门区域内多球共存，打掉一个就地随机补一个 ---------- */
@@ -1557,6 +1582,23 @@ function orbSprite(rgb){
     gr.addColorStop(0.22,'rgba('+rgb+',0.95)');
     gr.addColorStop(0.55,'rgba('+rgb+',0.32)');
     gr.addColorStop(1,'rgba('+rgb+',0)');
+    g.fillStyle=gr; g.beginPath(); g.arc(c,c,R,0,6.2832); g.fill();
+  });
+}
+/* KO 引爆专属球形光：白核占内圈 ~4 成，外罩淡蓝球体、边缘化开 ——
+   读起来是一个「球」，而不是普通爆闪那种无边界光雾 */
+/* KO 引爆前的「充能球」光效（罐体即将引爆时环绕罐身，见 drawCassette）：
+   白核占内圈 ~4 成、外罩淡蓝、边缘化开 —— 读起来是一个贴着罐子的球。
+   对应游戏截图的形态：罐体剪影悬在白色光核里，光核外是柔和的色冕 +
+   横向伸出的短射线（十字星芒），整体收得很紧，不是弥散的大光雾。 */
+function kayoChargeSprite(){
+  return makeSprite('kayoCharge',(g,c,R)=>{
+    const gr=g.createRadialGradient(c,c,0,c,c,R);
+    gr.addColorStop(0,'rgba(255,255,255,1)');
+    gr.addColorStop(0.40,'rgba(243,252,255,0.95)');
+    gr.addColorStop(0.58,'rgba(176,236,255,0.62)');
+    gr.addColorStop(0.86,'rgba(150,228,255,0.28)');
+    gr.addColorStop(1,'rgba(150,228,255,0)');
     g.fillStyle=gr; g.beginPath(); g.arc(c,c,R,0,6.2832); g.fill();
   });
 }
@@ -1745,16 +1787,93 @@ function drawBird(sx,sy,rr,ang,rgb){
   ctx.restore();
 }
 /* KO 闪光弹：蓝色长方体，翻滚旋转 */
-function drawCassette(sx,sy,rr,ang,rgb){
+/* KO 闪光驱动：照游戏模型还原 —— 绿→青渐变的圆柱罐体、
+   灰色多面顶盖 + 深蓝小方块（带青色指示窗）、底部灰座嵌橙色窗、
+   身后棕色握把。飞行中的轨迹压暗（见 drawFlashes 里对 cassette 的处理）。 */
+function drawCassette(sx,sy,rr,ang,rgb,charge){
   ctx.save(); ctx.translate(sx,sy); ctx.rotate(ang);
-  glowDot(0,0,rr*3.2,rgb,0.5,0.5);
-  const w=rr*2.5, h=rr*1.18, ww=w*(0.42+0.58*Math.abs(Math.cos(ang*1.6)));
-  ctx.fillStyle='#1c3f52'; rrectPath(-ww/2,-h/2,ww,h,rr*0.26); ctx.fill();
-  ctx.strokeStyle='rgba('+rgb+',0.95)'; ctx.lineWidth=Math.max(1,rr*0.2); ctx.stroke();
-  ctx.fillStyle='rgba(185,242,255,0.95)';
-  rrectPath(-ww*0.33,-h*0.21,ww*0.66,h*0.42,rr*0.1); ctx.fill();
-  ctx.fillStyle='rgba(255,255,255,0.55)';
-  rrectPath(-ww*0.5,-h*0.5,ww*0.16,h,rr*0.08); ctx.fill();
+  const U=rr*1.35;                        /* 单位：罐体半高 */
+  /* 周围一点轻光晕：小而淡，只把轮廓外缘染上一层青色 */
+  ctx.save(); ctx.globalCompositeOperation='lighter';
+  glowDot(0,0,U*1.35,'79,225,255',0.16,0.10);
+  ctx.restore();
+  /* 棕色握把：斜贴在罐体后面 */
+  ctx.fillStyle='#7a4526';
+  rrectPath(-U*0.62,-U*1.42,U*0.42,U*2.5,U*0.16); ctx.fill();
+  ctx.fillStyle='#5d3419';
+  rrectPath(-U*0.62,-U*1.42,U*0.14,U*2.5,U*0.12); ctx.fill();
+  /* 罐体：绿 → 青 纵向渐变 */
+  const g=ctx.createLinearGradient(0,-U,0,U);
+  g.addColorStop(0,'#8ec63f'); g.addColorStop(0.55,'#57b864'); g.addColorStop(1,'#2fc7c1');
+  ctx.fillStyle=g;
+  rrectPath(-U*0.46,-U*0.98,U*1.16,U*1.96,U*0.14); ctx.fill();
+  /* 罐体左侧受光高光条 */
+  ctx.fillStyle='rgba(255,255,255,0.28)';
+  rrectPath(-U*0.40,-U*0.84,U*0.16,U*1.66,U*0.08); ctx.fill();
+  /* 罐体右侧暗面 */
+  ctx.fillStyle='rgba(0,40,40,0.25)';
+  rrectPath(U*0.34,-U*0.9,U*0.34,U*1.8,U*0.1); ctx.fill();
+  /* 罐体自发光：中心最亮向外化开（裁剪在罐体里），像里面裹着一团能量。
+     画在高光/暗面之上，压住右侧暗面，保证「中间亮」是最终观感。 */
+  ctx.save();
+  rrectPath(-U*0.46,-U*0.98,U*1.16,U*1.96,U*0.14); ctx.clip();
+  ctx.globalCompositeOperation='lighter';
+  const cg=ctx.createRadialGradient(U*0.12,U*0.05,0, U*0.12,U*0.05,U*1.0);
+  cg.addColorStop(0,'rgba(205,255,250,0.85)');
+  cg.addColorStop(0.4,'rgba(90,230,240,0.45)');
+  cg.addColorStop(1,'rgba(47,199,193,0)');
+  ctx.fillStyle=cg; ctx.fillRect(-U*0.5,-U*1.1,U*1.3,U*2.2);
+  ctx.restore();
+  /* 灰色顶盖（多面体感：中灰面 + 上沿亮线 + 侧面压暗） */
+  ctx.fillStyle='#9aa3a8';
+  ctx.beginPath();
+  ctx.moveTo(-U*0.56,-U*0.98); ctx.lineTo(-U*0.40,-U*1.30);
+  ctx.lineTo( U*0.40,-U*1.30); ctx.lineTo( U*0.56,-U*0.98);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle='#c2cbcf';
+  ctx.fillRect(-U*0.40,-U*1.32,U*0.80,U*0.09);
+  ctx.fillStyle='#6f7a80';
+  ctx.beginPath();
+  ctx.moveTo(U*0.40,-U*1.30); ctx.lineTo(U*0.56,-U*0.98);
+  ctx.lineTo(U*0.30,-U*0.98); ctx.closePath(); ctx.fill();
+  /* 顶上的深蓝小方块 + 青色指示窗 */
+  ctx.fillStyle='#2b3644';
+  rrectPath(-U*0.24,-U*1.74,U*0.52,U*0.46,U*0.08); ctx.fill();
+  ctx.fillStyle='#35c9d6';
+  rrectPath(U*0.02,-U*1.62,U*0.16,U*0.20,U*0.04); ctx.fill();
+  /* 灰色底坐 + 橙色小窗 */
+  ctx.fillStyle='#8b959b';
+  ctx.beginPath();
+  ctx.moveTo(-U*0.56,U*0.98); ctx.lineTo(-U*0.40,U*1.34);
+  ctx.lineTo( U*0.40,U*1.34); ctx.lineTo( U*0.56,U*0.98);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle='#c96a2e';
+  rrectPath(-U*0.26,U*1.06,U*0.42,U*0.18,U*0.05); ctx.fill();
+  ctx.fillStyle='rgba(0,0,0,0.28)';
+  rrectPath(U*0.24,U*1.02,U*0.20,U*0.28,U*0.06); ctx.fill();
+  /* 描一圈极淡的轮廓，近处看得清结构、远处不显粗 */
+  ctx.strokeStyle='rgba(20,30,32,0.5)'; ctx.lineWidth=Math.max(0.6,U*0.05);
+  rrectPath(-U*0.46,-U*0.98,U*1.16,U*1.96,U*0.14); ctx.stroke();
+  /* 引爆前充能光效：罐体周围亮起「白核 + 淡蓝」的球形光（charge 0→1）。
+     贴着罐身、半径只比罐体大一圈，横向带两道短射线（星芒），
+     像截图那样读得出「快炸了」，但光晕不大、不糊住拱门。 */
+  const ch=clamp(charge||0,0,1);
+  if(ch>0.02){
+    const cr=U*(1.25+0.35*ch);            /* 球光半径：从贴罐到大一圈，收着 */
+    ctx.save();
+    ctx.rotate(-ang);                     /* 星芒固定在屏幕横竖方向，不随罐体翻滚 */
+    ctx.globalCompositeOperation='lighter';
+    ctx.globalAlpha=0.5*ch+0.15*ch*Math.sin(T*30);   /* 带一点脉动，更显急促 */
+    ctx.drawImage(kayoChargeSprite(), -cr,-cr, cr*2, cr*2);
+    /* 横向星芒：两条细射线 */
+    ctx.globalAlpha=0.35*ch;
+    ctx.strokeStyle='rgba(220,248,255,0.9)'; ctx.lineWidth=Math.max(0.6,U*0.06);
+    ctx.beginPath();
+    ctx.moveTo(-cr*1.55,0); ctx.lineTo(cr*1.55,0);
+    ctx.moveTo(0,-cr*1.15); ctx.lineTo(0,cr*1.15);
+    ctx.stroke();
+    ctx.restore();
+  }
   ctx.restore();
 }
 /* 蕾娜之眼：凭空浮现并睁开的紫红眼球 + 竖瞳，可击毁
@@ -1870,10 +1989,6 @@ function drawFlashes(){
       if(u<fromU) continue;
     }
 
-    /* 音画同步：这是「球第一次通过可见判定」的帧 —— 出手音效在这里触发。
-       挂帧不挂 setTimeout 的原因：两套时钟在掉帧时漂移（声音先出），挂帧则永远同步。 */
-    if(f.onVisible){ const cb=f.onVisible; f.onVisible=null; cb(); }
-
     const c=toCam(f.pos); if(c.z<NEAR) continue;
     const s=proj(c);
     const rr=Math.max(2.5, F*0.13/c.z);
@@ -1885,8 +2000,10 @@ function drawFlashes(){
 
     /* 尾迹：头部粗亮、尾部细淡，长度 0.8s。
        曲球不画 —— 它自带一条直线能量束，两串叠在一起会读成两条轨迹。
+       KO 压到 30%（用户对照游戏模型：罐体本身不发光，轨迹不该那么显眼）。
        注意 trail 仍然照常记录，velAngle() 要靠它算束的方向。 */
     if(!f.a.noPath && kind!=='curve'){
+      const tMul=kind==='cassette'?0.30:1;
       for(let i=0;i<f.trail.length;i++){
         const tp=f.trail[i];
         const age=(T-tp.t)/TRAIL_LIFE;
@@ -1894,9 +2011,9 @@ function drawFlashes(){
         const w=1-age;
         const tc=toCam(tp); if(tc.z<NEAR) continue;
         const ts2=proj(tc);
-        ctx.globalAlpha=0.50*w*w;
+        ctx.globalAlpha=0.50*w*w*tMul;
         ctx.fillStyle='rgba('+f.a.rgb+',1)';
-        ctx.beginPath(); ctx.arc(ts2.x,ts2.y,rr*(0.10+0.52*w),0,6.2832); ctx.fill();
+        ctx.beginPath(); ctx.arc(ts2.x,ts2.y,rr*(0.10+0.52*w)*tMul,0,6.2832); ctx.fill();
       }
     }
     ctx.globalAlpha=1;
@@ -1912,7 +2029,13 @@ function drawFlashes(){
     }else if(kind==='bird'){
       drawBird(s.x,s.y,rr*1.15,velAngle(f),f.a.rgb);
     }else if(kind==='cassette'){
-      drawCassette(s.x,s.y,rr*1.05,(T*8.5+f.id*1.7)%(Math.PI*2),f.a.rgb);
+      /* 引爆前充能：在可见窗口最后 80% 里把 charge 从 0 拉到 1 ——
+         罐体周围亮起白核淡蓝的球光提醒玩家「快炸了」。半径刻意收着
+         （贴着罐身），膨胀量也就一成多，不会盖住拱门读图。 */
+      const fromU=f.popFrac-(f.a.vf||0.25)*visMul;
+      const cs=f.popFrac-(f.popFrac-fromU)*0.80;
+      const charge=clamp((u-cs)/Math.max(0.001,f.popFrac-cs),0,1);
+      drawCassette(s.x,s.y,rr*0.75,(T*8.5+f.id*1.7)%(Math.PI*2),f.a.rgb,charge);
     }else if(kind==='eye'){
       const grow=f.a.spawn?clamp((T-f.t0)/f.a.spawn,0,1):1;
       const hz=f.hitAt?clamp(1-(T-f.hitAt)/0.18,0,1):0;
@@ -2497,6 +2620,8 @@ function bindUI(){
                          applyVolume(); saveCfg(); };
   $('rFgain').oninput=e=>{ cfg.flashGain=+e.target.value; $('vFgain').textContent=Math.round(cfg.flashGain*100)+'%';
                           applyVolume(); saveCfg(); };
+  $('rLead').oninput=e=>{ cfg.audioLead=+e.target.value; $('vLead').textContent=cfg.audioLead.toFixed(2)+'s';
+                          saveCfg(); };   /* 对之后新生成的闪光生效（audOff 在 spawnFlash 算） */
   buildSeg($('segQual'),[{n:'流畅'},{n:'标准'},{n:'精细'}],v=>v,i=>{
     cfg.quality=i; dprDrop=0; dprCap=QUAL_DPR[i]; resize(); saveCfg();
   });
@@ -2561,6 +2686,7 @@ function applyCfgToUI(){
   setR('rInt',cfg.rate);   setT('vInt',cfg.rate.toFixed(1)+'×');
   setR('rGain',cfg.gain);       setT('vGain',Math.round(cfg.gain*100)+'%');
   setR('rFgain',cfg.flashGain); setT('vFgain',Math.round(cfg.flashGain*100)+'%');
+  setR('rLead',cfg.audioLead);  setT('vLead',(cfg.audioLead||0).toFixed(2)+'s');
   setR('rCLen',cfg.crossLen); setT('vCLen',cfg.crossLen);
   setR('rCTh',cfg.crossThick); setT('vCTh',cfg.crossThick);
   setR('rCGap',cfg.crossGap);  setT('vCGap',cfg.crossGap);

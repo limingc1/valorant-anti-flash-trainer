@@ -628,52 +628,58 @@ try{
 
   run('match.active=false; contentRnd=Math.random; flashes=[];');
 
-  /* 出手音效的播放时机：挂在「画面第一次画出球的帧」（onVisible 回调），不再用 setTimeout。
-     原因是实测的「掉帧漂移」：setTimeout 与渲染帧是两套时钟，机器卡一下声音照走画面停了。
-     breach（墙面黄点）和 reyna（紫眼浮现）t=0 就有画面，立即播。 */
-  console.log('[25] 出手音效时机：挂帧触发（音画同步，免疫掉帧）');
+  /* 出手音效时机：游戏时钟判定（updateFlashes 里 T-t0>=audOff 播一次），
+     audOff = 球可见时刻 - cfg.audioLead。这样声音可比画面「提前」固定秒数，
+     且与渲染同一套时钟 —— 掉帧时一起慢，不会像 setTimeout 那样漂移。 */
+  console.log('[25] 出手音效时机：游戏时钟 + 可配置提前量');
   run('flashes=[];cfg.vis=0;cfg.diff=0;contentRnd=mulberry32(7);');
-  /* 1) 飞行型特工：spawnFlash 只登记 onVisible 回调，不立刻出声 */
-  const reg=JSON.parse(run('(function(){var out={};var realThrow=sfx.throw;var n=0;'
+
+  /* 1) spawnFlash 只算 audOff，不立刻出声 */
+  const reg=run('(function(){var realThrow=sfx.throw;var n=0;'
     +'sfx.throw=function(){n++;};'
-    +'for(var i=0;i<4;i++){var key=["phoenix","skye","kayo","yoru"][i];'
-    +'flashes=[];flashSeq=0;var f=spawnFlash(key);'
-    +'out[key]={hasCb:typeof f.onVisible==="function",played:n};}'
-    +'sfx.throw=realThrow;return JSON.stringify(out);})()'));
-  ok(Object.keys(reg).length===4,'4 个飞行型特工全部完成 spawnFlash');
-  ok(Object.keys(reg).every(k=>reg[k].hasCb),'spawnFlash 时登记 onVisible 回调（不出声）');
-  ok(Object.keys(reg).every(k=>reg[k].played===0),'spawnFlash 时不立刻播（等可见帧）');
-  /* 2) drawFlashes 画到球的第一帧 → 回调恰好触发一次 */
-  const fireOnce=run('(function(){flashes=[];flashSeq=0;cfg.auto=false;var f=spawnFlash("phoenix");'
-    +'var n=0;var realThrow=sfx.throw;sfx.throw=function(){n++;};'
-    +'var u0=f.popFrac-(f.a.vf||0.25)*1.45;'
-    +'T=f.t0+f.travel*u0+0.05;drawFlashes();   /* 球可见帧 */'
-    +'var first=n;drawFlashes();drawFlashes(); /* 后续帧不得重复触发 */'
+    +'cfg.audioLead=0.35;flashes=[];flashSeq=0;var f=spawnFlash("phoenix");'
+    +'sfx.throw=realThrow;return (n===0&&typeof f.audOff==="number"&&f.audioPlayed===false)?1:0;})()');
+  ok(reg===1,'spawnFlash 不立刻播，只登记 audOff/audioPlayed=false');
+
+  /* 2) audOff = 可见时刻 - 提前量；提前量越大 audOff 越小（每次 spawn 前重播种，
+        否则两次闪光的 travel/popFrac 随机不同，gap 就不是精确的提前量） */
+  const offPair=JSON.parse(run('(function(){var realThrow=sfx.throw;sfx.throw=function(){};'
+    +'flashes=[];flashSeq=0;contentRnd=mulberry32(7);cfg.audioLead=0;var a=spawnFlash("phoenix").audOff;'
+    +'flashes=[];flashSeq=0;contentRnd=mulberry32(7);cfg.audioLead=0.35;var b=spawnFlash("phoenix").audOff;'
+    +'sfx.throw=realThrow;return JSON.stringify([a,b,a-b]);})()'));
+  const [lead0,lead35,gap]=offPair;
+  ok(lead35<lead0,'提前量 0.35s 让 audOff 变小（声音更早）：'+lead0.toFixed(2)+'→'+lead35.toFixed(2));
+  ok(Math.abs(gap-0.35)<0.02,'audOff 差正好等于提前量 0.35s（实测 '+gap.toFixed(3)+'）');
+
+  /* 3) updateFlashes 在 T-t0>=audOff 时恰好播一次，不重复 */
+  const fireOnce=run('(function(){var realThrow=sfx.throw;var n=0;sfx.throw=function(){n++;};'
+    +'cfg.audioLead=0;flashes=[];flashSeq=0;var f=spawnFlash("phoenix");'
+    +'T=f.t0+f.audOff+0.01;updateFlashes();var first=n;'    /* 到点 */
+    +'updateFlashes();updateFlashes();'                    /* 后续帧 */
     +'sfx.throw=realThrow;return (first===1&&n===1)?1:0;})()');
-  ok(fireOnce===1,'球可见帧触发一次出手声，后续帧不重复（挂帧语义）');
-  /* 3) 球可见前 drawFlashes 不触发 */
-  const notBefore=run('(function(){flashes=[];flashSeq=0;var f=spawnFlash("kayo");'
-    +'var n=0;var realThrow=sfx.throw;sfx.throw=function(){n++;};'
-    +'T=f.t0+f.travel*(f.popFrac-(f.a.vf||0.25)*1.45)*0.5;drawFlashes(); /* 还不可见 */'
+  ok(fireOnce===1,'到点播一次，后续帧不重复（audioPlayed 闸门）');
+
+  /* 4) 球还在墙后（T-t0 < audOff）→ 不播 */
+  const notYet=run('(function(){var realThrow=sfx.throw;var n=0;sfx.throw=function(){n++;};'
+    +'cfg.audioLead=0;flashes=[];flashSeq=0;var f=spawnFlash("kayo");'
+    +'T=f.t0+f.audOff*0.5;updateFlashes();'   /* 到一半，还不可见 */
     +'sfx.throw=realThrow;return n;})()');
-  ok(notBefore===0,'球不可见的帧不播（可见性判定先行）');
-  /* 4) 球已爆掉（onVisible 残留）→ 不补播 */
-  const noLate=run('(function(){flashes=[];flashSeq=0;var f=spawnFlash("phoenix");'
-    +'var n=0;var realThrow=sfx.throw;sfx.throw=function(){n++;};'
-    +'f.popped=true;var cb=f.onVisible;f.onVisible=null;if(cb)cb();'
+  ok(notYet===0,'球尚不可见的帧不播（T-t0 未到 audOff）');
+
+  /* 5) 提前量过大时钳到 0（投掷瞬间出声），绝不早于 t0；且仍早于可见时刻 */
+  const leadClamp=JSON.parse(run('(function(){var realThrow=sfx.throw;sfx.throw=function(){};'
+    +'cfg.audioLead=0.5;flashes=[];flashSeq=0;contentRnd=mulberry32(11);var f=spawnFlash("yoru");'
+    +'var visTime=f.travel*(f.popFrac-(f.a.vf||0.25)*1.45);'
+    +'sfx.throw=realThrow;return JSON.stringify([f.audOff,visTime]);})()'));
+  ok(leadClamp[0]>=0 && leadClamp[0]<leadClamp[1]-0.05,
+     'yoru 可见窗口('+leadClamp[1].toFixed(2)+'s)比提前量 0.5s 短 → audOff 钳到 '+leadClamp[0].toFixed(2)+'s，'
+     +'仍不晚于可见，且不会早于投掷瞬间');
+  const leadPlay=run('(function(){var realThrow=sfx.throw;var n=0;sfx.throw=function(){n++;};'
+    +'cfg.audioLead=0.5;flashes=[];flashSeq=0;contentRnd=mulberry32(11);var f=spawnFlash("yoru");'
+    +'T=f.t0+f.audOff+0.005;updateFlashes();'
     +'sfx.throw=realThrow;return n;})()');
-  ok(noLate===0,'球已引爆时不补播出手声（!f.popped 守卫）');
-  /* 5) breach / reyna：t=0 立即播，不挂回调 */
-  const instant=JSON.parse(run('(function(){var out={};var realThrow=sfx.throw;'
-    +'for(var i=0;i<2;i++){var key=["breach","reyna"][i];'
-    +'var n=0;sfx.throw=function(){n++;};'   /* n 在每次 spawn 前清零 */
-    +'flashes=[];flashSeq=0;var f=spawnFlash(key);out[key]={played:n,cb:typeof f.onVisible};}'
-    +'sfx.throw=realThrow;return JSON.stringify(out);})()'));
-  ok(instant.breach.played===1&&instant.breach.cb==='undefined',
-     'breach 黄点 t=0 出现 → 立即播，不挂回调');
-  ok(instant.reyna.played===1&&instant.reyna.cb==='undefined',
-     'reyna 紫眼 t=0 出现 → 立即播，不挂回调');
-  run('flashes=[];');
+  ok(leadPlay===1,'钳后的 audOff 到点照样准时播一次');
+  run('cfg.audioLead=0.35;flashes=[];');
 
   /* 回靶计时起点修正：白屏没散尽就躲开下一发，不该把「还打不了」的时间算进回靶 */
   console.log('[26] 回靶计时起点 = 最早能出手的时刻（不是完全散尽/引爆瞬间）');
@@ -699,6 +705,47 @@ try{
     +'combo=0;popFlash(f);return Math.round((reflickBase-T)*1000);})()');
   ok(dodgeClean>=-1&&dodgeClean<=1,'无白屏时躲开 → 基线就在当下（回靶从这一刻算）');
   run('blindUntil=0;blindDur=0;blindStart=0;playing=false;');
+
+  /* 背闪角度 → 白屏程度分档（新逻辑）：
+     完全背过去 = 不白（判躲开）；擦边 = 轻白（起跳强度低）；正脸 = 全白。
+     强度=blindPeak×剩余占比，peak=0.5+0.5×cover，cover=(1-ang/cone)^0.7 */
+  console.log('[27] 致盲强度按背闪角度分档');
+  run('flashes=[];playing=true;paused=false;roundOver=false;cfg.auto=false;');
+  // 造一个引爆在正前方 0° 的闪光 → peak 应≈1.0
+  const faceWhite=run('(function(){'
+    +'blindUntil=0;blindDur=0;blindStart=0;blindPeak=1;'
+    +'var f={id:1,a:{zh:"测",key:"phoenix",coneHalf:60,dur:[0.35,2.05]},'
+    +'pos:P(0,0,5),popPos:P(0,0,5),popped:false,dead:false,deadAt:0,t0:T,trail:[],'
+    +'dodgeAt:0,visAt:0,lookedAtVis:false,home:P(0,0,5)};'
+    +'cam.yaw=0;cam.pitch=0;combo=0;st.blinds=0;st.dodges=0;'
+    +'popFlash(f);'   /* 正脸：引爆点在正前方 */
+    +'return +blindPeak.toFixed(2);})()');
+  ok(faceWhite>0.9,'正对引爆 → 起跳近全白（peak='+faceWhite+'）');
+  // 造一个引爆在锥角边缘（约 55°）的闪光 → peak 应明显低于全白
+  const edgeWhite=run('(function(){'
+    +'blindUntil=0;blindDur=0;blindStart=0;blindPeak=1;'
+    +'var ang=55*RAD;'   /* 菲尼克斯锥角60°，55°=擦边但仍会被闪 */
+    +'var f={id:1,a:{zh:"测",key:"phoenix",coneHalf:60,dur:[0.35,2.05]},'
+    +'pos:P(Math.sin(ang)*5,0,Math.cos(ang)*5),popPos:P(Math.sin(ang)*5,0,Math.cos(ang)*5),'
+    +'popped:false,dead:false,deadAt:0,t0:T,trail:[],'
+    +'dodgeAt:0,visAt:0,lookedAtVis:false,home:P(0,0,5)};'
+    +'cam.yaw=0;cam.pitch=0;combo=0;st.blinds=0;st.dodges=0;'
+    +'popFlash(f);'
+    +'return +blindPeak.toFixed(2);})()');
+  ok(edgeWhite>0.5&&edgeWhite<0.75,'擦边引爆(55°) → 半白起跳（peak='+edgeWhite+'，非满白）');
+  // 完全背过去（>锥角）：不致盲，判躲开
+  const backAway=run('(function(){'
+    +'blindUntil=0;blindDur=0;blindStart=0;'
+    +'var ang=100*RAD;'   /* 远超 60° 锥角 = 正背着 */
+    +'var f={id:1,a:{zh:"测",key:"phoenix",coneHalf:60,dur:[0.35,2.05]},'
+    +'pos:P(Math.sin(ang)*5,0,Math.cos(ang)*5),popPos:P(Math.sin(ang)*5,0,Math.cos(ang)*5),'
+    +'popped:false,dead:false,deadAt:0,t0:T,trail:[],'
+    +'dodgeAt:0,visAt:0,lookedAtVis:false,home:P(0,0,5)};'
+    +'cam.yaw=0;cam.pitch=0;var b0=st.blinds,d0=st.dodges;combo=0;'
+    +'popFlash(f);'
+    +'return (blindUntil<=T+0.001 && st.dodges===d0+1 && st.blinds===b0)?1:0;})()');
+  ok(backAway===1,'完全背过去(100°) → 不致盲，判为躲开+分');
+  run('blindUntil=0;blindDur=0;blindStart=0;blindPeak=1;playing=false;');
 
   console.log('\n'+(fails?('有 '+fails+' 项失败'):'全部通过'));
   process.exit(fails?1:0);
