@@ -747,6 +747,41 @@ try{
   ok(backAway===1,'完全背过去(100°) → 不致盲，判为躲开+分');
   run('blindUntil=0;blindDur=0;blindStart=0;blindPeak=1;playing=false;');
 
+  /* 个人训练记录：只有「计时回合自然打完」才入库 */
+  console.log('[28] 个人记录：计时回合才记 + 分组最佳 + PB 标记');
+  run('localStorage.removeItem("aft_records");');
+  /* 「不限」打完不记 */
+  run('playing=true;roundOver=false;cfg.roundIdx=3;roundEndAt=0;score=999;st.trials=5;st.shots=3;');
+  run('endRound();');
+  ok(JSON.parse(run('JSON.stringify(loadRecords().log)')).length===0,
+     '「不限」回合结束不产生记录');
+  /* 计时回合但整轮没动过（st.trials=0 且 st.shots=0）不记 */
+  run('cfg.roundIdx=0; startRound(); score=0; st.trials=0; st.shots=0; endRound();');
+  ok(JSON.parse(run('JSON.stringify(loadRecords().log)')).length===0,
+     '整轮没出手没闪光 → 不记（防挂机/防误触空局占榜）');
+  /* 正经打完 30s 普通：入库 + 成为该组最佳 + pb=true */
+  run('cfg.roundIdx=0; startRound(); score=1234; combo=7; st.best=7; st.trials=6; st.dodges=5; st.hits=9; st.shots=10; st.blinds=1; cfg.diff=0;');
+  run('endRound();');
+  let R1=JSON.parse(run('JSON.stringify(loadRecords())'));
+  ok(R1.log.length===1 && R1.log[0].score===1234,'打完计时回合 → 入库一条 1234');
+  ok(R1.best['0_0'] && R1.best['0_0'].score===1234,'30s×普通 组最佳已建立');
+  ok(R1.log[0].pb===true,'首局自动是新纪录（pb=true）');
+  /* 更低分不刷新最佳，但进流水、pb=false */
+  run('cfg.roundIdx=0; startRound(); score=500; st.trials=6; st.dodges=4; st.hits=8; st.shots=10; endRound();');
+  let R2=JSON.parse(run('JSON.stringify(loadRecords())'));
+  ok(R2.best['0_0'].score===1234,'更低分不覆盖组最佳');
+  ok(R2.log[0].pb===false && R2.log.length===2,'流水仍有第二条且 pb=false');
+  /* 不同组（60s×困难）互不干扰 */
+  run('cfg.roundIdx=1; cfg.diff=1; startRound(); score=3000; st.trials=10; st.dodges=9; st.hits=15; st.shots=17; endRound();');
+  let R3=JSON.parse(run('JSON.stringify(loadRecords())'));
+  ok(R3.best['1_1'] && R3.best['1_1'].score===3000,'60s×困难 是另一张榜（组间互不占用）');
+  /* 流水上限 100 条 */
+  run('(function(){var r={best:{},log:[]};for(var i=0;i<150;i++)r.log.push({t:i,ri:0,diff:0,mode:0,score:i,cb:0,bl:0,ag:"",dg:1,tr:1,hs:1,ss:1,pb:false});'
+    +'localStorage.setItem("aft_records",JSON.stringify(r));})();');
+  run('cfg.roundIdx=0; cfg.diff=0; startRound(); score=1; st.trials=2; st.shots=1; endRound();');
+  ok(JSON.parse(run('JSON.stringify(loadRecords().log)')).length===100,'流水封顶 100 条');
+  run('localStorage.removeItem("aft_records"); playing=false; roundOver=false;');
+
   console.log('\n'+(fails?('有 '+fails+' 项失败'):'全部通过'));
   process.exit(fails?1:0);
 }catch(e){

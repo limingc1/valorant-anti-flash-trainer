@@ -174,6 +174,21 @@
   #tab-set .sec:first-child{margin-top:2px}
   .tabBtns{display:flex;gap:8px;margin-top:18px}
   .tabBtns button{flex:1;padding:10px;font-size:13px}
+  /* ---- 训练记录页 ---- */
+  #recBest{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  .recCard{background:var(--bg3);border:1px solid var(--line);border-radius:6px;padding:8px 10px}
+  .recCard .k{font-size:10px;color:var(--txt2);letter-spacing:1px}
+  .recCard .v{font-size:22px;font-weight:700;color:var(--amb);line-height:1.25;font-variant-numeric:tabular-nums}
+  .recCard .d{font-size:10px;color:var(--txt2)}
+  #recChips{margin-top:12px;flex-wrap:wrap}
+  #recChips button{flex:none;padding:5px 9px;font-size:11px}
+  .recRow{display:flex;justify-content:space-between;align-items:center;background:var(--bg3);
+          border:1px solid var(--line);border-radius:5px;padding:6px 9px;font-size:11.5px;
+          color:var(--txt2);margin-bottom:4px}
+  .recRow b{color:var(--amb);font-size:13px}
+  #recList{max-height:210px;overflow-y:auto}
+  #recList::-webkit-scrollbar{width:6px}
+  #recList::-webkit-scrollbar-thumb{background:#2b3b4d;border-radius:3px}
   /* ---- 常驻精简统计（游戏中 HUD） ---- */
   /* 统计挂在右上角 hudTR 内部（非绝对定位），右对齐跟着 HUD 走 */
   #miniStats{display:flex;flex-direction:column;align-items:flex-end;gap:2px;margin-top:10px;
@@ -310,6 +325,7 @@
           <div id="menuTabs">
             <button class="tab act" data-tab="solo">单人训练</button>
             <button class="tab" data-tab="battle">联机对战</button>
+            <button class="tab" data-tab="rec">训练记录</button>
             <button class="tab" data-tab="set">设置</button>
           </div>
         </div>
@@ -357,6 +373,19 @@
               <div class="tip" id="mStatus">等待对手…</div>
               <div class="row" style="margin-top:10px">
                 <button id="mLeave" style="width:100%">退出对战</button></div>
+            </div>
+          </div>
+          <!-- 训练记录 -->
+          <div class="tabpage" id="tab-rec">
+            <h3 style="font-size:10.5px;color:var(--txt2);letter-spacing:1.6px;margin-bottom:9px;font-weight:600">最佳纪录 · 按 时长 × 难度</h3>
+            <div id="recBest"></div>
+            <h3 style="font-size:10.5px;color:var(--txt2);letter-spacing:1.6px;margin:16px 0 9px;font-weight:600">分数走势 · 最近 24 局（按难度）</h3>
+            <div class="chk" id="recChips"></div>
+            <canvas id="recChart" width="560" height="120" style="width:100%;height:120px;margin-top:8px"></canvas>
+            <h3 style="font-size:10.5px;color:var(--txt2);letter-spacing:1.6px;margin:16px 0 9px;font-weight:600">最近训练</h3>
+            <div id="recList"></div>
+            <div class="tabBtns" style="margin-top:12px">
+              <button id="recClear" style="flex:none;margin-left:auto;padding:6px 12px;font-size:11px">清空记录</button>
             </div>
           </div>
           <!-- 设置 -->
@@ -2289,8 +2318,111 @@ function endRound(){
   fillResult();
   $('result').style.display='flex';
   if(match.active) submitMyResult();   /* 对战：本轮分数自动上报云端 */
+  recordRound();                       /* 个人记录：只有走到这里的「计时回合自然打完」才入库 */
 }
 function pct(a,b){ return b?Math.round(a/b*100)+'%':'--'; }
+
+/* ---------- 个人训练记录（localStorage） ----------
+   只记「计时回合自然打完」：endRound() 里调用，所以中途关页面/「不限」
+   自由练习/开场前都不会产生记录。分组 = 时长 × 难度（6 组各存最佳），
+   模式与特工池作为备注随记录一起存 —— 不同配置的分数严格说难度不同，
+   看榜时心里有数即可，个人练习不必较真。流水保留最近 100 条。 */
+const LS_REC='aft_records';
+function loadRecords(){
+  let r=null;
+  try{ r=JSON.parse(localStorage.getItem(LS_REC)||'null'); }catch(e){}
+  if(!r||typeof r!=='object') r={best:{},log:[]};
+  if(!r.best||typeof r.best!=='object') r.best={};
+  if(!Array.isArray(r.log)) r.log=[];
+  return r;
+}
+function saveRecords(r){
+  try{ localStorage.setItem(LS_REC, JSON.stringify(r)); }catch(e){}   /* 私密浏览/满额：静默不记 */
+}
+function recordRound(){
+  const sec=roundSec();
+  if(!sec) return;                          /* 「不限」不记录 */
+  if(!st.trials && !st.shots) return;       /* 整轮一次手都没动，没必要占榜 */
+  const entry={t:Date.now(), ri:cfg.roundIdx, diff:cfg.diff, mode:cfg.mode,
+    score, cb:st.best, bl:st.blinds, ag:enabledAgents().join(','),
+    dg:st.dodges, tr:st.trials, hs:st.hits, ss:st.shots,
+    rf:st.rfN?Math.round(st.rfSum/st.rfN*1000):null,
+    rt:st.rtN?Math.round(st.rtSum/st.rtN*1000):null};
+  const R=loadRecords();
+  const key=entry.ri+'_'+entry.diff;
+  const b=R.best[key];
+  entry.pb = !(b && b.score>=entry.score);   /* 新个人最佳标记（列表里亮星） */
+  if(entry.pb) R.best[key]=entry;
+  R.log.unshift(entry);
+  if(R.log.length>100) R.log.length=100;
+  saveRecords(R);
+  if(entry.pb && entry.score>0)
+    log('★ 新纪录！'+ROUNDS[entry.ri].n+' · '+DIFF[entry.diff].n+'  '+entry.score+' 分','y');
+}
+function fmtDT(t){ const d=new Date(t);
+  return (d.getMonth()+1)+'-'+d.getDate()+' '+(''+d.getHours()).padStart(2,'0')+':'+(''+d.getMinutes()).padStart(2,'0'); }
+function renderRecords(){
+  const R=loadRecords();
+  /* 最佳卡：3 个计时时长 × 2 难度 */
+  let cards='';
+  for(let ri=0;ri<3;ri++) for(let di=0;di<DIFF.length;di++){
+    const b=R.best[ri+'_'+di];
+    cards+='<div class="recCard"><div class="k">'+ROUNDS[ri].n+' · '+DIFF[di].n+'</div>'+
+      '<div class="v">'+(b?b.score:'—')+'</div>'+
+      '<div class="d">'+(b?fmtDT(b.t)+' · '+(b.pb?'★':'')+MODES[b.mode].n:'还没有记录')+'</div></div>';
+  }
+  $('recBest').innerHTML=cards;
+  /* 难度筛选 chips */
+  const chips=$('recChips');
+  chips.innerHTML='';
+  for(let di=0;di<DIFF.length;di++){
+    const bt=document.createElement('button');
+    bt.textContent=DIFF[di].n;
+    bt.className=(recChartDiff===di?'act':'');
+    bt.onclick=e=>{ e.stopPropagation(); recChartDiff=di; renderRecords(); };
+    chips.appendChild(bt);
+  }
+  drawRecChart(R);
+  /* 最近列表 */
+  const list=$('recList');
+  if(!R.log.length){ list.innerHTML='<div class="tip">完整打完一局计时训练后，这里会出现记录。</div>'; }
+  else{
+    let html='';
+    for(const e2 of R.log.slice(0,100)){
+      const acc=e2.ss?Math.round(e2.hs/e2.ss*100)+'%':'--';
+      const dg=e2.tr?Math.round(e2.dg/e2.tr*100)+'%':'--';
+      /* 多摆两个决定分数的大头：闪光总数（躲闪得分的基数）和平均回靶（速度奖励的输入）。
+         不然会出现「躲31%的分比躲50%的高」看不懂的局 —— 躲的球多、回靶快，分就高。 */
+      html+='<div class="recRow"><span>'+fmtDT(e2.t)+' · '+ROUNDS[e2.ri].n+' '+DIFF[e2.diff].n+' '+MODES[e2.mode].n
+          +'</span><span>闪'+(e2.tr||0)+' 躲'+dg+' 准'+acc+' 连'+e2.cb+(e2.rf!=null?' 靶'+e2.rf+'ms':'')+'</span><b>'+(e2.pb?'★ ':'')+e2.score+'</b></div>';
+    }
+    list.innerHTML=html;
+  }
+}
+let recChartDiff=0;
+function drawRecChart(R){
+  const cv=$('recChart'); if(!cv||!cv.getContext) return;
+  const g=cv.getContext('2d'), W=cv.width, H=cv.height;
+  g.clearRect(0,0,W,H);
+  g.fillStyle='rgba(13,22,31,0.6)'; g.fillRect(0,0,W,H);
+  const pts=R.log.filter(e=>e.diff===recChartDiff).slice(0,24).reverse();  /* 时间正序 */
+  if(pts.length<2){
+    g.fillStyle='rgba(154,167,180,0.8)'; g.font='12px system-ui';
+    g.fillText('该难度打满两局后，这里会出现分数走势', 18, H/2+4);
+    return;
+  }
+  const max=Math.max(100,...pts.map(e=>e.score));
+  const px=i=>14+(W-28)*i/(pts.length-1);
+  const py=v=>H-14-(H-30)*v/max;
+  g.strokeStyle='rgba(255,70,85,0.9)'; g.lineWidth=1.6; g.beginPath();
+  pts.forEach((e,i)=>{ i?g.lineTo(px(i),py(e.score)):g.moveTo(px(i),py(e.score)); });
+  g.stroke();
+  pts.forEach((e,i)=>{ g.fillStyle=e.pb?'#ffb02e':'#5aa9e6';
+    g.beginPath(); g.arc(px(i),py(e.score),e.pb?3:2,0,6.2832); g.fill(); });
+  g.fillStyle='rgba(154,167,180,0.9)'; g.font='10px system-ui';
+  g.fillText('最高 '+max, 14, 12);
+  g.fillText(pts.length+' 局', W-46, H-4);
+}
 function fillResult(){
   $('resScore').textContent=score;
   $('resDodge').textContent=pct(st.dodges,st.trials);
@@ -2503,8 +2635,9 @@ function openMenu(tab, isPause){
 function selectTab(name){
   const tabs=$('menuTabs').children;
   for(const b of tabs) b.classList.toggle('act', b.dataset.tab===name);
-  for(const pg of ['solo','battle','set'])
+  for(const pg of ['solo','battle','rec','set'])
     $('tab-'+pg).classList.toggle('act', pg===name);
+  if(name==='rec') renderRecords();       /* 每次进这页都现读现画，保证是最新数据 */
 }
 function toggleMini(){ $('miniStats').classList.toggle('hide'); }
 function resetStats(silent){
@@ -2596,6 +2729,11 @@ function bindUI(){
   /* 菜单页签切换 */
   for(const b of $('menuTabs').children)
     b.onclick=e=>{ e.stopPropagation(); selectTab(b.dataset.tab); };
+  $('recClear').onclick=e=>{ e.stopPropagation();
+    if(!confirm('清空全部训练记录？')) return;
+    try{ localStorage.removeItem(LS_REC); }catch(err){}
+    renderRecords();
+  };
 
   $('resAgain').onclick=e=>{ e.stopPropagation();
     if(match.active){ matchAgain(); return; }        /* 对战：回大厅重新准备，双方再确认一次 */
