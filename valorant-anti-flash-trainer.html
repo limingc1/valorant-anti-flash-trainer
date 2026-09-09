@@ -869,48 +869,64 @@ const SFX_NAMES=[
   'yoru_throw','yoru_pop',
   'reyna_throw','reyna_pop'
 ];
-const sfxFile={};                 /* 名称 -> 可播放的 <audio> 元素 */
+const sfxBuf={};                 /* 名称 -> 已解码的 AudioBuffer（解码一次，之后从内存零延迟播放） */
 let sfxTried=false;
 function sfxTag(){
-  const n=Object.keys(sfxFile).length;
+  const n=Object.keys(sfxBuf).length;
   const el=$('sfxState');
   if(!el) return;
   el.textContent = n ? ('自定义音效 '+n+' 个已载入') : '使用内置合成音';
   el.className = n ? 'sfx on' : 'sfx';
   el.title = '把音频文件放到 HTML 同目录的 sfx/ 文件夹，\n命名如 phoenix_pop.mp3、kayo_beep.wav 等，\n刷新页面即可替换内置合成音。';
 }
+/* 用 fetch + decodeAudioData 把每个音效一次性解码成 AudioBuffer 缓存。
+   旧实现每次播放 cloneNode 一个 <audio> 再 .play() —— 克隆体不继承已加载媒体，
+   等于每响一声就重新走一遍「下载 + 解码」，连续开火时全排在解码队列后面，
+   声音滞后好几秒（实测「斯凯飞两次没声、第三次把前两次放出来」；
+   skye/kayo 默认启用所以开得最勤，延迟最明显）。
+   BufferSource 从内存直接播，零网络零解码，时刻精确。 */
 function loadSfxFiles(){
   if(sfxTried) return; sfxTried=true;
+  const ac=audio();                    // decodeAudioData 需要 AC（即便尚未解锁也能解码）
+  if(!ac){ sfxTag(); return; }
   for(const name of SFX_NAMES){
-    const a=new Audio(); a.preload='auto';
-    let i=0;
-    a.addEventListener('canplaythrough',()=>{ if(!sfxFile[name]){ sfxFile[name]=a; sfxTag(); } },{once:true});
-    a.addEventListener('error',()=>{
-      i++;
-      if(i>=SFX_EXTS.length){ sfxTag(); return; }
-      a.src=SFX_DIR+name+'.'+SFX_EXTS[i];
-    });
-    a.src=SFX_DIR+name+'.'+SFX_EXTS[0];
+    (function(name){
+      let i=0;
+      const next=()=>{
+        if(i>=SFX_EXTS.length){ sfxTag(); return; }
+        const url=SFX_DIR+name+'.'+SFX_EXTS[i]; i++;
+        fetch(url).then(r=>{
+          if(!r.ok){ next(); return; }                     // 该扩展 404 → 试下一个
+          return r.arrayBuffer().then(ab=>
+            ac.decodeAudioData(ab).then(buf=>{
+              if(!sfxBuf[name]){ sfxBuf[name]=buf; sfxTag(); }
+            }).catch(next)                                  // 解码失败 → 试下一个扩展
+          );
+        }).catch(next);                                     // 网络错误 → 试下一个扩展
+      };
+      next();
+    })(name);
   }
   setTimeout(sfxTag,1500);
 }
-function playFile(name,vol,mul){
-  const src=sfxFile[name]; if(!src) return false;
-  let a=src;
-  try{ a=src.cloneNode(true); }catch(e){ a=src; a.currentTime=0; }
-  a.volume=clamp((vol===undefined?1:vol)*(mul===undefined?1:mul),0,1);
-  const p=a.play(); if(p&&p.catch) p.catch(()=>{});
+function playFile(name,vol){
+  const buf=sfxBuf[name]; if(!buf) return false;
+  const a=audio(); if(!a) return false;
+  const src=a.createBufferSource(); src.buffer=buf;
+  const g=a.createGain(); g.gain.value=clamp(vol===undefined?1:vol,0,1);
+  src.connect(g); g.connect(bus||master);
+  src.start();
   return true;
 }
 /* 先找特工专属音（如 phoenix_pop），再找通用音（pop），都没有才合成。
-   cat='flash' 时额外乘闪光音量，其余只受全局音量控制。 */
+   cat='flash' 走 busFlash（受闪光音量控制），其余走 master（只受全局音量控制）。
+   文件音与合成音共用同一套总线，音量滑杆对两者一视同仁。 */
 function snd(specific,generic,vol,synth,cat){
   if(!cfg.sound) return;
-  const mul=clamp(cfg.gain*(cat==='flash'?cfg.flashGain:1),0,1);
-  if(specific && playFile(specific,vol,mul)) return;
-  if(generic  && playFile(generic,vol,mul))  return;
   const ac=audio();
-  bus = (ac && cat==='flash') ? busFlash : master;
+  bus = ac ? (cat==='flash' ? busFlash : master) : null;
+  if(specific && playFile(specific,vol)){ bus=null; return; }
+  if(generic  && playFile(generic,vol)){  bus=null; return; }
   synth();
   bus = null;
 }
