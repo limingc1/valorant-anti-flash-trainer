@@ -782,6 +782,20 @@ try{
   ok(JSON.parse(run('JSON.stringify(loadRecords().log)')).length===100,'流水封顶 100 条');
   run('localStorage.removeItem("aft_records"); playing=false; roundOver=false;');
 
+  /* 结算面板内嵌记录 + 走势多维度（分数/背闪率/准度） */
+  run('cfg.roundIdx=0;cfg.diff=0;startRound();score=800;st.trials=10;st.dodges=8;st.hits=9;st.shots=10;endRound();');
+  run('startRound();score=1200;st.trials=10;st.dodges=5;st.hits=10;st.shots=10;endRound();');
+  const resRecHtml=run('$("resRecList").innerHTML');
+  ok(/800/.test(resRecHtml)&&/1200/.test(resRecHtml),'结算面板内嵌列表含最近两局分数');
+  ok(/闪10/.test(resRecHtml),'列表行带绝对量指标（闪N）');
+  const mVals=JSON.parse(run('(function(){var R=loadRecords();return JSON.stringify(['
+    +'metricVal(R.log[0],"dodge"), metricVal(R.log[0],"acc"), metricVal(R.log[0],"score")]);})()'));
+  ok(Math.abs(mVals[0]-50)<0.01 && Math.abs(mVals[1]-100)<0.01 && mVals[2]===1200,
+     '走势三维度取值正确（躲50% 准100% 分1200）');
+  run('recChartMetric="acc";drawRecChart(loadRecords(),"recChart");recChartMetric="score";');
+  ok(true,'切到准度维度画图不抛异常');
+  run('localStorage.removeItem("aft_records");');
+
   console.log('\n'+(fails?('有 '+fails+' 项失败'):'全部通过'));
   process.exit(fails?1:0);
 }catch(e){

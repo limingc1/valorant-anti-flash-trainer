@@ -70,8 +70,10 @@
   #result{position:absolute;inset:0;display:none;align-items:center;justify-content:center;
           cursor:default;
           background:rgba(8,13,19,.86);z-index:20}
-  #resBox{width:min(92%,420px);background:var(--bg2);border:1px solid var(--line);
-          border-radius:12px;padding:26px 26px 22px;text-align:center}
+  #resBox{width:min(94%,560px);max-height:92vh;overflow-y:auto;background:var(--bg2);
+          border:1px solid var(--line);border-radius:12px;padding:26px 26px 22px;text-align:center}
+  #resBox::-webkit-scrollbar{width:8px}
+  #resBox::-webkit-scrollbar-thumb{background:#2b3b4d;border-radius:4px}
   #resBox h2{font-size:14px;font-weight:500;letter-spacing:3px;color:var(--txt2);margin-bottom:14px}
   .resTop{margin-bottom:18px}
   .resTop span{display:block;font-size:52px;font-weight:700;line-height:1;letter-spacing:-2px;color:var(--amb)}
@@ -138,7 +140,7 @@
   #hint b{color:var(--txt)}
 
   #ovl{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
-       background:rgba(8,13,18,.9);backdrop-filter:blur(3px);cursor:default;z-index:20}
+       background:rgba(8,13,18,.9);backdrop-filter:blur(3px);cursor:default;z-index:22}
   #ovlBox{max-width:560px;padding:28px 32px;background:var(--bg2);
           border:1px solid var(--line);border-top:2px solid var(--red);border-radius:4px}
   #ovlBox h1{font-size:22px;font-weight:600;letter-spacing:.5px;margin-bottom:4px}
@@ -189,6 +191,16 @@
   #recList{max-height:210px;overflow-y:auto}
   #recList::-webkit-scrollbar{width:6px}
   #recList::-webkit-scrollbar-thumb{background:#2b3b4d;border-radius:3px}
+  /* ---- 结算面板内嵌的记录条 ---- */
+  #resRec{margin:2px 0 14px;text-align:left;border:1px solid var(--line);
+          border-radius:8px;background:rgba(13,22,31,.45);padding:10px 12px}
+  .resRecHead{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;
+              font-size:11px;letter-spacing:1.5px;color:var(--txt2);font-weight:600}
+  #resRecBody.hide{display:none}
+  #resChips{flex-wrap:wrap}
+  #resChips button{flex:none;padding:4px 8px;font-size:10.5px}
+  #resRecList::-webkit-scrollbar{width:6px}
+  #resRecList::-webkit-scrollbar-thumb{background:#2b3b4d;border-radius:3px}
   /* ---- 常驻精简统计（游戏中 HUD） ---- */
   /* 统计挂在右上角 hudTR 内部（非绝对定位），右对齐跟着 HUD 走 */
   #miniStats{display:flex;flex-direction:column;align-items:flex-end;gap:2px;margin-top:10px;
@@ -506,9 +518,19 @@
         </div>
         <div id="resNote"></div>
         <div id="mCmp" style="display:none;margin:2px 0 14px"></div>
+        <div id="resRec">
+          <div class="resRecHead"><span>最近训练 · 走势</span>
+            <button id="resRecToggle" style="padding:3px 10px;font-size:10.5px">收起 ▴</button></div>
+          <div id="resRecBody">
+            <div class="chk" id="resChips" style="margin-bottom:8px"></div>
+            <canvas id="resChart" width="520" height="110" style="width:100%;height:110px;margin-bottom:8px"></canvas>
+            <div id="resRecList" style="max-height:160px;overflow-y:auto"></div>
+          </div>
+        </div>
         <div class="resBtns">
           <button id="resAgain" class="pri">再来一轮</button>
           <button id="resClose">继续自由练习</button>
+          <button id="resSettings">设置</button>
         </div>
       </div>
     </div>
@@ -2315,10 +2337,10 @@ function endRound(){
   mdx=0; mdy=0;                    /* 别把结束瞬间的位移攒到下一轮开局 */
   if(document.exitPointerLock) document.exitPointerLock();
   $('roundTag').textContent='0s';
+  recordRound();                       /* 先入库，再渲染结算(含内嵌记录条)，让本局立刻出现在榜上 */
   fillResult();
   $('result').style.display='flex';
   if(match.active) submitMyResult();   /* 对战：本轮分数自动上报云端 */
-  recordRound();                       /* 个人记录：只有走到这里的「计时回合自然打完」才入库 */
 }
 function pct(a,b){ return b?Math.round(a/b*100)+'%':'--'; }
 
@@ -2361,9 +2383,69 @@ function recordRound(){
 }
 function fmtDT(t){ const d=new Date(t);
   return (d.getMonth()+1)+'-'+d.getDate()+' '+(''+d.getHours()).padStart(2,'0')+':'+(''+d.getMinutes()).padStart(2,'0'); }
+/* 走势维度：分数 / 背闪率 / 准度。率 = 0~100 固定量纲，分 = 动态量纲。 */
+const METRICS=[
+  {k:'score', n:'分数'},
+  {k:'dodge', n:'背闪率'},
+  {k:'acc',   n:'准度'},
+];
+function metricVal(e2,k){
+  if(k==='dodge') return e2.tr?e2.dg/e2.tr*100:0;
+  if(k==='acc')   return e2.ss?e2.hs/e2.ss*100:0;
+  return e2.score||0;
+}
+let recChartDiff=0, recChartMetric='score';   /* 全局共享：两处面板联动 */
+function renderChips(el){
+  el.innerHTML='';
+  for(let di=0;di<DIFF.length;di++){
+    const bt=document.createElement('button');
+    bt.textContent=DIFF[di].n;
+    bt.className=(recChartDiff===di?'act':'');
+    bt.onclick=e=>{ e.stopPropagation(); recChartDiff=di; refreshRecords(); };
+    el.appendChild(bt);
+  }
+  for(const m of METRICS){
+    const bt=document.createElement('button');
+    bt.textContent=m.n;
+    bt.className=(recChartMetric===m.k?'act':'');
+    bt.onclick=e=>{ e.stopPropagation(); recChartMetric=m.k; refreshRecords(); };
+    el.appendChild(bt);
+  }
+}
+function drawRecChart(R,cvId){
+  const cv=$(cvId); if(!cv||!cv.getContext) return;
+  const g=cv.getContext('2d'), W=cv.width, H=cv.height;
+  g.clearRect(0,0,W,H);
+  g.fillStyle='rgba(13,22,31,0.6)'; g.fillRect(0,0,W,H);
+  const mk=recChartMetric, isRate=(mk==='dodge'||mk==='acc');
+  const pts=R.log.filter(e=>e.diff===recChartDiff).slice(0,24).reverse();  /* 时间正序 */
+  if(pts.length<2){
+    g.fillStyle='rgba(154,167,180,0.8)'; g.font='12px system-ui';
+    g.fillText('该难度打满两局后，这里会出现'+(METRICS.find(m=>m.k===mk)||{}).n+'走势', 18, H/2+4);
+    return;
+  }
+  const max=isRate?100:Math.max(100,...pts.map(e=>metricVal(e,mk)));
+  const px=i=>14+(W-28)*i/(pts.length-1);
+  const py=v=>H-14-(H-30)*v/max;
+  g.strokeStyle='rgba(255,70,85,0.9)'; g.lineWidth=1.6; g.beginPath();
+  pts.forEach((e,i)=>{ const v=metricVal(e,mk); i?g.lineTo(px(i),py(v)):g.moveTo(px(i),py(v)); });
+  g.stroke();
+  pts.forEach((e,i)=>{ const v=metricVal(e,mk); g.fillStyle=e.pb?'#ffb02e':'#5aa9e6';
+    g.beginPath(); g.arc(px(i),py(v),e.pb?3:2,0,6.2832); g.fill(); });
+  g.fillStyle='rgba(154,167,180,0.9)'; g.font='10px system-ui';
+  g.fillText((isRate?max+'%':'最高 '+max), 14, 12);
+  g.fillText(pts.length+' 局', W-46, H-4);
+}
+function recRowHtml(e2){
+  const acc=e2.ss?Math.round(e2.hs/e2.ss*100)+'%':'--';
+  const dg=e2.tr?Math.round(e2.dg/e2.tr*100)+'%':'--';
+  /* 闪N=闪光总数(躲分基数)、靶Nms=平均回靶(速度奖输入)：把决定分数的绝对量摆出来，
+     否则会出现「躲31%的分比躲50%的高」看不懂的局。 */
+  return '<div class="recRow"><span>'+fmtDT(e2.t)+' · '+ROUNDS[e2.ri].n+' '+DIFF[e2.diff].n+' '+MODES[e2.mode].n
+    +'</span><span>闪'+(e2.tr||0)+' 躲'+dg+' 准'+acc+' 连'+e2.cb+(e2.rf!=null?' 靶'+e2.rf+'ms':'')+'</span><b>'+(e2.pb?'★ ':'')+e2.score+'</b></div>';
+}
 function renderRecords(){
   const R=loadRecords();
-  /* 最佳卡：3 个计时时长 × 2 难度 */
   let cards='';
   for(let ri=0;ri<3;ri++) for(let di=0;di<DIFF.length;di++){
     const b=R.best[ri+'_'+di];
@@ -2372,56 +2454,28 @@ function renderRecords(){
       '<div class="d">'+(b?fmtDT(b.t)+' · '+(b.pb?'★':'')+MODES[b.mode].n:'还没有记录')+'</div></div>';
   }
   $('recBest').innerHTML=cards;
-  /* 难度筛选 chips */
-  const chips=$('recChips');
-  chips.innerHTML='';
-  for(let di=0;di<DIFF.length;di++){
-    const bt=document.createElement('button');
-    bt.textContent=DIFF[di].n;
-    bt.className=(recChartDiff===di?'act':'');
-    bt.onclick=e=>{ e.stopPropagation(); recChartDiff=di; renderRecords(); };
-    chips.appendChild(bt);
-  }
-  drawRecChart(R);
-  /* 最近列表 */
+  renderChips($('recChips'));
+  drawRecChart(R,'recChart');
   const list=$('recList');
-  if(!R.log.length){ list.innerHTML='<div class="tip">完整打完一局计时训练后，这里会出现记录。</div>'; }
-  else{
-    let html='';
-    for(const e2 of R.log.slice(0,100)){
-      const acc=e2.ss?Math.round(e2.hs/e2.ss*100)+'%':'--';
-      const dg=e2.tr?Math.round(e2.dg/e2.tr*100)+'%':'--';
-      /* 多摆两个决定分数的大头：闪光总数（躲闪得分的基数）和平均回靶（速度奖励的输入）。
-         不然会出现「躲31%的分比躲50%的高」看不懂的局 —— 躲的球多、回靶快，分就高。 */
-      html+='<div class="recRow"><span>'+fmtDT(e2.t)+' · '+ROUNDS[e2.ri].n+' '+DIFF[e2.diff].n+' '+MODES[e2.mode].n
-          +'</span><span>闪'+(e2.tr||0)+' 躲'+dg+' 准'+acc+' 连'+e2.cb+(e2.rf!=null?' 靶'+e2.rf+'ms':'')+'</span><b>'+(e2.pb?'★ ':'')+e2.score+'</b></div>';
-    }
-    list.innerHTML=html;
-  }
+  list.innerHTML = R.log.length ? R.log.slice(0,100).map(recRowHtml).join('')
+    : '<div class="tip">完整打完一局计时训练后，这里会出现记录。</div>';
 }
-let recChartDiff=0;
-function drawRecChart(R){
-  const cv=$('recChart'); if(!cv||!cv.getContext) return;
-  const g=cv.getContext('2d'), W=cv.width, H=cv.height;
-  g.clearRect(0,0,W,H);
-  g.fillStyle='rgba(13,22,31,0.6)'; g.fillRect(0,0,W,H);
-  const pts=R.log.filter(e=>e.diff===recChartDiff).slice(0,24).reverse();  /* 时间正序 */
-  if(pts.length<2){
-    g.fillStyle='rgba(154,167,180,0.8)'; g.font='12px system-ui';
-    g.fillText('该难度打满两局后，这里会出现分数走势', 18, H/2+4);
-    return;
-  }
-  const max=Math.max(100,...pts.map(e=>e.score));
-  const px=i=>14+(W-28)*i/(pts.length-1);
-  const py=v=>H-14-(H-30)*v/max;
-  g.strokeStyle='rgba(255,70,85,0.9)'; g.lineWidth=1.6; g.beginPath();
-  pts.forEach((e,i)=>{ i?g.lineTo(px(i),py(e.score)):g.moveTo(px(i),py(e.score)); });
-  g.stroke();
-  pts.forEach((e,i)=>{ g.fillStyle=e.pb?'#ffb02e':'#5aa9e6';
-    g.beginPath(); g.arc(px(i),py(e.score),e.pb?3:2,0,6.2832); g.fill(); });
-  g.fillStyle='rgba(154,167,180,0.9)'; g.font='10px system-ui';
-  g.fillText('最高 '+max, 14, 12);
-  g.fillText(pts.length+' 局', W-46, H-4);
+/* 结算面板内嵌的那份：数据现读，和菜单页共用维度/难度状态 */
+let resRecOpen=true;
+function renderResRec(){
+  const R=loadRecords();
+  renderChips($('resChips'));
+  drawRecChart(R,'resChart');
+  const list=$('resRecList');
+  list.innerHTML = R.log.length ? R.log.slice(0,6).map(recRowHtml).join('')
+    : '<div class="tip">完整打完一局计时训练后，这里会出现记录。</div>';
+  $('resRecBody').classList.toggle('hide',!resRecOpen);
+  $('resRecToggle').textContent=resRecOpen?'收起 ▴':'展开 ▾';
+}
+/* 两个面板的图表/难度/维度是共享状态，改一处另一处同步刷新 */
+function refreshRecords(){
+  try{ if(lobbyIsOpen()||menuIsOpen()) renderRecords(); }catch(e){}
+  try{ if($('result').style.display==='flex') renderResRec(); }catch(e){}
 }
 function fillResult(){
   $('resScore').textContent=score;
@@ -2450,6 +2504,7 @@ function fillResult(){
   /* 对战里这两个按钮语义不同：再战要回大厅让双方重新确认，关闭等于退出对战 */
   $('resAgain').textContent=match.active?'再战一轮（回大厅）':'再来一轮';
   $('resClose').textContent=match.active?'退出对战':'继续自由练习';
+  renderResRec();                      /* 内嵌记录：本轮刚打完的数据已在库里 */
 }
 
 /* ---------- 自动闪光调度 ---------- */
@@ -2622,7 +2677,8 @@ function resume(){
     blindUntil=0; blindDur=0; blindSrc=0; blindStart=0; scheduleAuto();
   }
   closeMenu();
-  if(playing) relock();
+  /* 结算面板还开着(从结算进设置再回来)就不抢指针锁，否则鼠标被吸进画布点不动面板 */
+  if(playing && !roundOver) relock();
 }
 /* ---------- 统一菜单（开屏 / 暂停） ---------- */
 function menuIsOpen(){ return $('ovl').style.display!=='none'; }
@@ -2747,6 +2803,9 @@ function bindUI(){
     $('result').style.display='none';
     relock();
   };
+  /* 结算面板上的「设置」：菜单盖在结算之上，改完点「继续训练」回到结算面板 */
+  $('resSettings').onclick=e=>{ e.stopPropagation(); openMenu('set', false); };
+  $('resRecToggle').onclick=e=>{ e.stopPropagation(); resRecOpen=!resRecOpen; renderResRec(); };
 
   $('rInt').oninput=e=>{ cfg.rate=+e.target.value; $('vInt').textContent=cfg.rate.toFixed(1)+'×'; scheduleAuto(); saveCfg(); };
   $('rSens').oninput=e=>{ cfg.sens=+e.target.value; $('vSens').textContent=cfg.sens.toFixed(2); saveCfg(); };
