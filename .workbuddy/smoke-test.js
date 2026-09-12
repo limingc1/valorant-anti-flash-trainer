@@ -856,6 +856,135 @@ try{
      '菜单页最近训练列表同样只星当前纪录');
   run('localStorage.removeItem("aft_records"); playing=false; roundOver=false;');
 
+  /* [29] 音乐盒：双来源曲库 + 播放闸门 + 出手声压低（帧内插值，不是 setTimeout） */
+  console.log('[29] 音乐盒：曲库来源 + 播放闸门 + 出手声压低');
+  ok(/data-tab="music"/.test(html)&&/id="tab-music"/.test(html),'菜单里有「音乐盒」页签和页面');
+  ok(/id="musicAdd"/.test(html)&&/id="musicFile"[^>]*multiple/.test(html)&&/id="musicRescan"/.test(html),
+     '添加歌曲/多选文件/重扫 music/ 三件套齐全');
+  ok(/id="rMusicVol"[^>]*value="0.4"/.test(html)&&/音乐音量 <b id="vMusicVol">40%<\/b>/.test(html),
+     '音乐音量滑杆默认 0.4 且带百分比标签');
+  run('selectTab("music");');
+  ok(run('$("tab-music").classList.contains("act")')===true,'selectTab 能定位到音乐盒页');
+  ok(run('cfg.musicVol===0.4&&cfg.musicDuck===1&&cfg.musicWhen===2')===true,
+     '默认：音量0.4 / 出手声压低开 / 播放范围=菜单+训练');
+  run('localStorage.setItem("aft_cfg",JSON.stringify({musicVol:5,musicWhen:9,musicDuck:2}));loadCfg();');
+  ok(run('cfg.musicVol===1&&cfg.musicWhen===2&&cfg.musicDuck===1')===true,
+     'loadCfg 把越界音乐设置钳回合法范围');
+  run('applyCfgToUI();');
+  ok(+run('$("rMusicVol").value')===1&&run('$("vMusicVol").textContent')==='100%',
+     'applyCfgToUI 把音乐音量刷回控件和标签');
+  run('localStorage.removeItem("aft_cfg");loadCfg();applyCfgToUI();');
+  ok(run('$("segMusicWhen").children.length')===3,'播放范围分段控件有 3 档');
+  ok(run('$("segMusicDuck").children.length')===2,'出手声压低分段控件有 2 档');
+  ok(!!run('musicScanDir()')&&typeof run('musicScanDir()').then==='function',
+     'musicScanDir 返回 Promise（fetch 失败→空表，不抛异常）');
+  /* 播放闸门矩阵：范围 × 场景 × 静音 × 暂停意图 */
+  run('mlist.length=0;mlist.push({id:1,name:"t",dur:60,src:"dir"});mActive=true;');
+  run('playing=true;$("ovl").style.display="none";roundOver=false;cfg.musicWhen=1;');
+  ok(run('musicShouldPlay()')===false,'仅菜单模式：对局中不播放');
+  run('$("ovl").style.display="flex";');
+  ok(run('musicShouldPlay()')===true,'仅菜单模式：菜单打开时播放');
+  ok(run('cfg.musicWhen=0;musicShouldPlay()')===false,'播放范围=关闭：不播放');
+  run('cfg.musicWhen=2;$("ovl").style.display="none";');
+  ok(run('musicShouldPlay()')===true,'播放范围=菜单+训练：对局中也播放');
+  ok(run('cfg.sound=false;musicShouldPlay()')===false,'M 键静音时音乐一起停');
+  run('cfg.sound=true;');
+  ok(run('mActive=false;musicShouldPlay()')===false,'按了暂停(⏸)后不播放');
+  run('mActive=true;');
+  /* 续播索引 */
+  const mni=JSON.parse(run('JSON.stringify(['
+    +'musicNextIdx(0,0,"list",false,Math.random),'
+    +'musicNextIdx(2,5,"list",false,Math.random),'
+    +'musicNextIdx(4,5,"list",false,Math.random),'
+    +'musicNextIdx(3,5,"one",false,Math.random),'
+    +'musicNextIdx(3,5,"one",true,Math.random),'
+    +'musicNextIdx(0,3,"shuffle",false,()=>0),'
+    +'musicNextIdx(1,3,"shuffle",false,()=>0.99)'
+    +'])'));
+  ok(JSON.stringify(mni)===JSON.stringify([-1,3,0,3,4,1,2]),
+     '续播索引：空表-1 / 列表循环回绕 / 单曲自动不换手动换 / 随机避开当前');
+  /* 出手声压低：帧内插值收敛，不掉帧不瞬跳 */
+  run('flashes.length=0;flashes.push({t0:T-1,audOff:0,popped:false});');
+  run('playing=true;paused=false;roundOver=false;cfg.musicDuck=1;mduck=1;');
+  run('for(var i=0;i<60;i++) musicTick(0.05);');
+  ok(Math.abs(+run('mduck')-0.22)<0.02,'出手声可闻窗口内音乐收敛到压低档 0.22');
+  run('flashes.length=0;');
+  run('for(var i=0;i<60;i++) musicTick(0.05);');
+  ok(Math.abs(+run('mduck')-1)<0.01,'窗口结束音乐收敛回全量');
+  run('cfg.musicDuck=0;flashes.push({t0:T-1,audOff:0,popped:false});');
+  run('for(var i=0;i<60;i++) musicTick(0.05);');
+  ok(Math.abs(+run('mduck')-1)<0.01,'压低开关关闭时保持全量');
+  run('flashes.length=0;cfg.musicDuck=1;playing=false;');
+  /* 名称清洗 / 文件校验 / 时长 */
+  ok(run('musicCleanName("C:\\\\fakepath\\\\My<>Song.mp3")')==='MySong.mp3',
+     '导入名清洗：去路径去尖括号');
+  ok(run('musicCleanName("")')==='未命名','空名兜底「未命名」');
+  ok(run('musicValidateFile({name:"a.mp3",size:1024,type:"audio/mpeg"},3)')==='','合法音频通过校验');
+  ok(/超过/.test(run('musicValidateFile({name:"a.mp3",size:30*1024*1024,type:"audio/mpeg"},3)')),
+     '超过 25MB 的文件被拒');
+  ok(/已满/.test(run('musicValidateFile({name:"a.mp3",size:1024,type:"audio/mpeg"},50)')),
+     '歌单满 50 首后拒绝再导入');
+  ok(/音频/.test(run('musicValidateFile({name:"a.txt",size:1024,type:"text/plain"},3)')),
+     '非音频文件被拒');
+  ok(run('musicValidateFile({name:"a.flac",size:1024,type:""},3)')==='',
+     'MIME 缺失但扩展名合法 → 放行');
+  ok(run('fmtDur(83)')==='1:23'&&run('fmtDur(0)')==='0:00','时长格式化 m:ss');
+  /* 列表渲染：行结构 + 当前曲高亮 + 空态 */
+  run('mlist.length=0;mlist.push({id:1,name:"曲A",dur:61,src:"dir"},{id:2,name:"曲B",dur:122,src:"idb"});mcur=0;musicRender();');
+  ok(run('$("musicList").children.length')===2,'曲库列表渲染两行');
+  ok(/(^| )act( |$)/.test(run('$("musicList").children[0].className')),'当前曲高亮 act');
+  ok(run('$("musicList").children[0].children[1].textContent')==='📁 1:01','文件夹曲目带📁标和时长');
+  ok(run('$("musicList").children[0].children[2].style.display')==='none',
+     '文件夹曲目不显示删除钮（删文件+改 manifest）');
+  ok(run('$("musicList").children[1].children[2].style.display')!=='none','导入曲目有删除钮');
+  run('mlist.length=0;musicRender();');
+  ok(run('$("musicList").children.length')===1&&/还没有曲目/.test(run('$("musicList").children[0].textContent')),
+     '空曲库显示引导提示');
+
+  /* [29b] 悬浮条 + 播放列表面板（三角洲样式：曲名/来源/进度条/共享控制） */
+  console.log('[29b] 悬浮条与播放列表面板');
+  ok(/id="musicBall"/.test(html)&&/id="musicBallPlay"/.test(html)&&/id="musicBallList"/.test(html)&&/id="musicBallMeta"/.test(html),
+     '悬浮条结构齐全（曲名/播放/上一首/下一首/列表钮）');
+  ok(/id="musicPanel"/.test(html)&&/id="musicPList"/.test(html)&&/id="musicPBar"/.test(html)&&/id="musicPFill"/.test(html)
+     &&/id="musicPT"/.test(html)&&/id="musicPDur"/.test(html)&&/id="musicPLoop"/.test(html),
+     '播放列表面板结构齐全（行区/进度条/时间/循环钮）');
+  run('mlist.length=0;mcur=-1;musicRender();');
+  ok(run('$("musicBall").classList.contains("hide")')===true,'空曲库时悬浮条隐藏');
+  run('mlist.push({id:1,name:"In The Summer.mp3",dur:181,src:"dir"},{id:2,name:"Leave No Man Behind.m4a",dur:207,src:"idb"});mcur=0;musicRender();');
+  ok(run('$("musicBall").classList.contains("hide")')===false,'有曲目后悬浮条出现');
+  ok(run('$("musicBallTitle").textContent')==='In The Summer','悬浮条标题去掉扩展名');
+  ok(run('$("musicBallSub").textContent')==='music/ 文件夹 · 列表循环','悬浮条副行=来源+循环模式');
+  ok(run('musicPrettyName("Blazefall（焰火）.flac")')==='Blazefall（焰火）','PrettyName 兼容中文括号与扩展名');
+  ok(run('musicSrcLabel(mlist[1])')==='本机导入','来源标注：导入曲=本机导入');
+  run('mDur=0;mPlayOff=0;');
+  ok(run('musicCalcPos()')===0,'未播放时进度位置=0');
+  run('mDur=100;mPlayOff=25;');
+  ok(run('musicCalcPos()')===25,'暂停时进度停在偏移处');
+  run('musicSeek(0.5);');
+  ok(run('mPlayOff')===50,'seek(0.5) 落在 50s');
+  run('musicSeek(3);');
+  ok(run('mPlayOff')===100,'seek 超界钳到曲长');
+  run('musicSeek(-1);');
+  ok(run('mPlayOff')===0,'seek 负值钳到 0');
+  run('musicPanelToggle();');
+  ok(run('musicPanelOpen')===true&&run('$("musicPanel").classList.contains("open")')===true,'面板能打开');
+  ok(run('$("musicPList").children.length')===2,'面板渲染曲目行');
+  ok(/(^| )act( |$)/.test(run('$("musicPList").children[0].className')),'面板当前曲行高亮');
+  ok(run('$("musicPTitle").textContent')==='In The Summer','迷你条标题同步');
+  run('musicCycleLoop();');
+  ok(run('mLoop')==='one'&&run('$("musicPLoop").textContent')==='单曲循环','循环切换同步到迷你条');
+  run('musicCycleLoop();musicCycleLoop();');
+  ok(run('mLoop')==='list'&&run('$("musicLoop").textContent')==='列表循环','循环三档转回列表循环，页签按钮文案同步');
+  run('musicJump(1);');
+  ok(run('mcur')===1,'musicJump(1) 前进一首');
+  run('musicJump(-1);');
+  ok(run('mcur')===0,'musicJump(-1) 退回一首');
+  run('musicJump(-1);');
+  ok(run('mcur')===1,'musicJump(-1) 从 0 回绕到末首');
+  run('musicPanelToggle(false);');
+  ok(run('musicPanelOpen')===false&&run('$("musicPanel").classList.contains("open")')===false,'面板能关闭');
+  run('mlist.length=0;mcur=-1;mDur=0;mPlayOff=0;');
+
   console.log('\n'+(fails?('有 '+fails+' 项失败'):'全部通过'));
   process.exit(fails?1:0);
 }catch(e){

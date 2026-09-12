@@ -9,7 +9,7 @@
 ## 改完必做
 
 ```
-node .workbuddy/smoke-test.js     # 期望 207 条 OK，末行「全部通过」
+node .workbuddy/smoke-test.js     # 期望 264 条 OK，末行「全部通过」
 node .workbuddy/api-test.mjs      # 期望 26 条 OK，末行「全部通过」
 ```
 
@@ -34,6 +34,7 @@ node .workbuddy/api-test.mjs      # 期望 26 条 OK，末行「全部通过」
 | `.workbuddy/api-test.mjs` | 后端测试：假 KV 跑完整房间生命周期 |
 | `.github/workflows/ci.yml` | CI，跑上面两套 |
 | `sfx/` | 自定义音效 wav + 切分脚本 + 说明 |
+| `music/` | 音乐盒本地曲目文件夹（**gitignore 不入库**，版权原因；`README.md` 有用法） |
 | `build-dist.ps1` | 本地构建 `dist/`（CI 跑同样步骤，平时不用管） |
 
 本地跑游戏：浏览器直接打开 `valorant-anti-flash-trainer.html`。
@@ -68,6 +69,15 @@ node .workbuddy/api-test.mjs      # 期望 26 条 OK，末行「全部通过」
 
 8. **对战中不轮询云端**（省 KV 读额度），只在开局前和等交卷时轮询。
    `pollDelay()` / `startPoll()` 是额度闸门，`cloudGaveUp()` 是 429 降级入口。
+
+9. **音乐盒的音频文件入库**（2026-09-13 起，与约束 6 的 `sfx/` 同策略）。
+   `music/*` 已不再被 gitignore —— push 即部署，线上和朋友的音乐盒里直接就有曲子。
+   别按「版权音频不该入库」的老印象把它加回 `.gitignore`。
+   技术侧三条别改：
+   - 播放走 WebAudio 预解码（同约束 5），但**只缓存当前这首**的解码结果
+     （3 分钟曲子解码后约 60MB PCM，整张歌单全缓存会吃光内存）；
+   - 「出手声压低音乐」（duck）在 `musicTick` 里做帧内插值，别改成 `setTimeout`；
+   - IndexedDB 不可用（vm 测试环境/老浏览器）时必须优雅降级成只有文件夹曲目。
 
 ---
 

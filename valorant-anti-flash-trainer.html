@@ -198,6 +198,77 @@
   .recRow{display:flex;justify-content:space-between;align-items:center;background:var(--bg3);
           border:1px solid var(--line);border-radius:5px;padding:6px 9px;font-size:11.5px;
           color:var(--txt2);margin-bottom:4px}
+  /* ---- 音乐盒 ---- */
+  #musicNow{font-size:11.5px;color:var(--txt2);text-align:center;margin:12px 0 2px;min-height:17px;
+            white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #musicList{max-height:230px;overflow-y:auto}
+  #musicList::-webkit-scrollbar{width:8px}
+  #musicList::-webkit-scrollbar-thumb{background:#2b3b4d;border-radius:4px}
+  .musicRow{cursor:pointer;gap:8px}
+  .musicRow:hover{border-color:#3d556e;color:var(--txt)}
+  .musicRow.act{border-color:var(--red);color:var(--txt)}
+  .musicRow .mn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:inherit}
+  .musicRow .md{color:var(--txt2);font-size:10.5px;flex:none}
+  .musicRow .mdel{flex:none;padding:1px 7px;font-size:10px;background:transparent;
+                  border:1px solid var(--line);color:var(--txt2);border-radius:3px;cursor:pointer}
+  .musicRow .mdel:hover{color:var(--red);border-color:var(--red)}
+  /* ---- 音乐盒悬浮条（左下角，游戏中纯展示——指针锁定时点击都归画布） ---- */
+  #musicBall{position:absolute;left:16px;bottom:16px;z-index:30;display:flex;align-items:center;gap:8px;
+             padding:7px 10px 7px 7px;background:rgba(10,17,24,.9);border:1px solid var(--line);border-radius:9px;
+             backdrop-filter:blur(3px);width:min(92%,360px)}
+  #musicBall.hide{display:none}
+  #musicBall .art,#musicPMini .art{flex:none;border-radius:6px;display:flex;align-items:center;justify-content:center;
+             color:#ffd27a;background:linear-gradient(135deg,#233140,#16222e);border:1px solid var(--line)}
+  #musicBall .art{width:34px;height:34px;font-size:15px}
+  #musicBall .meta{flex:1;min-width:0;cursor:pointer}
+  #musicBall .t{font-size:12px;font-weight:600;color:var(--txt);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #musicBall .s{font-size:10px;color:var(--txt2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+  /* 音符图标字形自带边距：必须 flex 居中 + 清 padding，否则不在圆圈中心 */
+  #musicBall button{flex:none;width:28px;height:28px;padding:0;display:flex;align-items:center;justify-content:center;
+                    background:transparent;border:none;color:var(--txt2);cursor:pointer;font-size:13px;line-height:1}
+  #musicBall button:hover{color:var(--txt)}
+  #musicBall .big{width:30px;height:30px;border:1px solid var(--line);border-radius:50%;color:var(--txt);font-size:12px}
+  #musicBall .big:hover{border-color:var(--red);color:var(--red)}
+  /* ---- 播放列表面板 ---- */
+  #musicPanel{position:absolute;left:16px;bottom:64px;z-index:31;width:min(92%,360px);display:none;
+              background:var(--bg2);border:1px solid var(--line);border-top:2px solid #4a5a6a;border-radius:6px;
+              box-shadow:0 12px 40px rgba(0,0,0,.5);overflow:hidden}
+  #musicPanel.open{display:block}
+  #musicPHead{display:flex;align-items:center;justify-content:space-between;padding:9px 12px;
+              border-bottom:1px solid var(--line);font-size:12px;letter-spacing:2px;color:var(--txt)}
+  #musicPHead b{font-weight:600}
+  #musicPClose{background:transparent;border:none;color:var(--txt2);font-size:14px;cursor:pointer;padding:2px 6px}
+  #musicPClose:hover{color:var(--txt)}
+  #musicPList{max-height:262px;overflow-y:auto;padding:6px}
+  #musicPList::-webkit-scrollbar{width:8px}
+  #musicPList::-webkit-scrollbar-thumb{background:#2b3b4d;border-radius:4px}
+  .musicPRow{display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:5px;cursor:pointer}
+  .musicPRow:hover{background:var(--bg3)}
+  .musicPRow.act{background:var(--bg3);box-shadow:inset 2px 0 0 var(--red)}
+  .musicPRow .info{flex:1;min-width:0}
+  .musicPRow .t{font-size:12.5px;color:var(--txt);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .musicPRow .s{font-size:10px;color:var(--txt2);margin-top:1px}
+  .musicPRow .go{flex:none;background:transparent;border:none;color:var(--txt2);cursor:pointer;font-size:12px;padding:2px 6px}
+  .musicPRow .go:hover{color:var(--red)}
+  #musicPMini{display:flex;align-items:center;gap:10px;padding:10px 12px;border-top:1px solid var(--line);background:var(--bg3)}
+  #musicPMini .art{width:42px;height:42px;font-size:17px}
+  #musicPMini .meta{flex:1;min-width:0}
+  #musicPMini .t{font-size:12.5px;font-weight:600;color:var(--txt);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #musicPMini .s{font-size:10px;color:var(--txt2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+  #musicPBar{position:relative;height:12px;margin-top:5px;cursor:pointer}
+  #musicPBar::before{content:'';position:absolute;left:0;right:0;top:5px;height:2px;background:#2b3b4d;border-radius:1px}
+  #musicPFill{position:absolute;left:0;top:5px;height:2px;width:0;background:var(--red);border-radius:1px}
+  #musicPTimes{display:flex;justify-content:space-between;font-size:9.5px;color:var(--txt2);margin-top:3px;
+               font-variant-numeric:tabular-nums}
+  #musicPBtns{display:flex;align-items:center;gap:5px;flex:none}
+  #musicPBtns button{background:transparent;border:1px solid var(--line);border-radius:50%;
+                     width:28px;height:28px;padding:0;display:flex;align-items:center;justify-content:center;
+                     color:var(--txt2);cursor:pointer;font-size:12px;line-height:1;flex:none}
+  #musicPBtns button:hover{color:var(--txt);border-color:#3d556e}
+  /* ID+ID 压过上面的 #musicPBtns button（0-1-1-1），否则胶囊会被圆钮样式盖掉、文字溢出 */
+  #musicPBtns #musicPLoop{width:auto;background:transparent;border:1px solid var(--line);border-radius:4px;
+              height:24px;padding:0 8px;color:var(--txt2);cursor:pointer;font-size:10px;flex:none}
+  #musicPBtns #musicPLoop:hover{color:var(--txt);border-color:#3d556e}
   .recRow b{color:var(--amb);font-size:13px}
   #recList{max-height:210px;overflow-y:auto}
   #recList::-webkit-scrollbar{width:6px}
@@ -349,6 +420,7 @@
             <button class="tab act" data-tab="solo">单人训练</button>
             <button class="tab" data-tab="battle">联机对战</button>
             <button class="tab" data-tab="rec">训练记录</button>
+            <button class="tab" data-tab="music">音乐盒</button>
             <button class="tab" data-tab="set">设置</button>
           </div>
         </div>
@@ -410,6 +482,27 @@
             <div class="tabBtns" style="margin-top:12px">
               <button id="recClear" style="flex:none;margin-left:auto;padding:6px 12px;font-size:11px">清空记录</button>
             </div>
+          </div>
+          <!-- 音乐盒 -->
+          <div class="tabpage" id="tab-music">
+            <div class="row"><label>播放范围</label><div class="seg" id="segMusicWhen"></div></div>
+            <div class="row"><label>音乐音量 <b id="vMusicVol">40%</b></label>
+              <input type="range" id="rMusicVol" min="0" max="1" step="0.05" value="0.4"></div>
+            <div class="row"><label>出手声压低音乐</label><div class="seg" id="segMusicDuck"></div></div>
+            <div id="musicNow">未在播放</div>
+            <div class="tabBtns" style="margin:4px 0 8px;gap:6px">
+              <button id="musicPrev" title="上一首">⏮</button>
+              <button id="musicPlay" class="pri" style="flex:1">▶ 播放</button>
+              <button id="musicNext" title="下一首">⏭</button>
+              <button id="musicLoop" title="循环模式">列表循环</button>
+            </div>
+            <div id="musicList"></div>
+            <div class="tabBtns" style="margin-top:8px;gap:6px">
+              <button id="musicAdd" style="flex:1">＋ 添加歌曲</button>
+              <button id="musicRescan" style="flex:1">重扫 music/</button>
+            </div>
+            <input type="file" id="musicFile" accept="audio/*,.mp3,.wav,.ogg,.m4a,.flac" multiple style="display:none">
+            <div class="tip" style="margin-top:8px">导入的歌保存在<b>本浏览器</b>，换设备要重新导。想线上就有歌：把音频放进 music/ 文件夹、在 manifest.json 登记文件名（该文件夹<b>随仓库入库</b>，push 即部署），朋友打开就零配置有歌。</div>
           </div>
           <!-- 设置 -->
           <div class="tabpage" id="tab-set">
@@ -513,6 +606,38 @@
         </div>
       </div>
     </div>
+    <!-- 音乐盒悬浮条：显示正在播放的歌曲（指针锁定时纯展示，点击归画布） -->
+    <div id="musicBall" class="hide">
+      <div class="art">♪</div>
+      <div class="meta" id="musicBallMeta" title="打开播放列表">
+        <div class="t" id="musicBallTitle">未在播放</div>
+        <div class="s" id="musicBallSub">音乐盒</div>
+      </div>
+      <button id="musicBallPrev" title="上一首">⏮</button>
+      <button id="musicBallPlay" class="big" title="播放/暂停">▶</button>
+      <button id="musicBallNext" title="下一首">⏭</button>
+      <button id="musicBallList" title="播放列表">≡</button>
+    </div>
+    <!-- 播放列表面板 -->
+    <div id="musicPanel">
+      <div id="musicPHead"><b>▶ 播放列表</b><button id="musicPClose" title="关闭">✕</button></div>
+      <div id="musicPList"></div>
+      <div id="musicPMini">
+        <div class="art">♪</div>
+        <div class="meta">
+          <div class="t" id="musicPTitle">—</div>
+          <div class="s" id="musicPSub"></div>
+          <div id="musicPBar" title="点击跳转进度"><div id="musicPFill"></div></div>
+          <div id="musicPTimes"><span id="musicPT">0:00</span><span id="musicPDur">0:00</span></div>
+        </div>
+        <div id="musicPBtns">
+          <button id="musicPPrev" title="上一首">⏮</button>
+          <button id="musicPPlay" title="播放/暂停">⏸</button>
+          <button id="musicPNext" title="下一首">⏭</button>
+          <button id="musicPLoop" title="循环模式">循环</button>
+        </div>
+      </div>
+    </div>
     <div id="result">
       <div id="resBox">
         <h2>本轮结束</h2>
@@ -593,6 +718,7 @@ const cfg={
   diff:0, mode:0, vis:0, auto:true, rate:1, roundIdx:1,
   crossKind:0, crossColor:0, crossLen:4, crossThick:2, crossGap:2, crossDot:false,
   sound:true, blur:true, edge:false, gain:0.8, flashGain:1.0, audioLead:0.25,
+  musicVol:0.4, musicDuck:1, musicWhen:2,      /* 音乐盒：音量/出手声压低/播放范围(0关1仅菜单2菜单+训练) */
   agents:{phoenix:true,skye:true,breach:true,kayo:false,yoru:false,reyna:false}
 };
 const DIFF=[
@@ -1041,6 +1167,360 @@ const sfx={
   charge(k){ snd(k?k+'_charge':null,'charge',0.9,()=>{ tone(260,0.5,'sawtooth',0.05,1500); noise(0.45,0.10,400,3000); },'flash'); },   /* 预留：放了 sfx/breach_charge.wav 才会响 */
   over(){   snd(null,'over',0.7,()=>tone(300,0.14,'sine',0.05,150)); }
 };
+
+/* ---------- 音乐盒 ----------
+   双来源：music/ 文件夹（随仓库入库，push 即部署，见 music/README.md）
+   + 页面导入（存浏览器 IndexedDB，仅本机有效）。
+   播放走 WebAudio 预解码（同音效约束），但只缓存「当前这首」的解码结果 ——
+   一首 3 分钟曲子解码后约 60MB PCM，整张歌单全缓存会吃光内存。
+   「出手声压低音乐」走 musicTick 帧内插值：和出手声同一条帧驱动架构，
+   不用 setTimeout —— 掉帧/暂停时压低窗口自动跟着游戏时钟走。 */
+const MUSIC_DIR='music/';
+const MUSIC_MAX_TRACKS=50, MUSIC_MAX_MB=25, MUSIC_DUCK=0.22;
+let mlist=[];                    /* [{id,name,dur,src:'dir'|'idb',file?}] */
+let mcur=-1, mActive=false, mLoop='list';        /* mLoop: list|one|shuffle */
+let mbuf=null, mbufId=null, msrc=null, mbus=null;
+let mduck=1, mPending=false, mGen=0, mFolder;
+let mPlayT0=0, mPlayOff=0, mDur=0, musicPanelOpen=false;   /* 进度条：起播时刻/偏移/总长 + 面板开关 */
+function musicCleanName(s){
+  s=String(s||'').replace(/[<>]/g,'').replace(/^.*[\\/]/,'').trim();
+  return s.slice(0,60)||'未命名';
+}
+function musicValidateFile(f,curCount){
+  if(curCount>=MUSIC_MAX_TRACKS) return '歌单已满（上限 '+MUSIC_MAX_TRACKS+' 首），先删几首';
+  if(f.size>MUSIC_MAX_MB*1024*1024) return musicCleanName(f.name)+' 超过 '+MUSIC_MAX_MB+'MB';
+  if(!/audio\//i.test(f.type||'')&&!/\.(mp3|wav|ogg|m4a|flac)$/i.test(f.name||''))
+    return musicCleanName(f.name)+' 不像音频文件';
+  return '';
+}
+function fmtDur(s){ s=Math.round(s||0); return Math.floor(s/60)+':'+(''+(s%60)).padStart(2,'0'); }
+function musicShouldPlay(){
+  if(!mActive||!mlist.length||!cfg.sound||!cfg.musicWhen) return false;
+  if(cfg.musicWhen===2) return true;
+  return menuIsOpen()||!playing||roundOver;      /* 仅菜单：开屏/暂停/结算都算菜单场景 */
+}
+function musicNextIdx(cur,len,mode,manual,randFn){
+  if(!len) return -1;
+  if(mode==='one'&&!manual) return ((cur%len)+len)%len;
+  if(mode==='shuffle'){
+    let i=Math.floor(randFn()*len);
+    if(i===cur) i=(i+1)%len;                     /* 随到正在放的就顺延一位 */
+    return i;
+  }
+  return (cur+1)%len;
+}
+/* IndexedDB 最小封装：meta 存曲目信息（列表秒出，不搬音频数据），data 存原始文件 */
+function idbOpen(){
+  return new Promise((res,rej)=>{
+    if(typeof indexedDB==='undefined'){ rej(new Error('no IndexedDB')); return; }
+    const q=indexedDB.open('aft_music',1);
+    q.onupgradeneeded=()=>{
+      const d=q.result;
+      if(!d.objectStoreNames.contains('meta')) d.createObjectStore('meta',{keyPath:'id'});
+      if(!d.objectStoreNames.contains('data')) d.createObjectStore('data');
+    };
+    q.onsuccess=()=>res(q.result);
+    q.onerror=()=>rej(q.error);
+  });
+}
+function idbGo(store,mode,fn){
+  return idbOpen().then(d=>new Promise((res,rej)=>{
+    const tx=d.transaction(store,mode), rq=fn(tx.objectStore(store));
+    tx.oncomplete=()=>{ d.close(); res(rq&&rq.result); };
+    tx.onerror=()=>rej(tx.error);
+  }));
+}
+const idbList=()=>idbGo('meta','readonly',s=>s.getAll());
+const idbPutMeta=m=>idbGo('meta','readwrite',s=>s.put(m));
+const idbPutData=(id,ab)=>idbGo('data','readwrite',s=>s.put(ab,id));
+const idbDelOne=id=>Promise.all([
+  idbGo('meta','readwrite',s=>s.delete(id)), idbGo('data','readwrite',s=>s.delete(id))]);
+const idbGetData=id=>idbGo('data','readonly',s=>s.get(id));
+/* 扫 music/manifest.json。没 fetch 环境（vm 桩会 reject→catch）或没建 manifest
+   都返回空表 —— 这是「没配文件夹曲目」，不是错误，静默。 */
+function musicScanDir(fresh){
+  if(typeof fetch!=='function') return [];
+  const url=MUSIC_DIR+'manifest.json'+(fresh?'?t='+Date.now():'');
+  return fetch(url).then(r=>{ if(!r.ok) throw new Error('no manifest'); return r.json(); })
+    .then(j=>(Array.isArray(j)?j:[]).filter(x=>typeof x==='string'&&x.trim())
+      .map(f=>({id:'d_'+f,name:musicCleanName(f),dur:0,src:'dir',file:f})))
+    .catch(()=>[]);
+}
+function musicRefresh(fresh){
+  return Promise.resolve(mFolder===undefined||fresh?musicScanDir(fresh):mFolder)
+    .then(dir=>{ mFolder=dir; return idbList().catch(()=>[]); })
+    .then(rows=>{
+      const keep=mlist[mcur]?mlist[mcur].id:null;
+      mlist=mFolder.concat((rows||[]).map(m=>({id:m.id,name:m.name,dur:m.dur||0,src:'idb'})));
+      mcur=mlist.findIndex(t=>t.id===keep);      /* 刷新后仍指向原来那首 */
+      if(mcur<0&&mlist.length) mcur=0;           /* 没选中过：预选第一首，悬浮条/▶ 立刻可用 */
+      musicRender();
+    });
+}
+function musicRender(){
+  const box=$('musicList'); if(!box) return;
+  box.innerHTML='';
+  mlist.forEach((t,i)=>{
+    const row=document.createElement('div');
+    row.className='recRow musicRow'+(i===mcur?' act':'');
+    const sp=document.createElement('span'); sp.className='mn'; sp.textContent=t.name;
+    const ss=document.createElement('span'); ss.className='md';
+    ss.textContent=(t.src==='dir'?'📁 ':'')+fmtDur(t.dur);
+    const del=document.createElement('button'); del.className='mdel'; del.textContent='✕';
+    if(t.src!=='idb') del.style.display='none';   /* 文件夹曲目不在这里删，删文件+改 manifest */
+    del.onclick=e=>{ e.stopPropagation(); musicDelete(i); };
+    row.appendChild(sp); row.appendChild(ss); row.appendChild(del);
+    row.onclick=()=>{ mActive=true; if(mcur!==i){ mcur=i; musicStart(); } else if(!msrc) musicStart(); musicUI(); };
+    box.appendChild(row);
+  });
+  if(!mlist.length){
+    const tip=document.createElement('div'); tip.className='tip';
+    tip.textContent='还没有曲目：点「＋ 添加歌曲」导入，或把音频放进 music/ 文件夹（见下方说明）。';
+    box.appendChild(tip);
+  }
+  musicUI();
+}
+function musicPrettyName(n){ return String(n||'').replace(/\.(mp3|wav|ogg|m4a|flac)$/i,''); }
+function musicSrcLabel(t){ return t ? (t.src==='dir'?'music/ 文件夹':'本机导入') : ''; }
+const MUSIC_LOOP_N={list:'列表循环',one:'单曲循环',shuffle:'随机'};
+function musicUI(){
+  const t=mlist[mcur]||null;
+  const now=$('musicNow');
+  if(now) now.textContent = msrc
+    ? '♪ '+((t&&musicPrettyName(t.name))||'')+' · '+MUSIC_LOOP_N[mLoop]
+    : (t? '已选：'+musicPrettyName(t.name) : '未在播放');
+  const pb=$('musicPlay'); if(pb) pb.textContent = msrc? '⏸ 暂停' : '▶ 播放';
+  /* 悬浮条 */
+  const ball=$('musicBall');
+  if(ball){
+    ball.classList.toggle('hide', !mlist.length);
+    $('musicBallTitle').textContent = t? musicPrettyName(t.name) : '未在播放';
+    $('musicBallSub').textContent = t? musicSrcLabel(t)+' · '+MUSIC_LOOP_N[mLoop] : '音乐盒';
+    $('musicBallPlay').textContent = msrc? '⏸' : '▶';
+  }
+  /* 面板开着就整块重渲染（行数≤50，不做差量）；关着也把迷你条文字同步掉 */
+  if(musicPanelOpen) musicRenderP();
+  else{
+    $('musicPTitle').textContent = t? musicPrettyName(t.name) : '—';
+    $('musicPSub').textContent = musicSrcLabel(t);
+    $('musicPPlay').textContent = msrc? '⏸' : '▶';
+    $('musicPLoop').textContent = MUSIC_LOOP_N[mLoop];
+    if(!msrc){
+      const p=Math.min(mPlayOff, mDur||mPlayOff||0);
+      $('musicPFill').style.width=(mDur?(clamp(p/mDur,0,1)*100).toFixed(1):0)+'%';
+      $('musicPT').textContent=fmtDur(p);
+      $('musicPDur').textContent=fmtDur(mDur||((t&&t.dur)||0));
+    }
+  }
+}
+/* 当前播放位置（秒）：起播偏移 + ctx 时钟差；单曲循环时进度条跟着绕回来 */
+function musicCalcPos(){
+  if(!msrc) return mPlayOff;
+  let p = mPlayOff + (AC ? AC.currentTime - mPlayT0 : 0);
+  if(mLoop==='one' && mDur>0) p%=mDur;
+  return Math.max(0,p);
+}
+function musicSeek(frac){
+  if(!mDur) return;
+  mPlayOff = clamp(frac,0,1)*mDur;
+  $('musicPFill').style.width=(clamp(frac,0,1)*100).toFixed(1)+'%';
+  $('musicPT').textContent=fmtDur(mPlayOff);
+  if(msrc) musicStart(mPlayOff);                  /* 重建 source，从新位置起播 */
+}
+function musicRenderP(){
+  const box=$('musicPList'); if(!box) return;
+  box.innerHTML='';
+  if(!mlist.length){
+    const tip=document.createElement('div'); tip.className='tip';
+    tip.textContent='还没有曲目：去「音乐盒」页签添加，或把音频放进 music/ 文件夹。';
+    box.appendChild(tip);
+  }
+  mlist.forEach((t,i)=>{
+    const row=document.createElement('div');
+    row.className='musicPRow'+(i===mcur?' act':'');
+    const info=document.createElement('div'); info.className='info';
+    const tt=document.createElement('div'); tt.className='t';
+    tt.textContent=musicPrettyName(t.name)+(i===mcur&&msrc?'  ♪':'');
+    const ss=document.createElement('div'); ss.className='s';
+    ss.textContent=musicSrcLabel(t)+(t.dur?' · '+fmtDur(t.dur):'');
+    info.appendChild(tt); info.appendChild(ss);
+    const go=document.createElement('button'); go.className='go';
+    go.textContent=(i===mcur&&msrc)?'⏸':'▶';
+    go.onclick=e=>{ e.stopPropagation(); musicToggle(); };
+    row.appendChild(info); row.appendChild(go);
+    row.onclick=()=>{ mActive=true; if(mcur!==i){ mcur=i; musicStart(); } else if(!msrc) musicStart(); musicUI(); };
+    box.appendChild(row);
+  });
+  const t=mlist[mcur];
+  $('musicPTitle').textContent = t? musicPrettyName(t.name) : '—';
+  $('musicPSub').textContent = musicSrcLabel(t);
+  $('musicPPlay').textContent = msrc? '⏸' : '▶';
+  $('musicPLoop').textContent = MUSIC_LOOP_N[mLoop];
+}
+function musicPanelToggle(force){
+  musicPanelOpen = force===undefined ? !musicPanelOpen : !!force;
+  $('musicPanel').classList.toggle('open', musicPanelOpen);
+  if(musicPanelOpen) musicRenderP();
+}
+/* 悬浮条 / 播放面板 / 音乐盒页签 三处共用的控制 */
+function musicToggle(){
+  mActive=!mActive;
+  if(!mActive) musicStop(); else musicKick();
+  musicUI();
+}
+function musicJump(dir){
+  if(!mlist.length) return;
+  mActive=true;
+  mcur = dir>0 ? musicNextIdx(mcur,mlist.length,mLoop,true,Math.random)
+               : ((mcur<=0?mlist.length:mcur)-1)%mlist.length;
+  musicStart();
+  musicUI();
+}
+function musicCycleLoop(){
+  mLoop = mLoop==='list'?'one':mLoop==='one'?'shuffle':'list';
+  const lb=$('musicLoop'); if(lb) lb.textContent=({list:'列表循环',one:'单曲循环',shuffle:'随机播放'})[mLoop];
+  if(msrc) msrc.loop=(mLoop==='one');            /* 直接改在播源的 loop 标志：切模式立刻生效 */
+  musicUI();
+}
+function musicStop(){
+  mGen++;
+  const s=msrc; msrc=null;
+  if(s){ try{ s.stop(); }catch(e){} }
+}
+function musicStart(off){
+  const ac=audio(); if(!ac) return;               /* 未解锁：首次手势后 musicKick 会再拉起 */
+  if(mcur<0&&mlist.length) mcur=0;                /* 兜底：没选中过就从头一首放 */
+  const tr=mlist[mcur]; if(!tr||mPending) return;
+  mPlayOff=Math.max(0,off||0);
+  if(!mbus){ mbus=ac.createGain(); mbus.connect(master); }
+  musicStop();
+  mPending=true;
+  const my=mcur, gen=mGen;
+  const kick=buf=>{
+    mPending=false;
+    if(!buf||my!==mcur||gen!==mGen) return;       /* 等待期间换曲/停止了：丢弃 */
+    mbuf=buf; mbufId=tr.id;
+    const src=ac.createBufferSource(); src.buffer=buf; src.loop=(mLoop==='one');
+    src.connect(mbus);
+    src.onended=()=>{ if(msrc===src&&gen===mGen){ msrc=null; musicEnded(); } };
+    msrc=src;
+    mPlayT0=ac.currentTime; mDur=buf.duration;
+    if(!tr.dur){ tr.dur=buf.duration; musicRender(); }   /* 文件夹曲目首次播放：把真实时长补进列表 */
+    try{ src.start(0, mPlayOff>0&&mPlayOff<buf.duration?mPlayOff:0); }catch(e){}
+    musicUI();
+  };
+  const grab=ab=>ac.decodeAudioData(ab).then(kick)
+    .catch(()=>{ mPending=false; log('音乐解码失败：'+tr.name,'r'); });
+  if(mbufId===tr.id&&mbuf){ kick(mbuf); return; }
+  if(tr.src==='dir'){
+    if(typeof fetch!=='function'){ mPending=false; return; }
+    fetch(MUSIC_DIR+encodeURIComponent(tr.file))
+      .then(r=>{ if(!r.ok) throw new Error('404'); return r.arrayBuffer(); })
+      .then(grab)
+      .catch(()=>{ mPending=false; log('音乐加载失败：'+tr.name,'r'); });
+  }else{
+    idbGetData(tr.id)
+      .then(rec=>{ if(!rec) throw new Error('gone'); grab(rec.data.slice(0)); })
+      .catch(()=>{ mPending=false; log('音乐读取失败：'+tr.name,'r'); });
+  }
+}
+function musicEnded(){
+  if(!musicShouldPlay()) return;                  /* 场景不让放就静默停在这 */
+  mcur=musicNextIdx(mcur,mlist.length,mLoop,false,Math.random);
+  mbuf=null; mbufId=null;                         /* 换曲：放掉上一首的解码缓存 */
+  musicStart();
+}
+/* 每帧：闪避系数内插 + 音量落地 + 播放闸门（按「播放范围」决定出不出声） */
+function musicTick(dt){
+  let audible=false;
+  if(cfg.musicDuck&&playing&&!paused&&!roundOver){
+    for(const f of flashes){ if(!f.popped&&T-f.t0>=f.audOff){ audible=true; break; } }
+  }
+  const target=audible?MUSIC_DUCK:1;
+  mduck+=(target-mduck)*Math.min(1,(dt||0.0167)*7);
+  if(Math.abs(mduck-target)<0.002) mduck=target;
+  if(mbus) mbus.gain.value=cfg.musicVol*mduck;
+  const want=musicShouldPlay();
+  if(want&&!msrc&&!mPending) musicStart();
+  if(!want&&msrc) musicStop();
+  if(musicPanelOpen&&msrc&&mDur>0){               /* 面板开着：每帧推进进度条 */
+    const p=musicCalcPos(), fr=clamp(p/mDur,0,1);
+    $('musicPFill').style.width=(fr*100).toFixed(1)+'%';
+    $('musicPT').textContent=fmtDur(p);
+    $('musicPDur').textContent=fmtDur(mDur);
+  }
+}
+function musicDelete(i){
+  const t=mlist[i]; if(!t) return;
+  const wasCur=(i===mcur);
+  const after=()=>{
+    if(wasCur){ musicStop(); mbuf=null; mbufId=null; mcur=-1; }
+    else if(i<mcur) mcur--;
+    musicRefresh();
+  };
+  if(t.src==='idb') idbDelOne(t.id).then(after,after); else after();
+}
+function musicImport(fileList){
+  const files=Array.prototype.slice.call(fileList||[]);
+  if(!files.length) return Promise.resolve();
+  return idbList().catch(()=>[]).then(rows=>{
+    let count=(rows||[]).length;
+    return Promise.all(files.map(f=>{
+      const err=musicValidateFile(f,count);
+      if(err){ log(err,'r'); return Promise.resolve(); }
+      count++;
+      const ab0=f.arrayBuffer?f.arrayBuffer():Promise.reject(new Error('no FileReader'));
+      return Promise.resolve(ab0).then(ab=>{
+        const ac=audio();
+        if(!ac) throw new Error('no audio ctx');
+        return ac.decodeAudioData(ab.slice(0)).then(buf=>{      /* slice：别让解码 detachment 掉原始数据 */
+          const id='u_'+Date.now()+'_'+Math.floor(Math.random()*1e6);
+          return Promise.all([idbPutMeta({id,name:musicCleanName(f.name),dur:buf.duration}),
+                              idbPutData(id,ab)])
+            .then(()=>log('已导入：'+musicCleanName(f.name),'g'));
+        });
+      }).catch(()=>log('导入失败（格式不支持？）：'+musicCleanName(f.name),'r'));
+    }));
+  }).then(()=>musicRefresh());
+}
+function musicKick(){
+  const ac=audio();
+  if(ac&&ac.state==='running'&&musicShouldPlay()&&!msrc&&!mPending) musicStart();
+}
+function musicBoot(){
+  if(!$('tab-music')) return;
+  buildSeg($('segMusicWhen'),['关闭','仅菜单','菜单+训练'],v=>v,i=>{ cfg.musicWhen=i; saveCfg(); });
+  buildSeg($('segMusicDuck'),['关','开'],v=>v,i=>{ cfg.musicDuck=i; saveCfg(); });
+  syncSegs();                          /* bindUI 的同步跑在本 boot 之前，这里补一次高亮 */
+  $('rMusicVol').oninput=e=>{ cfg.musicVol=+e.target.value;
+    $('vMusicVol').textContent=Math.round(cfg.musicVol*100)+'%'; saveCfg(); };
+  $('musicPlay').onclick=musicToggle;
+  $('musicPrev').onclick=()=>musicJump(-1);
+  $('musicNext').onclick=()=>musicJump(1);
+  $('musicLoop').onclick=musicCycleLoop;
+  /* 悬浮条 + 播放列表面板（同一套控制） */
+  $('musicBallPlay').onclick=musicToggle;
+  $('musicBallPrev').onclick=()=>musicJump(-1);
+  $('musicBallNext').onclick=()=>musicJump(1);
+  $('musicBallList').onclick=()=>musicPanelToggle();
+  $('musicBallMeta').onclick=()=>musicPanelToggle();
+  $('musicPPrev').onclick=()=>musicJump(-1);
+  $('musicPPlay').onclick=musicToggle;
+  $('musicPNext').onclick=()=>musicJump(1);
+  $('musicPLoop').onclick=musicCycleLoop;
+  $('musicPClose').onclick=()=>musicPanelToggle(false);
+  $('musicPBar').onclick=e=>{
+    const r=e.currentTarget.getBoundingClientRect();
+    musicSeek((e.clientX-r.left)/Math.max(1,r.width));
+  };
+  $('musicAdd').onclick=()=>{ $('musicFile').click(); };
+  $('musicFile').onchange=e=>{ musicImport(e.target.files); e.target.value=''; };
+  $('musicRescan').onclick=()=>{ musicRefresh(true).then(()=>log('已重新扫描 music/ 文件夹','c')); };
+  mActive=cfg.musicWhen!==0;
+  musicRefresh();
+  document.addEventListener('pointerdown',musicKick);
+  document.addEventListener('keydown',musicKick);
+}
 
 /* ---------- 表面着色：明暗 + 距离雾 ---------- */
 const FOG_IN=[26,34,45], FOG_OUT=[132,112,88], FOG_NEAR=[40,16,58];
@@ -2585,6 +3065,7 @@ function frame(ts){
   /* 帧率统计；持续偏低则下调渲染精度（最多两档） */
   const dt = lastTs ? T-lastTs : 0.0167;
   lastDt=dt;
+  musicTick(dt);                   /* 音乐盒：闪避压低内插 + 播放闸门，菜单/游戏都要走 */
   if(lastTs){ fpsT+=dt; fpsN++; }
   lastTs=T;
   if(fpsT>=0.5){
@@ -2735,7 +3216,7 @@ function openMenu(tab, isPause){
 function selectTab(name){
   const tabs=$('menuTabs').children;
   for(const b of tabs) b.classList.toggle('act', b.dataset.tab===name);
-  for(const pg of ['solo','battle','rec','set'])
+  for(const pg of ['solo','battle','rec','music','set'])
     $('tab-'+pg).classList.toggle('act', pg===name);
   if(name==='rec') renderRecords();       /* 每次进这页都现读现画，保证是最新数据 */
 }
@@ -2792,6 +3273,7 @@ function syncSegs(){
   set($('segQual'),cfg.quality); set($('segRound'),cfg.roundIdx);
   set($('segCross'),cfg.crossKind); set($('segCrossC'),cfg.crossColor);
   set($('segCrossDot'),cfg.crossDot?1:0);
+  set($('segMusicWhen'),cfg.musicWhen); set($('segMusicDuck'),cfg.musicDuck?1:0);
 }
 function buildAgents(){
   const box=$('agBox'); box.innerHTML='';
@@ -2915,6 +3397,9 @@ function loadCfg(){
     else if(typeof cfg[k]===typeof s[k]) cfg[k]=s[k];     // 类型对得上才覆盖，挡脏数据
   }
   cfg.gain=clamp(cfg.gain||0.8,0,1); cfg.flashGain=clamp(cfg.flashGain==null?1:cfg.flashGain,0,1);
+  cfg.musicVol=clamp(cfg.musicVol==null?0.4:cfg.musicVol,0,1);
+  if(cfg.musicWhen!==0&&cfg.musicWhen!==1&&cfg.musicWhen!==2) cfg.musicWhen=2;
+  cfg.musicDuck=cfg.musicDuck?1:0;
 }
 /* 把 cfg 现值刷回控件（含音量），启动时 loadCfg 之后调一次 */
 function applyCfgToUI(){
@@ -2928,6 +3413,7 @@ function applyCfgToUI(){
   setR('rGain',cfg.gain);       setT('vGain',Math.round(cfg.gain*100)+'%');
   setR('rFgain',cfg.flashGain); setT('vFgain',Math.round(cfg.flashGain*100)+'%');
   setR('rLead',cfg.audioLead);  setT('vLead',(cfg.audioLead||0).toFixed(2)+'s');
+  setR('rMusicVol',cfg.musicVol); setT('vMusicVol',Math.round(cfg.musicVol*100)+'%');
   setR('rCLen',cfg.crossLen); setT('vCLen',cfg.crossLen);
   setR('rCTh',cfg.crossThick); setT('vCTh',cfg.crossThick);
   setR('rCGap',cfg.crossGap);  setT('vCGap',cfg.crossGap);
@@ -3319,6 +3805,7 @@ initMatchUI();
 relocateTarget();
 updateStats();
 loadSfxFiles();
+musicBoot();
 if(urlRoom()) { /* 带 ?r= 房码进来，initMatchUI 已尝试进房，菜单直接定位到对战页 */ selectTab('battle'); }
 log('点击「开始训练」进入 · 按 Esc 打开菜单','c');
 log('拱门内同时出现多颗靶球，打掉一颗就地补一颗','y');

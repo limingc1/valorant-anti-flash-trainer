@@ -23,3 +23,6 @@ __pycache__/
 # 切分脚本的工作目录（源素材已解压备份，不入库）
 .workbuddy/_sfx_raw/
 .workbuddy/_sfx_split/
+
+# 音乐盒曲目随仓库入库：和 sfx/ 一样，push 即部署上线，朋友打开站点就有歌
+# （曾在 2026-09-13 前排除过 music/*，现已放开；原因见 music/README.md）
