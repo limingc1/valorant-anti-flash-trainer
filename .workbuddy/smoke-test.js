@@ -825,6 +825,37 @@ try{
   ok(true,'切到准度维度画图不抛异常');
   run('localStorage.removeItem("aft_records");');
 
+  /* [28b] 星标只标「当前仍是该组纪录」的那局 + 破纪录横幅
+     （旧实现读流水里永久存储的 pb 标志，历史纪录全部带星；改成渲染时现算） */
+  console.log('[28b] 星标只标当前纪录持有者 + 破纪录横幅');
+  run('localStorage.removeItem("aft_records");');
+  /* 该组首局 800：横幅亮起，写「首项纪录」 */
+  run('cfg.roundIdx=0;cfg.diff=0;startRound();score=800;st.trials=10;st.dodges=8;st.hits=9;st.shots=10;endRound();');
+  let pb1=JSON.parse(run('JSON.stringify({hide:$("resPB").classList.contains("hide"),sub:$("resPBSub").textContent})'));
+  ok(pb1.hide===false && /首项纪录/.test(pb1.sub),'首项纪录：横幅亮起并标注「首项纪录」（实际 '+JSON.stringify(pb1.sub)+'）');
+  /* 更低分 600：横幅不亮，流水行不带星 */
+  run('startRound();score=600;st.trials=8;st.dodges=5;st.hits=7;st.shots=8;endRound();');
+  let pb2=JSON.parse(run('JSON.stringify({hide:$("resPB").classList.contains("hide"),html:$("resRecList").innerHTML})'));
+  ok(pb2.hide===true,'未破纪录：横幅保持隐藏');
+  ok(!/★ 600/.test(pb2.html) && /★ 800/.test(pb2.html),'星在旧纪录 800 上，600 不带星');
+  /* 破纪录 1500：横幅写「超越旧纪录 800 · +700」，星移到 1500 */
+  run('startRound();score=1500;st.trials=12;st.dodges=9;st.hits=11;st.shots=12;endRound();');
+  let pb3=JSON.parse(run('JSON.stringify({hide:$("resPB").classList.contains("hide"),sub:$("resPBSub").textContent,html:$("resRecList").innerHTML})'));
+  ok(pb3.hide===false && /超越旧纪录 800/.test(pb3.sub) && /\+700/.test(pb3.sub),
+     '破纪录：横幅写「超越旧纪录 800 · +700」（实际 '+JSON.stringify(pb3.sub)+'）');
+  ok(/★ 1500/.test(pb3.html) && !/★ 800/.test(pb3.html),'星移到 1500，旧纪录 800 不再带星');
+  /* 打平 1500：不算破纪录（横幅不亮），但两局并列持有最佳、都带星 */
+  run('startRound();score=1500;st.trials=12;st.dodges=9;st.hits=11;st.shots=12;endRound();');
+  let pb4=JSON.parse(run('JSON.stringify({hide:$("resPB").classList.contains("hide"),html:$("resRecList").innerHTML})'));
+  ok(pb4.hide===true,'打平最佳：不算破纪录，横幅不亮');
+  ok((pb4.html.match(/★ 1500/g)||[]).length===2,'并列最佳两局都带星（星星不靠存储标志，现算的）');
+  /* 菜单页那份列表走同一个 recRowHtml，语义一致 */
+  run('renderRecords();');
+  let menuHtml=run('$("recList").innerHTML');
+  ok(/★ 1500/.test(menuHtml) && !/★ 800/.test(menuHtml) && !/★ 600/.test(menuHtml),
+     '菜单页最近训练列表同样只星当前纪录');
+  run('localStorage.removeItem("aft_records"); playing=false; roundOver=false;');
+
   console.log('\n'+(fails?('有 '+fails+' 项失败'):'全部通过'));
   process.exit(fails?1:0);
 }catch(e){

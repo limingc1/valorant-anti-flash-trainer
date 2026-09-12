@@ -75,6 +75,17 @@
   #resBox::-webkit-scrollbar{width:8px}
   #resBox::-webkit-scrollbar-thumb{background:#2b3b4d;border-radius:4px}
   #resBox h2{font-size:14px;font-weight:500;letter-spacing:3px;color:var(--txt2);margin-bottom:14px}
+  /* 破纪录横幅：只在结算时真破了该组纪录（或该组首项纪录）才亮起 */
+  #resPB{display:flex;align-items:center;justify-content:center;gap:9px;margin:-6px 0 14px;padding:8px 12px;
+         border:1px solid rgba(255,176,46,.4);border-radius:10px;
+         background:linear-gradient(135deg,rgba(255,176,46,.15),rgba(255,110,40,.05));
+         animation:pbPop .45s cubic-bezier(.2,1.5,.4,1) both}
+  #resPB.hide{display:none}
+  #resPB .pstar{font-size:17px;color:#ffb02e;animation:pbStar 1.4s ease-in-out .5s infinite}
+  #resPB b{font-size:14px;letter-spacing:2px;color:#ffb02e}
+  #resPBSub{font-size:11px;color:var(--txt2)}
+  @keyframes pbPop{0%{transform:scale(.55);opacity:0}100%{transform:scale(1);opacity:1}}
+  @keyframes pbStar{0%,100%{transform:scale(1)}50%{transform:scale(1.3)}}
   .resTop{margin-bottom:18px}
   .resTop span{display:block;font-size:52px;font-weight:700;line-height:1;letter-spacing:-2px;color:var(--amb)}
   .resTop small{display:block;font-size:11px;letter-spacing:3px;color:var(--txt2);margin-top:6px}
@@ -505,6 +516,7 @@
     <div id="result">
       <div id="resBox">
         <h2>本轮结束</h2>
+        <div id="resPB" class="hide"><span class="pstar">★</span><b>新纪录！</b><span id="resPBSub"></span></div>
         <div class="resTop"><span id="resScore">0</span><small>总分</small></div>
         <div class="resGrid">
           <div class="g"><b id="resDodge">--</b><span>背闪率</span></div>
@@ -2355,8 +2367,8 @@ function endRound(){
   mdx=0; mdy=0;                    /* 别把结束瞬间的位移攒到下一轮开局 */
   if(document.exitPointerLock) document.exitPointerLock();
   $('roundTag').textContent='0s';
-  recordRound();                       /* 先入库，再渲染结算(含内嵌记录条)，让本局立刻出现在榜上 */
-  fillResult();
+  const rec=recordRound();             /* 先入库，再渲染结算(含内嵌记录条)，让本局立刻出现在榜上 */
+  fillResult(rec);
   $('result').style.display='flex';
   if(match.active) submitMyResult();   /* 对战：本轮分数自动上报云端 */
 }
@@ -2391,13 +2403,14 @@ function recordRound(){
   const R=loadRecords();
   const key=entry.ri+'_'+entry.diff;
   const b=R.best[key];
-  entry.pb = !(b && b.score>=entry.score);   /* 新个人最佳标记（列表里亮星） */
+  entry.pb = !(b && b.score>=entry.score);   /* 出手当时破没破（走势图橙点用它；列表亮星现算，见 recRowHtml） */
   if(entry.pb) R.best[key]=entry;
   R.log.unshift(entry);
   if(R.log.length>100) R.log.length=100;
   saveRecords(R);
   if(entry.pb && entry.score>0)
     log('★ 新纪录！'+ROUNDS[entry.ri].n+' · '+DIFF[entry.diff].n+'  '+entry.score+' 分','y');
+  return {pb:entry.pb, prev:b?b.score:null, ri:entry.ri, diff:entry.diff};
 }
 function fmtDT(t){ const d=new Date(t);
   return (d.getMonth()+1)+'-'+d.getDate()+' '+(''+d.getHours()).padStart(2,'0')+':'+(''+d.getMinutes()).padStart(2,'0'); }
@@ -2454,13 +2467,18 @@ function drawRecChart(R,cvId){
   g.fillText((isRate?max+'%':'最高 '+max), 14, 12);
   g.fillText(pts.length+' 局', W-46, H-4);
 }
-function recRowHtml(e2){
+function recRowHtml(e2,best){
   const acc=e2.ss?Math.round(e2.hs/e2.ss*100)+'%':'--';
   const dg=e2.tr?Math.round(e2.dg/e2.tr*100)+'%':'--';
   /* 闪N=闪光总数(躲分基数)、靶Nms=平均回靶(速度奖输入)：把决定分数的绝对量摆出来，
      否则会出现「躲31%的分比躲50%的高」看不懂的局。 */
+  /* 星号=渲染时现算「是否仍是该组纪录」：破纪录后星星移到新一局，旧纪录不带星。
+     不读流水里存的 e2.pb（那是「出手当时破没破」，走势图橙点还用它）；
+     并列最佳都算持有者；0 分的最佳不亮星。 */
+  const kb=best[e2.ri+'_'+e2.diff];
+  const star=kb && kb.score>0 && e2.score>=kb.score;
   return '<div class="recRow"><span>'+fmtDT(e2.t)+' · '+ROUNDS[e2.ri].n+' '+DIFF[e2.diff].n+' '+MODES[e2.mode].n
-    +'</span><span>闪'+(e2.tr||0)+' 躲'+dg+' 准'+acc+' 连'+e2.cb+(e2.rf!=null?' 靶'+e2.rf+'ms':'')+'</span><b>'+(e2.pb?'★ ':'')+e2.score+'</b></div>';
+    +'</span><span>闪'+(e2.tr||0)+' 躲'+dg+' 准'+acc+' 连'+e2.cb+(e2.rf!=null?' 靶'+e2.rf+'ms':'')+'</span><b>'+(star?'★ ':'')+e2.score+'</b></div>';
 }
 function renderRecords(){
   const R=loadRecords();
@@ -2469,13 +2487,13 @@ function renderRecords(){
     const b=R.best[ri+'_'+di];
     cards+='<div class="recCard"><div class="k">'+ROUNDS[ri].n+' · '+DIFF[di].n+'</div>'+
       '<div class="v">'+(b?b.score:'—')+'</div>'+
-      '<div class="d">'+(b?fmtDT(b.t)+' · '+(b.pb?'★':'')+MODES[b.mode].n:'还没有记录')+'</div></div>';
+      '<div class="d">'+(b?fmtDT(b.t)+' · ★'+MODES[b.mode].n:'还没有记录')+'</div></div>';
   }
   $('recBest').innerHTML=cards;
   renderChips($('recChips'));
   drawRecChart(R,'recChart');
   const list=$('recList');
-  list.innerHTML = R.log.length ? R.log.slice(0,100).map(recRowHtml).join('')
+  list.innerHTML = R.log.length ? R.log.slice(0,100).map(e2=>recRowHtml(e2,R.best)).join('')
     : '<div class="tip">完整打完一局计时训练后，这里会出现记录。</div>';
 }
 /* 结算面板内嵌的那份：数据现读，和菜单页共用维度/难度状态 */
@@ -2485,7 +2503,7 @@ function renderResRec(){
   renderChips($('resChips'));
   drawRecChart(R,'resChart');
   const list=$('resRecList');
-  list.innerHTML = R.log.length ? R.log.slice(0,6).map(recRowHtml).join('')
+  list.innerHTML = R.log.length ? R.log.slice(0,6).map(e2=>recRowHtml(e2,R.best)).join('')
     : '<div class="tip">完整打完一局计时训练后，这里会出现记录。</div>';
   $('resRecBody').classList.toggle('hide',!resRecOpen);
   $('resRecToggle').textContent=resRecOpen?'收起 ▴':'展开 ▾';
@@ -2495,7 +2513,7 @@ function refreshRecords(){
   try{ if(lobbyIsOpen()||menuIsOpen()) renderRecords(); }catch(e){}
   try{ if($('result').style.display==='flex') renderResRec(); }catch(e){}
 }
-function fillResult(){
+function fillResult(rec){
   $('resScore').textContent=score;
   $('resDodge').textContent=pct(st.dodges,st.trials);
   $('resAcc').textContent=pct(st.hits,st.shots);
@@ -2505,6 +2523,14 @@ function fillResult(){
   $('resRF').textContent=st.rfN?Math.round(st.rfSum/st.rfN*1000):'--';
   $('resHit').textContent=st.hits+' / '+st.shots;
   $('resTrials').textContent=st.trials;
+  /* 破纪录横幅：rec 由 recordRound 带回（prev=本局之前的组最佳）。
+     破了已有纪录 → 「超越旧纪录 N · +Δ」；该组首项 → 「首项纪录」。0 分不弹。 */
+  if(rec && rec.pb && score>0){
+    $('resPBSub').textContent = rec.prev!=null
+      ? '超越旧纪录 '+rec.prev+' · +'+(score-rec.prev)
+      : ROUNDS[rec.ri].n+' · '+DIFF[rec.diff].n+' 首项纪录';
+    $('resPB').classList.remove('hide');
+  }else $('resPB').classList.add('hide');
   /* 给一句针对本轮的点评，比干巴巴的数字有用 */
   let note='';
   if(!st.trials) note='这一轮没有闪光飞出，换个模式试试。';
