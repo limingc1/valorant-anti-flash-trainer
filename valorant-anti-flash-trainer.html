@@ -607,6 +607,17 @@ const SCORE={
 };
 function comboMult(){ return 1+Math.min(combo,SCORE.comboCap)*SCORE.comboStep; }
 
+/* 擦闪线：cover（背掉了锥角多少：正脸=1、擦到锥角边缘=0）低于这个值算「擦闪」——
+   白屏照旧会来一下，但短且起跳低，按背闪成功算：不断连击、计躲开、照给奖励。
+   来由（实测反馈）：布雷奇锥角 70° 比屏幕半 FOV（103°/2=51.5°）还大，
+   51.5°~70° 这一圈屏幕上根本没有光点，却仍按角度判「被闪」，
+   白零点几秒还断连击，手感像随机挨刀。
+   0.20 ≈ 背掉锥角最外 10%（布雷奇约 63°、菲尼克斯约 54°）。
+   纯角度阈值在这里不好使：同样「70° 锥角里转掉 15°」对布雷奇只是擦边，
+   对夜露（锥角 50°）已经背掉三成——按锥角比例（cover）才跨特工等价。
+   想收紧就把这个值调小。 */
+const GRAZE_COVER=0.20;
+
 const AGENTS={
   phoenix:{zh:'菲尼克斯',en:'曲球 Curveball',color:'#ff4d2e',rgb:'255,86,52',
     shape:'curve',hook:true,travel:1.15,popFrac:0.82,coneHalf:60,dur:[0.35,2.05],arc:0.9,vf:0.30,
@@ -638,7 +649,7 @@ let flashes=[], pops=[];
 let targets=[], nextAutoAt=0, flashSeq=0, autoN=0;
 let blindUntil=0, blindDur=0, blindSrc=0, blindStart=0, blindPeak=1;
 let score=0, combo=0, shownScore=0;
-const st={trials:0,dodges:0,blinds:0,hits:0,shots:0,best:0,rtSum:0,rtN:0,rfSum:0,rfN:0};
+const st={trials:0,dodges:0,blinds:0,graze:0,hits:0,shots:0,best:0,rtSum:0,rtN:0,rfSum:0,rfN:0};
 let reflickBase=0;
 /* 鼠标位移累积：同一帧内的多个 mousemove 合并后统一应用到相机 */
 let mdx=0, mdy=0;
@@ -1363,20 +1374,22 @@ function popFlash(f){
   const ang=Math.acos(clamp(dot3(norm3(f.popPos),fwdVec()),-1,1))*DEG;
   const dist=len3(f.popPos), a=f.a;
   const losOK = a.throughWall || f.popPos.z<=ROOM.zW+0.02 || flashVisible(f.popPos);
-  let flashed=false, dur=0, peak=0;
+  let flashed=false, cover=0, dur=0, peak=0;
 
   if(ang<=a.coneHalf && dist<=22 && losOK){
     /* 视角盖（cover）：正脸=1、擦到锥角边缘=0。它同时决定：
        - 白多久（时长：正脸 dur[1]、擦边 dur[0]）
        - 白多重（起跳强度 blindPeak：正脸全白 1.0、擦边只半白 0.5）
        完全背过去（ang>coneHalf）压根进不了这个分支 → 不致盲、判躲开。 */
-    const cover=Math.pow(1-ang/a.coneHalf,0.7);
+    cover=Math.pow(1-ang/a.coneHalf,0.7);
     dur=lerp(a.dur[0],a.dur[1],cover);
     peak=0.5+0.5*cover;
     flashed=true;
   }
+  /* 擦闪 = 背掉锥角最外一圈（见 GRAZE_COVER）。白屏状态两种结果共用，
+     区别只在「算不算被闪」：擦闪不断连击。 */
+  const graze = flashed && cover<=GRAZE_COVER;
   if(flashed){
-    st.blinds++; combo=0;
     const remain=Math.max(0,blindUntil-T);
     if(remain>0.02){
       /* 已经在致盲中：只把结束时刻往后推，绝不把强度重新拉回满值。
@@ -1388,17 +1401,22 @@ function popFlash(f){
     }
     blindDur=Math.max(0.001,blindUntil-blindStart);
     blindSrc=f.id;
+  }
+  if(graze) st.graze++;
+  if(flashed && !graze){
+    st.blinds++; combo=0;
     log('被 '+a.zh+' 闪到 '+dur.toFixed(1)+'s'+(peak<0.8?'（轻）':''),'b');
-    reflickBase=reflickStart(T);           /* 起点=还能出手的时刻，不是完全散尽 */
   }else{
-    st.dodges++;
-    combo++; if(combo>st.best) st.best=combo;
+    st.dodges++; combo++; if(combo>st.best) st.best=combo;
     const bonus=Math.round(SCORE.dodgeBase*(1+Math.min(combo,SCORE.comboCap)*SCORE.dodgeStep));
     addScore(bonus);
-    log('躲开 '+a.zh+'   +'+bonus,'g');
+    log(graze ? ('擦闪 '+a.zh+' '+dur.toFixed(1)+'s   +'+bonus)
+              : ('躲开 '+a.zh+'   +'+bonus), graze?'y':'g');
     sfx.dodge();
-    reflickBase=reflickStart(T);           /* 残余白屏里躲开的，别把白屏剩余算进回靶 */
   }
+  /* 起点=还能出手的时刻，不是完全散尽：躲开/擦闪时若还压着上一发的残余白屏，
+     别把白屏剩余算进回靶（擦闪新起的那点短白同理，一起按阈值倒推）。 */
+  reflickBase=reflickStart(T);
   if(f.dodgeAt && f.lookedAtVis){
     const rt=f.dodgeAt-(f.visAt||f.t0);
     if(rt>0.03 && rt<2){ st.rtSum+=rt; st.rtN++; }
@@ -2698,7 +2716,7 @@ function selectTab(name){
 function toggleMini(){ $('miniStats').classList.toggle('hide'); }
 function resetStats(silent){
   score=0; combo=0; shownScore=0;
-  st.trials=st.dodges=st.blinds=st.hits=st.shots=st.best=0;
+  st.trials=st.dodges=st.blinds=st.graze=st.hits=st.shots=st.best=0;
   st.rtSum=st.rtN=st.rfSum=st.rfN=0;
   flashes=[]; pops=[]; blindUntil=0; blindDur=0; blindSrc=0; blindStart=0; reflickBase=T;
   nearUntil=0; nearSrc=0; nearStart=0; fogNear=0;

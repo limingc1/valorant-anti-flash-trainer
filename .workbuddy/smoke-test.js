@@ -707,7 +707,7 @@ try{
   run('blindUntil=0;blindDur=0;blindStart=0;playing=false;');
 
   /* 背闪角度 → 白屏程度分档（新逻辑）：
-     完全背过去 = 不白（判躲开）；擦边 = 轻白（起跳强度低）；正脸 = 全白。
+     完全背过去 = 不白（判躲开）；擦闪 = 白一下但不断连击；擦边 = 轻白；正脸 = 全白。
      强度=blindPeak×剩余占比，peak=0.5+0.5×cover，cover=(1-ang/cone)^0.7 */
   console.log('[27] 致盲强度按背闪角度分档');
   run('flashes=[];playing=true;paused=false;roundOver=false;cfg.auto=false;');
@@ -745,7 +745,36 @@ try{
     +'popFlash(f);'
     +'return (blindUntil<=T+0.001 && st.dodges===d0+1 && st.blinds===b0)?1:0;})()');
   ok(backAway===1,'完全背过去(100°) → 不致盲，判为躲开+分');
-  run('blindUntil=0;blindDur=0;blindStart=0;blindPeak=1;playing=false;');
+
+  /* 擦闪档（cover ≤ GRAZE_COVER=0.20）：白照旧来一下，但算背闪成功 —— 不断连击、计躲开。
+     实测来由：布雷奇锥角 70° > 屏幕半 FOV(103°/2=51.5°)，光点在屏幕外也被判「被闪」，
+     白零点几秒还断连击。这里用两个特工各取档内/档外一点钉死边界。 */
+  const grazeProbe=run('(function(){'
+    +'function mk(a,angDeg){var ang=angDeg*RAD;return {id:1,a:a,'
+    +'pos:P(Math.sin(ang)*5,0,Math.cos(ang)*5),popPos:P(Math.sin(ang)*5,0,Math.cos(ang)*5),'
+    +'popped:false,dead:false,deadAt:0,t0:T,trail:[],dodgeAt:0,visAt:0,lookedAtVis:false,'
+    +'home:P(0,0,5)};}'
+    +'function trial(f){blindUntil=0;blindDur=0;blindStart=0;blindPeak=1;'
+    +'st.blinds=0;st.dodges=0;st.graze=0;combo=7;cam.yaw=0;cam.pitch=0;'
+    +'popFlash(f);'
+    +'return {bl:st.blinds,dg:st.dodges,gz:st.graze,cb:combo,'
+    +'white:+(blindUntil-T).toFixed(2),peak:+blindPeak.toFixed(2)};}'
+    +'var PH={zh:"菲尼克斯",key:"phoenix",coneHalf:60,dur:[0.35,2.05]};'
+    +'var BR={zh:"布雷奇",key:"breach",coneHalf:70,dur:[0.40,2.20],throughWall:true};'
+    +'return JSON.stringify({ph55:trial(mk(PH,55)),ph45:trial(mk(PH,45)),'
+    +'br65:trial(mk(BR,65)),br55:trial(mk(BR,55))});})()');
+  const gz=JSON.parse(grazeProbe);
+  ok(gz.ph55.gz===1&&gz.ph55.bl===0&&gz.ph55.dg===1&&gz.ph55.cb===8,
+     '菲尼克斯 55°(cover≈0.18) → 判擦闪：连击 7→8 不断、计躲开、不计被闪');
+  ok(gz.ph55.white>0.3&&gz.ph55.white<0.8&&gz.ph55.peak<0.7,
+     '擦闪也照白一下（'+gz.ph55.white+'s / peak='+gz.ph55.peak+'）—— 宽容但不骗人');
+  ok(gz.ph45.bl===1&&gz.ph45.cb===0&&gz.ph45.gz===0,
+     '菲尼克斯 45°(cover≈0.38，档外) → 仍算被闪，连击清零');
+  ok(gz.br65.gz===1&&gz.br65.bl===0&&gz.br65.cb===8,
+     '布雷奇 65°(cover≈0.16，屏幕外) → 擦闪不断连击（实测问题的正主）');
+  ok(gz.br55.bl===1&&gz.br55.cb===0,
+     '布雷奇 55°(cover≈0.34，档外) → 仍算被闪，没把宽容档放宽到这一圈');
+  run('blindUntil=0;blindDur=0;blindStart=0;blindPeak=1;st.graze=0;playing=false;');
 
   /* 个人训练记录：只有「计时回合自然打完」才入库 */
   console.log('[28] 个人记录：计时回合才记 + 分组最佳 + PB 标记');
