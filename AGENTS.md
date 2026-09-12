@@ -9,7 +9,7 @@
 ## 改完必做
 
 ```
-node .workbuddy/smoke-test.js     # 期望 264 条 OK，末行「全部通过」
+node .workbuddy/smoke-test.js     # 期望 271 条 OK，末行「全部通过」
 node .workbuddy/api-test.mjs      # 期望 26 条 OK，末行「全部通过」
 ```
 
@@ -34,7 +34,7 @@ node .workbuddy/api-test.mjs      # 期望 26 条 OK，末行「全部通过」
 | `.workbuddy/api-test.mjs` | 后端测试：假 KV 跑完整房间生命周期 |
 | `.github/workflows/ci.yml` | CI，跑上面两套 |
 | `sfx/` | 自定义音效 wav + 切分脚本 + 说明 |
-| `music/` | 音乐盒本地曲目文件夹（**gitignore 不入库**，版权原因；`README.md` 有用法） |
+| `music/` | 音乐盒曲目文件夹（**随仓库入库**，push 即部署；`README.md` 有用法） |
 | `build-dist.ps1` | 本地构建 `dist/`（CI 跑同样步骤，平时不用管） |
 
 本地跑游戏：浏览器直接打开 `valorant-anti-flash-trainer.html`。

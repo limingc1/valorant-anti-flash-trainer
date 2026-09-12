@@ -985,6 +985,25 @@ try{
   ok(run('musicPanelOpen')===false&&run('$("musicPanel").classList.contains("open")')===false,'面板能关闭');
   run('mlist.length=0;mcur=-1;mDur=0;mPlayOff=0;');
 
+  /* [29c] 破纪录音效：recordRound 在真破纪录时响一次；自定义 sfx/record.wav 可覆盖合成音 */
+  console.log('[29c] 破纪录音效');
+  ok(run('SFX_NAMES.includes("record")')===true,'SFX_NAMES 注册了 record（可被 sfx/record.wav 覆盖）');
+  ok(run('typeof sfx.record')==='function','sfx.record 存在');
+  run('cfg.sound=true;sfx.record();cfg.sound=false;sfx.record();cfg.sound=true;');
+  ok(true,'破纪录音效在静音/发声两态下都不抛异常');
+  /* 音乐盒页底部提示已删（随仓库入库后提示失去意义） */
+  ok(!/导入的歌保存在/.test(html),'音乐盒页的导入提示文字已删除');
+  /* 触发闸门：破纪录响一次，更低分不响 */
+  run('var __recN=0; sfx.record=function(){__recN++;};');
+  run('localStorage.removeItem("aft_records");cfg.roundIdx=0;cfg.diff=0;playing=true;');
+  run('startRound();score=9999;st.trials=5;st.hits=4;st.shots=5;endRound();');
+  ok(run('__recN')===1,'破纪录时音效触发一次');
+  run('startRound();score=10;st.trials=5;st.hits=4;st.shots=5;endRound();');
+  ok(run('__recN')===1,'未破纪录不再触发');
+  run('startRound();score=20000;st.trials=5;st.hits=4;st.shots=5;endRound();');
+  ok(run('__recN')===2,'再次破纪录再触发');
+  run('delete sfx.record; sfx.record=function(){}; localStorage.removeItem("aft_records"); playing=false; roundOver=false;');
+
   console.log('\n'+(fails?('有 '+fails+' 项失败'):'全部通过'));
   process.exit(fails?1:0);
 }catch(e){
