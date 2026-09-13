@@ -833,6 +833,17 @@ const ROOM_RE=/^[0-9A-HJ-NP-TV-Z]{6}$/i;           /* 房码格式校验（同�
 const match={ active:false, code:'', seed:0, round:1, you:'', cloud:false,
               players:[], startAt:0, iReady:false, phase:'idle', sent:false,
               foe:'', foeScore:null, quiet:0 };
+/* ---------- 断线重连：对战中刷新页面，凭 sessionStorage 存档挂回房间 ----------
+   只存 {code,you}：round/startAt/比分以服务端为准，重连后 classify 再处置缺席轮次。
+   sessionStorage 正好覆盖「手滑 F5」——关标签页它自动消失，不会隔天弹陈年对局。 */
+const LS_MATCH='aft_match';
+let resumePending=false, clockOff=0;            /* 缺席轮次等待重赛标记 / 服务端时钟偏移 */
+function matchStateSave(){
+  if(!match.active||!match.cloud||!match.code) return;
+  try{ sessionStorage.setItem(LS_MATCH, JSON.stringify({code:match.code, you:match.you, ts:Date.now()})); }
+  catch(e){}
+}
+function matchStateClear(){ try{ sessionStorage.removeItem(LS_MATCH); }catch(e){} }
 function encodeRoom(roundIdx,seed20){
   const bits=((roundIdx&31)<<20)|(seed20&0xFFFFF);   /* 25 bit -> 6 个 base32 字符 */
   let s=''; for(let i=5;i>=0;i--) s+=B32[(bits>>>(i*5))&31];
@@ -3549,6 +3560,8 @@ function enterMatch(code){
 function matchSeed(){ return ((match.seed^((match.round||1)*0x85EBCA6B))>>>0)||1; }
 function leaveMatch(silent){
   stopPoll(); stopCountdown();
+  resumePending=false;
+  matchStateClear();
   if(match.active && match.cloud && match.you){
     cloudPost({code:match.code, who:'leave', name:match.you});   /* 尽力而为，不等结果 */
   }
@@ -3651,6 +3664,7 @@ function startMatchRound(){
 /* ---------- 云端状态同步 ---------- */
 function applyState(s){
   if(!s) return;
+  const prevRound=match.round;
   const before=JSON.stringify([match.players,match.startAt,match.round]);
   if(Array.isArray(s.players)) match.players=s.players;
   if(Number.isInteger(s.round)) match.round=s.round;
@@ -3659,8 +3673,26 @@ function applyState(s){
   const foe=match.players.filter(p=>p.name!==match.you)[0];
   match.foe=foe?foe.name:''; match.foeScore=foe&&foe.score!=null?foe.score:null;
   match.startAt=s.startAt||0;
+  if(s.now) clockOff=s.now-Date.now();          /* 服务端时钟偏移，重连超时判定用 */
   if(before===JSON.stringify([match.players,match.startAt,match.round])) match.quiet++;
   else match.quiet=0;
+  /* 我在等交卷(result)时 round 被对方推进 → 对方掉线重连发起了重赛，跟着回大厅。
+     本地 matchAgain 已提前把 phase 切成 lobby，自己发起的不会误进这支。 */
+  if(match.phase==='result' && s.round>prevRound && prevRound>0){
+    log('对方掉线重连，本轮改为重赛 · 回大厅','y');
+    $('result').style.display='none';
+    lobbyOpen();
+  }
+  /* 重连等待态：缺席的那轮，对手交卷后自动发起重赛 */
+  if(resumePending && match.active && match.cloud && match.phase!=='playing'){
+    const me2=match.players.filter(p=>p.name===match.you)[0];
+    const foe2=match.players.filter(p=>p.name!==match.you)[0];
+    if(foe2 && foe2.score!=null && (!me2 || me2.score==null)){
+      resumePending=false;
+      log('对方已交卷，你缺席的那轮自动改为重赛','y');
+      matchAgain();
+    }
+  }
   updateMTag();
   if(lobbyIsOpen()){
     renderLobby();
@@ -3671,6 +3703,7 @@ function applyState(s){
     }
   }
   if(roundOver && match.players.some(p=>p.score!=null)) paintCompare(match.players,true);
+  matchStateSave();
 }
 /* 轮询：只在「有事等」的阶段跑，页面隐藏就停，长期没变化就自动歇 —— KV 免费额度很省 */
 let pollTimer=0;
@@ -3752,6 +3785,55 @@ async function toggleReady(){
   if(res&&res.ok) applyState(res); else cloudGaveUp('准备状态没送达');
   startPoll();
 }
+/* ---------- 断线重连 ---------- */
+/* 判定缺席轮次怎么处置：这轮不能凭空续打（两人进度不同不公平）。
+   双方都交卷 → 报比分走正常再战；我缺席且对手交卷/轮次超时 → 自动重赛；
+   对手还在打 → 进大厅等，applyState 见到对手交卷后自动重赛（见 applyState）。 */
+function resumeResolveInterrupted(){
+  const sec=(ROUNDS[cfg.roundIdx]&&ROUNDS[cfg.roundIdx].sec)||0;
+  if(!match.startAt) return;                            /* 还没开局：大厅里等着就行 */
+  const mine=match.players.filter(p=>p.name===match.you)[0];
+  const foe =match.players.filter(p=>p.name!==match.you)[0];
+  const myScore=!!(mine&&mine.score!=null), foeScore=!!(foe&&foe.score!=null);
+  if(myScore&&foeScore){                                /* 缺席前这轮已打完：报比分，正常再战 */
+    log('第 '+match.round+' 轮比分：你 '+(mine.score|0)+' : '+(foe.score|0)+' '+foe.name,'y');
+    return;
+  }
+  const over = sec>0 ? (Date.now()+clockOff-match.startAt) > sec*1000+8000 : false;
+  if(over||foeScore){                                   /* 轮次已结束而我没交卷 → 重赛这轮 */
+    log('你掉线错过了第 '+match.round+' 轮 · 已自动发起重赛（对方会一起回大厅）','y');
+    matchAgain();
+    return;
+  }
+  resumePending=true;                                   /* 对方可能还在打：等他交卷后自动重赛 */
+  log('对方还在打第 '+match.round+' 轮 · 等他交卷后自动重赛','y');
+}
+/* 开机无 ?r= 房码时：凭 sessionStorage 存档自动挂回上一局 */
+async function resumeMatch(){
+  let saved=null;
+  try{ saved=JSON.parse(sessionStorage.getItem(LS_MATCH)||'null'); }catch(e){}
+  if(!saved||!saved.code||!ROOM_RE.test(saved.code)) return;
+  const nm=myName()||randNickname(); localStorage.setItem(LS_NAME,nm);
+  if(!enterMatch(saved.code)){ matchStateClear(); return; }
+  match.you=nm;
+  const res=await cloudPost({code:saved.code, who:'join', name:nm});   /* join 幂等：同名单归原位 */
+  match.cloud=!!(res&&res.ok);
+  if(match.cloud){
+    if(res.cfg) applySync(res.cfg);
+    applyState(res);
+  }else{
+    const s=await cloudGet(saved.code);
+    if(s){ if(s.cfg) applySync(s.cfg); match.cloud=true; applyState(s); }
+  }
+  if(!match.cloud){                                     /* 云端没了：留在离线模式，不强行开大厅 */
+    renderMatchCard();
+    log('上次对局（房码 '+saved.code+'）没能连上云端，已按同房码转离线模式','y');
+    return;
+  }
+  renderMatchCard(); lobbyOpen(); startPoll();
+  log('已重新连接到对局 '+saved.code+' · 第 '+match.round+' 轮','c');
+  resumeResolveInterrupted();
+}
 function renderMatchCard(){
   $('mCode').textContent=match.code||'------';
   const s=$('mStatus');
@@ -3777,6 +3859,7 @@ async function submitMyResult(){
 /* 再战：清双方准备与分数、换一轮种子，回大厅重新准备 */
 async function matchAgain(){
   $('result').style.display='none';
+  match.phase='lobby';                   /* 先切相位：applyState 的「对方发起重赛」守卫不会误触发 */
   if(!match.cloud){ match.round++; lobbyOpen(); return; }
   const res=await cloudPost({code:match.code, who:'again', name:match.you});
   if(res&&res.ok) applyState(res); else match.round++;
@@ -3840,6 +3923,7 @@ function initMatchUI(){
   }
   const rc=urlRoom();
   if(rc) joinMatch(rc);
+  else resumeMatch();     /* 没带房码：尝试把上次中断的对局挂回来（sessionStorage） */
 }
 /* ---------- 启动 ---------- */
 resize();

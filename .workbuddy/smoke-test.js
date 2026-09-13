@@ -68,6 +68,7 @@ const sandbox={
   Audio: function(){ return el('audio'); },
   /* 联机代码会用到这些浏览器全局；给最小实现，让启动与降级路径都能跑 */
   localStorage:{ _d:{}, getItem(k){ return k in this._d?this._d[k]:null; }, setItem(k,v){ this._d[k]=String(v); }, removeItem(k){ delete this._d[k]; } },
+  sessionStorage:{ _d:{}, getItem(k){ return k in this._d?this._d[k]:null; }, setItem(k,v){ this._d[k]=String(v); }, removeItem(k){ delete this._d[k]; } },
   location:{ search:'', origin:'http://x', pathname:'/index.html', href:'http://x/index.html' },
   navigator:{},
   fetch:()=>Promise.reject(new Error('no-net'))   /* 触发 cloudGet/cloudPost 的降级分支 */
@@ -1004,8 +1005,46 @@ try{
   ok(run('__recN')===2,'再次破纪录再触发');
   run('delete sfx.record; sfx.record=function(){}; localStorage.removeItem("aft_records"); playing=false; roundOver=false;');
 
+  /* [30] 对战断线重连：sessionStorage 存档 + 开机自动挂回 + 缺席轮次自动重赛 */
+  console.log('[30] 对战断线重连');
+  (async()=>{                                                     /* 尾部转异步：await vm 里的重连 promise */
+  run('match.active=true;match.cloud=true;match.code="AB3K7M";match.you="我";matchStateSave();');
+  ok((JSON.parse(run('sessionStorage.getItem("aft_match")'))||{}).code==='AB3K7M','对局状态已写入 sessionStorage');
+  run('leaveMatch(true);');
+  ok(run('sessionStorage.getItem("aft_match")')===null,'退出对战清掉存档');
+  run('match.active=true;match.cloud=true;match.code="AB3K7M";match.you="我";');
+  run('applyState({players:[{name:"我",ready:true},{name:"他",ready:false}],round:1,now:Date.now()});');
+  ok((JSON.parse(run('sessionStorage.getItem("aft_match")')||'null')||{}).code==='AB3K7M','applyState 每次同步都自动续写存档');
+  /* 缺席轮次的四分支（直接喂 match 状态， spy 掉 matchAgain） */
+  run('var __ag=0; matchAgain=function(){__ag++;};');
+  run('match.startAt=0; resumeResolveInterrupted();');
+  ok(run('__ag')===0,'未开局：不触发重赛，大厅等着就行');
+  run('cfg.roundIdx=0; match.startAt=Date.now()-60000;');
+  run('match.players=[{name:"我",score:800},{name:"他",score:900}]; resumeResolveInterrupted();');
+  ok(run('__ag')===0,'双方都已交卷：报比分，不重赛');
+  run('match.players=[{name:"我",score:null},{name:"他",score:900}]; resumeResolveInterrupted();');
+  ok(run('__ag')===1,'我缺席且对手已交卷：自动发起重赛');
+  run('match.players=[{name:"我",score:null},{name:"他",score:null}]; match.startAt=Date.now()-5000; match.phase="lobby"; resumeResolveInterrupted();');
+  ok(run('resumePending')===true,'对手还在打：进入等待态');
+  run('applyState({players:[{name:"我",score:null},{name:"他",score:1234}],round:match.round,now:Date.now()});');
+  ok(run('__ag')===2,'对手交卷后 applyState 自动发起重赛');
+  /* 我在等交卷(result)时对方推进 round → 自动回大厅 */
+  run('resumePending=false; match.phase="result"; match.round=2; lobbyClose();');
+  run('match.players=[{name:"我",score:50},{name:"他",score:60}];');
+  run('applyState({players:[{name:"我",ready:false,score:null},{name:"他",ready:false,score:null}],round:3,now:Date.now()});');
+  ok(run('lobbyIsOpen()')===true,'result 相位收到对方重赛 → 自动回大厅');
+  run('leaveMatch(true);');
+  /* 开机自动重连：云端不可达 → 同房码转离线，不强行开大厅 */
+  run('sessionStorage.setItem("aft_match",JSON.stringify({code:"ZZ9K2M",you:"我",ts:Date.now()}));');
+  await run('resumeMatch()');
+  ok(run('match.active')===true&&run('match.code')==='ZZ9K2M','开机自动重连：用存档房码挂回对局');
+  ok(run('match.cloud')===false,'云端不可达 → 自动转离线模式');
+  ok(run('lobbyIsOpen()')===false,'云端不可达时不强行弹大厅');
+  run('leaveMatch(true);');
+
   console.log('\n'+(fails?('有 '+fails+' 项失败'):'全部通过'));
   process.exit(fails?1:0);
+  })().catch(e=>{ console.log('运行时异常: '+e.message); console.log(e.stack.split('\n').slice(0,6).join('\n')); process.exit(1); });
 }catch(e){
   console.log('运行时异常: '+e.message);
   console.log(e.stack.split('\n').slice(0,6).join('\n'));
