@@ -16,7 +16,11 @@
  */
 
 var TtlSec = 7200;                       // 房间 2 小时后自动过期，无需清理任务
+var DailyTtlSec = 172800;                // 每日榜保留 2 天（跨零点后昨天的榜还能看一会儿）
+var DailyMaxRows = 50;                   // 榜单上限：只留前 50 名
+var DailyScoreMax = 100000;              // 每日挑战分数服务端夹取（防手滑/防恶作剧）
 var RoomRe = /^[0-9A-HJ-NP-TV-Z]{6}$/;   // Crockford Base32，6 位，与前端一致
+var DateRe = /^\d{8}$/;                  // 每日挑战日期串 YYYYMMDD（客户端本地日期）
 var MaxPlayers = 2;                       // 好友对战；要办多人赛改这里
 var CountdownMs = 3000;                   // 双方都准备后的开局倒计时
 
@@ -93,11 +97,35 @@ async function writeRoom(env, code, room) {
   await env.ROOMS.put(keyOf(code), JSON.stringify(room), { expirationTtl: TtlSec });
 }
 
-/* GET /api/room?code=ABCDEF -> 房间视图；不存在 404；未绑定 KV 503 */
+/* ---------- 每日挑战榜单 ----------
+   key = daily:YYYYMMDD（客户端本地日期，同城朋友天然同一天）。
+   值 = [{name,score,detail,at}] 按分数降序，最多 DailyMaxRows 行。
+   同名只在「更高分」时覆盖 —— 每人每天最多贡献 1 次 KV 写，额度账：玩家数 × 1 ≪ 1000/天。 */
+function dailyKey(date) { return 'daily:' + date; }
+async function readDaily(env, date) {
+  var raw = await env.ROOMS.get(dailyKey(date));
+  if (!raw) return [];
+  try {
+    var r = JSON.parse(raw);
+    return Array.isArray(r) ? r : [];
+  } catch (e) { return []; }
+}
+async function writeDaily(env, date, rows) {
+  await env.ROOMS.put(dailyKey(date), JSON.stringify(rows), { expirationTtl: DailyTtlSec });
+}
+
+/* GET /api/room?code=ABCDEF -> 房间视图；不存在 404；未绑定 KV 503
+ * GET /api/room?daily=YYYYMMDD -> 每日挑战榜单 */
 export async function onRequestGet(context) {
   var env = context.env;
   if (!env.ROOMS) return bad('KV 未绑定（ROOMS）', 503);
-  var code = (new URL(context.request.url).searchParams.get('code') || '').toUpperCase();
+  var sp = new URL(context.request.url).searchParams;
+  var d = String(sp.get('daily') || '');
+  if (d) {
+    if (!DateRe.test(d)) return bad('日期格式不对（YYYYMMDD）');
+    return reply({ ok: true, date: d, rows: await readDaily(env, d) });
+  }
+  var code = (sp.get('code') || '').toUpperCase();
   if (!RoomRe.test(code)) return bad('房码格式不对');
   var room = await readRoom(env, code);
   if (!room) return bad('房间不存在', 404);
@@ -111,15 +139,45 @@ export async function onRequestGet(context) {
  *   who=score  交卷：{score, detail}
  *   who=again  再战：清准备与分数、round+1，回大厅
  *   who=leave  离开
+ *   who=daily  每日挑战交成绩：{date, score, detail}，同名留最高分，返回整张榜
  * 统一返回 { ok:true, ...房间视图 } */
 export async function onRequestPost(context) {
   var env = context.env;
   if (!env.ROOMS) return bad('KV 未绑定（ROOMS）', 503);
   var b;
   try { b = await context.request.json(); } catch (e) { return bad('请求体不是 JSON'); }
+  var who = String(b.who || '');
+
+  if (who === 'daily') {
+    var nameD = cleanName(b.name);
+    if (!nameD) return bad('昵称不能为空');
+    var dateD = String(b.date || '');
+    if (!DateRe.test(dateD)) return bad('日期格式不对（YYYYMMDD）');
+    var rows = await readDaily(env, dateD);
+    var sc = numClamp(b.score, 0, DailyScoreMax, 0) | 0;
+    var dd = b.detail || {};
+    var detailD = {
+      dodge: String(dd.dodge || '').slice(0, 6),
+      acc: String(dd.acc || '').slice(0, 6)
+    };
+    var at = Date.now(), changed = true, k = -1;
+    for (var i = 0; i < rows.length; i++) if (rows[i].name === nameD) { k = i; break; }
+    if (k >= 0) {
+      if (sc > (rows[k].score | 0)) { rows[k].score = sc; rows[k].detail = detailD; rows[k].at = at; }
+      else changed = false;                        // 没破自己的当日纪录：不写 KV，省额度
+    } else {
+      rows.push({ name: nameD, score: sc, detail: detailD, at: at });
+    }
+    if (changed) {
+      rows.sort(function (a, c) { return (c.score | 0) - (a.score | 0); });
+      if (rows.length > DailyMaxRows) rows.length = DailyMaxRows;
+      await writeDaily(env, dateD, rows);
+    }
+    return reply({ ok: true, date: dateD, mine: sc, rows: rows });
+  }
+
   var code = String(b.code || '').toUpperCase();
   if (!RoomRe.test(code)) return bad('房码格式不对');
-  var who = String(b.who || '');
   var name = cleanName(b.name);
   var room = await readRoom(env, code) || emptyRoom();
   var okView = function () { return reply(Object.assign({ ok: true }, view(room))); };

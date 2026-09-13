@@ -9,7 +9,7 @@
 ## 改完必做
 
 ```
-node .workbuddy/smoke-test.js     # 期望 283 条 OK，末行「全部通过」
+node .workbuddy/smoke-test.js     # 期望 299 条 OK，末行「全部通过」
 node .workbuddy/api-test.mjs      # 期望 26 条 OK，末行「全部通过」
 ```
 
@@ -50,7 +50,8 @@ node .workbuddy/api-test.mjs      # 期望 26 条 OK，末行「全部通过」
    `Math.random` / `rand` / `pickEl` 走真随机（靶点、节奏 `gapFor`）。联机的同种子公平全靠这个划分。
 
 3. **KV 写额度是硬瓶颈。** 免费档 1000 写/天，一整局固定 6 次写，`api-test.mjs` 的 `[F]` 组
-   钉死「一局 ≤8 次写」。**加写操作之前先算账**，改后端别让它涨。
+   钉死「一局 ≤8 次写」。每日挑战榜再 +1 写/人/天（只有刷新自己当日纪录才写，`[G]` 组钉着）。
+   **加写操作之前先算账**，改后端别让它涨。
 
 4. **闪光的出手声不要用 `setTimeout` 或挂帧回调。** 现行架构：`spawnFlash` 算
    `f.audOff`（相对 `f.t0` 的偏移），`updateFlashes` 每帧查 `T-f.t0>=audOff` 播一次

@@ -200,6 +200,16 @@
   #tab-solo .keys b{display:inline-block;min-width:0;padding:0 7px;margin:0 2px;text-align:center;
           border:1px solid #35485c;border-bottom-width:2px;border-radius:5px;background:#1a2836;
           color:#ffb9c0;font-size:10.5px;font-weight:600;line-height:1.7}
+  /* ---- 每日挑战入口（开屏页顶部） ---- */
+  #dailyStrip{display:flex;align-items:center;gap:10px;margin-bottom:14px;padding:10px 12px;
+          background:linear-gradient(180deg,rgba(255,70,85,.10),rgba(255,70,85,.03));
+          border:1px solid rgba(255,70,85,.30);border-radius:10px}
+  #dailyStrip .di{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+  #dailyStrip .dt{font-size:12.5px;font-weight:600;color:var(--txt);letter-spacing:.5px}
+  #dailyStrip .dt b{color:var(--red)}
+  #dailyStrip .ds{font-size:10px;color:var(--txt2)}
+  #dailyStrip .ds b{color:var(--amb);font-variant-numeric:tabular-nums}
+  #dailyStrip button{flex:none;padding:8px 14px;font-size:12px}
   #tab-set .sec{margin-top:18px}
   #tab-set .sec:first-child{margin-top:2px}
   /* 菜单页输入框：统一皮肤 + 聚焦红晕（mName/mJoin 的内联样式只留布局项） */
@@ -226,6 +236,7 @@
           border:1px solid transparent;border-radius:8px;padding:7px 10px;font-size:11.5px;
           color:var(--txt2);margin-bottom:3px;transition:.12s}
   .recRow:hover{background:rgba(255,255,255,.05)}
+  .recRow.mine{background:rgba(255,70,85,.09);color:var(--txt)}
   /* ---- 音乐盒 ---- */
   #musicNow{font-size:11.5px;color:var(--txt2);text-align:center;margin:12px 0 2px;min-height:17px;
             white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -465,6 +476,13 @@
         <div id="menuBody">
           <!-- 单人训练 -->
           <div class="tabpage act" id="tab-solo">
+            <div id="dailyStrip">
+              <div class="di">
+                <span class="dt">每日挑战 · <b id="dailyModName">—</b> · <b id="dailyDate2">----</b></span>
+                <span class="ds"><span id="dailyDesc2">—</span> · 今日最佳 <b id="dailyBest2">—</b></span>
+              </div>
+              <button id="dailyStart2" class="pri">开始今日挑战</button>
+            </div>
             <ul>
               <li><b>场景</b>你面朝城墙，正中一道拱门，墙后是走廊</li>
               <li><b>闪光</b>从拱门左右随机飞出，轨迹藏在墙后</li>
@@ -508,7 +526,12 @@
           </div>
           <!-- 训练记录 -->
           <div class="tabpage" id="tab-rec">
-            <h3 style="font-size:10.5px;color:var(--txt2);letter-spacing:1.6px;margin-bottom:9px;font-weight:600">最佳纪录 · 按 时长 × 难度</h3>
+            <div class="sec" id="dailyBox">
+              <h3 style="font-size:10.5px;color:var(--txt2);letter-spacing:1.6px;margin-bottom:9px;font-weight:600">每日挑战榜单 · <span id="dailyModName2">—</span> · <span id="dailyDate">----</span></h3>
+              <div id="dailyBoard" style="margin-bottom:9px"></div>
+              <div class="tip">入口在「单人训练」页 · 每日一条修饰规则（全网相同）· 同一串闪光同一条规则，纯拼操作 · 每人每天最好成绩上榜</div>
+            </div>
+            <h3 style="font-size:10.5px;color:var(--txt2);letter-spacing:1.6px;margin:16px 0 9px;font-weight:600">最佳纪录 · 按 时长 × 难度</h3>
             <div id="recBest"></div>
             <h3 style="font-size:10.5px;color:var(--txt2);letter-spacing:1.6px;margin:16px 0 9px;font-weight:600">分数走势 · 最近 24 局（按难度）</h3>
             <div class="chk" id="recChips"></div>
@@ -2928,6 +2951,7 @@ function saveRecords(r){
   try{ localStorage.setItem(LS_REC, JSON.stringify(r)); }catch(e){}   /* 私密浏览/满额：静默不记 */
 }
 function recordRound(){
+  if(DAILY.active){ dailyFinish(); return; }   /* 每日挑战走独立榜单，不进常规纪录（配置不可比） */
   const sec=roundSec();
   if(!sec) return;                          /* 「不限」不记录 */
   if(!st.trials && !st.shots) return;       /* 整轮一次手都没动，没必要占榜 */
@@ -3050,6 +3074,119 @@ function renderResRec(){
 function refreshRecords(){
   try{ if(lobbyIsOpen()||menuIsOpen()) renderRecords(); }catch(e){}
   try{ if($('result').style.display==='flex') renderResRec(); }catch(e){}
+}
+/* ---------- 每日挑战 ----------
+   种子 = 日期字符串哈希：同一天全网同一串闪光，纯拼操作。
+   固定配置 60s × 困难加强（频率 1.3×、全 6 特工、靶 7）—— 比普通困难更狠，
+   也因此不与常规纪录互比（recordRound 里直接走独立榜单）。
+   KV 写账：每人每天最多 1 写（只有刷新自己当日纪录才提交）。 */
+const DAILY = { active:false, seed:0, date:'', snap:null, mod:null, applied:null };
+function dailyKeyDate(){ const d=new Date();
+  return ''+d.getFullYear()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0'); }
+function dailySeedOf(date){ let h=2166136261, s='aft-daily-'+date;
+  for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619)>>>0; }
+  return (h&0xFFFFF)||1; }
+/* 修饰规则池：只动公平配置项（频率/靶数/靶径/特工池/时长），全网当天抽到同一条 */
+const DAILY_BASE={ rate:1.3, targetN:7, diff:1, mode:0, vis:0, roundIdx:1, targetR:0.1,
+  agents:{phoenix:true,skye:true,breach:true,kayo:true,yoru:true,reyna:true} };
+const DAILY_MODS=[
+  {n:'全力冲刺', d:'60s · 频率1.3× · 靶7 · 全特工', cfg:{}},
+  {n:'针尖艺术', d:'60s · 靶球减半 · 频率1.1× · 全特工', cfg:{targetR:0.05, rate:1.1}},
+  {n:'弹幕地狱', d:'60s · 频率1.6× · 靶9 · 全特工', cfg:{rate:1.6, targetN:9}},
+  {n:'闪击战',   d:'30s · 频率1.4× · 靶7 · 全特工', cfg:{roundIdx:0, rate:1.4}},
+  {n:'五只眼',   d:'60s · 只有蕾娜之眼与斯凯 · 频率1.2×', cfg:{rate:1.2, agents:{phoenix:false,skye:true,breach:false,kayo:false,yoru:false,reyna:true}}},
+  {n:'铁幕试炼', d:'60s · 只有布雷奇与KO · 频率1.2×', cfg:{rate:1.2, agents:{phoenix:false,skye:false,breach:true,kayo:true,yoru:false,reyna:false}}},
+];
+function dailyModOf(date){ return DAILY_MODS[dailySeedOf(date+'-mod')%DAILY_MODS.length]; }
+function dailyApplyCfg(){
+  const merged=Object.assign({},DAILY_BASE,DAILY.mod.cfg,
+    {agents:Object.assign({},DAILY_BASE.agents,DAILY.mod.cfg.agents)});
+  DAILY.applied=merged;
+  DAILY.snap={rate:cfg.rate,targetN:cfg.targetN,diff:cfg.diff,mode:cfg.mode,vis:cfg.vis,
+              roundIdx:cfg.roundIdx,targetR:cfg.targetR,agents:Object.assign({},cfg.agents)};
+  cfg.rate=merged.rate; cfg.targetN=merged.targetN; cfg.diff=merged.diff;
+  cfg.mode=merged.mode; cfg.vis=merged.vis; cfg.roundIdx=merged.roundIdx;
+  cfg.targetR=merged.targetR; cfg.agents=merged.agents;
+  buildAgents(); syncSegs(); applyCfgToUI();
+  for(const t of targets) t.r=targetR();
+}
+function dailyRestoreCfg(){
+  if(!DAILY.snap) return;
+  cfg.rate=DAILY.snap.rate; cfg.targetN=DAILY.snap.targetN; cfg.diff=DAILY.snap.diff;
+  cfg.mode=DAILY.snap.mode; cfg.vis=DAILY.snap.vis; cfg.roundIdx=DAILY.snap.roundIdx;
+  cfg.targetR=DAILY.snap.targetR; cfg.agents=DAILY.snap.agents; DAILY.snap=null;
+  buildAgents(); syncSegs(); applyCfgToUI();
+  for(const t of targets) t.r=targetR();
+}
+function dailyMyBest(){ try{ const d=JSON.parse(localStorage.getItem('aft_daily')||'null');
+  return (d&&d.date===dailyKeyDate())?(d.best|0):null; }catch(e){ return null; } }
+function dailySetBest(sc){ try{ localStorage.setItem('aft_daily',
+  JSON.stringify({date:dailyKeyDate(),best:sc|0})); }catch(e){} }
+function dailyStart(){
+  if(match.active){ log('先退出当前对战再打每日挑战','y'); return; }
+  if(DAILY.active) return;
+  ensureName();                           /* 名字先定下来，榜上才不会换编号 */
+  if(playing&&!paused) pause();
+  DAILY.date=dailyKeyDate(); DAILY.seed=dailySeedOf(DAILY.date);
+  DAILY.mod=dailyModOf(DAILY.date);
+  dailyApplyCfg();
+  DAILY.active=true;
+  $('bFlash').style.display='none'; $('bAuto').style.display='none'; $('bReset').style.display='none';
+  const tag=$('mTag'); tag.style.display=''; tag.textContent='每日挑战 · '+DAILY.mod.n+' · '+DAILY.date;
+  if(!playing){ start(); } else { paused=false; startRound(); relock(); }
+  /* contentRnd 由 resetStats 按 daily.active 播种（在 scheduleAuto 之前），全网严格同序列 */
+  log('每日挑战【'+DAILY.mod.n+'】开始 · '+DAILY.mod.d,'c');
+  closeMenu();
+}
+function dailyFinish(){
+  DAILY.active=false;
+  dailyRestoreCfg();
+  $('bFlash').style.display=''; $('bAuto').style.display=''; $('bReset').style.display='';
+  updateMTag();
+  contentRnd=Math.random;
+  const sc=score;
+  log('每日挑战完成 · '+sc+' 分','c');
+  const prev=dailyMyBest();
+  if(prev==null||sc>prev){ dailySetBest(sc); if(prev!=null) log('今日最佳刷新！'+prev+' → '+sc,'y'); }
+  const eb=$('dailyBest2'); if(eb) eb.textContent=sc|0;     /* 开屏挑战条的今日最佳同步 */
+  dailyPost(sc);                          /* 只有刷新当日纪录才产生 KV 写（每人每天 ≤1 写） */
+}
+async function dailyPost(sc){
+  const nm=ensureName();
+  const res=await cloudPost({who:'daily', date:DAILY.date, name:nm, score:sc,
+    detail:{dodge:pct(st.dodges,st.trials), acc:pct(st.hits,st.shots)}});
+  if(res&&res.rows){
+    renderDailyBoard(res.rows);
+    let rank=0; res.rows.forEach((r,i)=>{ if(!rank&&r.name===nm) rank=i+1; });
+    if(rank) log('已上榜：今日第 '+rank+' 名','c');
+  }else log('榜单没送上（云端不可用），只记了本地最佳','y');
+}
+async function dailyFetchBoard(){
+  if(typeof fetch!=='function') return null;
+  try{ const r=await fetch(ROOM_API+'?daily='+dailyKeyDate(),{cache:'no-store'});
+    if(!r.ok) return null; const j=await r.json(); return j.rows||[]; }catch(e){ return null; }
+}
+function renderDailyBoard(rows){
+  const box=$('dailyBoard'); if(!box) return;
+  const mb=dailyMyBest();
+  let html='<div class="recRow"><span>我的今日最佳</span><b>'+(mb==null?'—':mb)+'</b></div>';
+  if(rows&&rows.length){
+    const nm=myName();
+    rows.slice(0,10).forEach((r,i)=>{
+      html+='<div class="recRow'+(nm&&r.name===nm?' mine':'')+'"><span>'
+        +(i+1)+'. '+esc(r.name)+'</span><b>'+(r.score|0)+'</b></div>';
+    });
+  }else if(rows) html+='<div class="tip">今天还没人上榜，你来当第一个。</div>';
+  box.innerHTML=html;
+}
+function renderDaily(){
+  const dateStr=dailyKeyDate(), mod=dailyModOf(dateStr);
+  const put=(id,v)=>{ const e=$(id); if(e) e.textContent=v; };
+  put('dailyDate',dateStr); put('dailyDate2',dateStr);
+  put('dailyModName',mod.n); put('dailyModName2',mod.n); put('dailyDesc2',mod.d);
+  const mb=dailyMyBest(); put('dailyBest2',mb==null?'—':mb);
+  renderDailyBoard(null);
+  dailyFetchBoard().then(rows=>{ if(rows&&DAILY.date===dailyKeyDate()) renderDailyBoard(rows); });
 }
 function fillResult(rec){
   $('resScore').textContent=score;
@@ -3205,9 +3342,9 @@ document.addEventListener('keydown',e=>{
     return;
   }
   if(k==='h'){ toggleMini(); return; }
-  if(k==='f'){ e.preventDefault(); manualFlash(); return; }
+  if(k==='f'){ e.preventDefault(); if(!DAILY.active) manualFlash(); return; }
   if(k==='r'){ if(playing&&!paused&&cfg.mode!==1) relocateTarget(); return; }
-  if(k==='a'){ toggleAuto(); return; }
+  if(k==='a'){ if(!DAILY.active) toggleAuto(); return; }
   if(k==='m'){ cfg.sound=!cfg.sound; syncChecks(); log(cfg.sound?'音效开':'静音','c'); return; }
 });
 document.addEventListener('pointerlockchange',()=>{
@@ -3276,7 +3413,7 @@ function selectTab(name){
   for(const b of tabs) b.classList.toggle('act', b.dataset.tab===name);
   for(const pg of ['solo','battle','rec','music','set'])
     $('tab-'+pg).classList.toggle('act', pg===name);
-  if(name==='rec') renderRecords();       /* 每次进这页都现读现画，保证是最新数据 */
+  if(name==='rec'){ renderRecords(); renderDaily(); }   /* 每次进这页都现读现画，保证是最新数据 */
 }
 function toggleMini(){ $('miniStats').classList.toggle('hide'); }
 function resetStats(silent){
@@ -3289,7 +3426,9 @@ function resetStats(silent){
   /* 对战：每轮把内容流重新播种到房间 seed，两人每轮看到完全相同的闪光。
      自由练习：内容流退回真随机，每轮新鲜。 */
   autoN=0;
-  contentRnd = match.active ? mulberry32(matchSeed()) : Math.random;
+  /* 每日挑战进行中：contentRnd 用当日种子 —— 全网同一串闪光（与对战同机制） */
+  contentRnd = match.active ? mulberry32(matchSeed())
+            : DAILY.active ? mulberry32(DAILY.seed) : Math.random;
   relocateTarget(); scheduleAuto();
   updateStats();
   if(!silent) log('统计已重置','c');
@@ -3482,6 +3621,13 @@ function urlRoom(){ const m=location.search.match(/[?&]r=([A-Za-z0-9]{6})/); ret
 function shareLink(code){ return location.origin+location.pathname+'?r='+code; }
 function myName(){ return (localStorage.getItem(LS_NAME)||'').trim(); }
 function randNickname(){ return '训练者'+((Math.random()*9000+1000)|0); }
+/* 没起过名就分配一个并持久化 —— 榜单/对战里名字必须稳定，不能每局换编号 */
+function ensureName(){
+  let nm=myName();
+  if(!nm){ nm=randNickname(); localStorage.setItem(LS_NAME,nm);
+    log('已分配昵称「'+nm+'」 · 可在「联机对战」页修改','y'); }
+  return nm;
+}
 function copyText(t){
   if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(t).catch(()=>{}); return true; }
   try{ const ta=document.createElement('textarea'); ta.value=t; document.body.appendChild(ta);
@@ -3904,6 +4050,7 @@ function initMatchUI(){
   $('mLobby').onclick=e=>{ e.stopPropagation();
     if(!match.active) return; match.quiet=0; lobbyOpen(); startPoll(); };
   $('mLeave').onclick=e=>{ e.stopPropagation(); leaveMatch(); };
+  $('dailyStart2').onclick=e=>{ e.stopPropagation(); dailyStart(); };
   $('lbCopy').onclick=e=>{ e.stopPropagation();
     if(copyText(shareLink(match.code))){ $('lbCopy').textContent='已复制';
       setTimeout(()=>$('lbCopy').textContent='复制',1400);} };
@@ -3937,6 +4084,7 @@ relocateTarget();
 updateStats();
 loadSfxFiles();
 musicBoot();
+renderDaily();           /* 开屏挑战条（单人训练页）要日期/最佳，启动即初始化 */
 if(urlRoom()) { /* 带 ?r= 房码进来，initMatchUI 已尝试进房，菜单直接定位到对战页 */ selectTab('battle'); }
 log('点击「开始训练」进入 · 按 Esc 打开菜单','c');
 log('拱门内同时出现多颗靶球，打掉一颗就地补一颗','y');

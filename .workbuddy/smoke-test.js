@@ -1042,6 +1042,56 @@ try{
   ok(run('lobbyIsOpen()')===false,'云端不可达时不强行弹大厅');
   run('leaveMatch(true);');
 
+  /* [31] 每日挑战：日期种子 + 配置快照还原 + 独立榜单 + 常规纪录隔离 */
+  console.log('[31] 每日挑战');
+  ok(/^\d{8}$/.test(run('dailyKeyDate()'))===true,'日期串 YYYYMMDD');
+  ok(/id="dailyStrip"/.test(html)&&/id="dailyStart2"/.test(html)&&!/id="dailyStart"/.test(html),
+     '入口在「单人训练」开屏页；记录页只留榜单（无开始按钮）');
+  const ds1=run('dailySeedOf(dailyKeyDate())'), ds2=run('dailySeedOf(dailyKeyDate())'),
+        ds3=run('dailySeedOf("19990101")');
+  ok(ds1===ds2&&ds1!==ds3&&ds1>0,'同日种子稳定、跨日不同、非零');
+  run('renderDaily();');
+  ok(run('$("dailyDate2").textContent')===run('dailyKeyDate()')
+     &&run('DAILY_MODS.some(m=>m.n===$("dailyModName").textContent)')===true
+     &&run('$("dailyBest2").textContent')==='—',
+     '开屏挑战条：日期/当日修饰规则名/今日最佳（未挑战=—）同步');
+  run('cfg.rate=0.8;cfg.targetN=5;cfg.diff=0;cfg.targetR=0.09;cfg.agents={phoenix:true,skye:false,breach:false,kayo:false,yoru:false,reyna:false};');
+  run('DAILY.mod=dailyModOf(dailyKeyDate()); dailyApplyCfg();');
+  ok(run('cfg.rate')===run('DAILY.applied.rate')&&run('cfg.targetN')===run('DAILY.applied.targetN')
+     &&run('cfg.targetR')===run('DAILY.applied.targetR')
+     &&run('cfg.agents.kayo')===run('DAILY.applied.agents.kayo')
+     &&run('cfg.diff')===1,'挑战配置=基础+当日修饰规则合并（含靶径字段）');
+  ok(run('DAILY_MODS.indexOf(DAILY.mod)')>=0
+     &&run('dailyModOf(dailyKeyDate())')===run('DAILY.mod'),'当日修饰规则抽取确定且在池内');
+  run('dailyRestoreCfg();');
+  ok(run('cfg.rate')===0.8&&run('cfg.targetN')===5&&run('cfg.diff')===0&&run('cfg.targetR')===0.09
+     &&run('cfg.agents.kayo')===false,'结算后配置按快照还原（含靶径）');
+  run('dailyStart();');
+  ok(run('DAILY.active')===true&&run('cfg.rate')===run('DAILY.applied.rate')&&run('playing')===true,
+     '开始挑战：按当日修饰规则生效并直接开局');
+  ok(run('$("bFlash").style.display')==='none'&&run('$("bReset").style.display')==='none',
+     '挑战中隐藏手动闪光/刷新靶点按钮（防破坏全网同序列）');
+  run('localStorage.removeItem("aft_records");');
+  run('score=777; st.trials=6; st.hits=5; st.shots=6; endRound();');
+  ok(run('DAILY.active')===false&&run('cfg.rate')===0.8,'结算后退出挑战态、配置还原');
+  ok(run('loadRecords().log.length')===0,'挑战结算不进常规纪录（配置不可比）');
+  ok(JSON.parse(run('localStorage.getItem("aft_daily")')).best===777,'本地今日最佳已记 777');
+  ok(+run('$("dailyBest2").textContent')===777,'开屏挑战条的今日最佳结算后实时同步');
+  run('localStorage.setItem("aft_name","我");');
+  run('renderDailyBoard([{name:"我",score:900},{name:"他",score:100}]);');
+  const boardHtml=run('$("dailyBoard").innerHTML');
+  ok(/1\. 我/.test(boardHtml)&&/class="recRow mine"/.test(boardHtml)&&/2\. 他/.test(boardHtml),
+     '榜单渲染：名次排序、我的行带高亮');
+  /* 昵称：没起名自动分配并持久化（榜单名称稳定，不会每局换编号） */
+  run('localStorage.removeItem("aft_name"); ensureName();');
+  const autoNm=run('myName()');
+  ok(typeof autoNm==='string'&&autoNm.indexOf('训练者')===0,'未起名自动分配「训练者XXXX」');
+  run('ensureName();');
+  ok(run('myName()')===autoNm,'分配的昵称持久化 → 榜单名称跨局稳定');
+  run('localStorage.removeItem("aft_name");');
+  run('localStorage.removeItem("aft_daily"); localStorage.removeItem("aft_records");');
+  run('playing=false; roundOver=false;');
+
   console.log('\n'+(fails?('有 '+fails+' 项失败'):'全部通过'));
   process.exit(fails?1:0);
   })().catch(e=>{ console.log('运行时异常: '+e.message); console.log(e.stack.split('\n').slice(0,6).join('\n')); process.exit(1); });

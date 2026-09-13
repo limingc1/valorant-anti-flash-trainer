@@ -107,5 +107,39 @@ await post({ code: 'AAAAAA', who: 'score', name: 'B', score: 2, detail: {} });
 console.log('       一局用掉 ' + writes + ' 次写、' + reads + ' 次读');
 ok(writes <= 8, '一整局 KV 写 ≤ 8 次（免费额度 1000 写/天 → 每天够打 100+ 局）');
 
+console.log('[G] 每日挑战榜单');
+store.clear(); reads = 0; writes = 0;
+const DAY = '20260914';
+const getDaily = async day => (await onRequestGet({
+  request: new Request('http://x/api/room?daily=' + day), env
+})).json();
+r = await post({ who: 'daily', date: DAY, name: '甲', score: 1200, detail: { dodge: '50%', acc: '90%' } });
+ok(r.ok === true && r.rows.length === 1 && r.rows[0].name === '甲', '首个成绩上榜');
+r = await post({ who: 'daily', date: DAY, name: '乙', score: 1500, detail: {} });
+ok(r.rows.length === 2 && r.rows[0].name === '乙', '榜按分数降序（乙 1500 在前）');
+const wBeforeLower = writes;
+r = await post({ who: 'daily', date: DAY, name: '甲', score: 800, detail: {} });
+ok(writes === wBeforeLower, '没破自己当日纪录 → 不写 KV（每人每天 ≤1 写的额度账）');
+ok(r.rows.find(x => x.name === '甲').score === 1200, '低分不覆盖自己当日最佳');
+r = await post({ who: 'daily', date: DAY, name: '甲', score: 2000, detail: {} });
+ok(r.rows.find(x => x.name === '甲').score === 2000 && r.rows[0].name === '甲', '更高分覆盖并重新排序');
+r = await post({ who: 'daily', date: DAY, name: '丙', score: 99999999, detail: {} });
+ok(r.rows.find(x => x.name === '丙').score <= 100000, '离谱分数被服务端夹回（防手滑/防恶作剧）');
+const gd = await getDaily(DAY);
+ok(gd.ok === true && gd.rows.length === 3 && gd.rows[0].score === 100000, 'GET 拉取整张当日榜（丙被夹到上限排第一）');
+r = await post({ who: 'daily', date: '2026', name: '甲', score: 1, detail: {} });
+ok(r.error === '日期格式不对（YYYYMMDD）', '日期串必须 8 位');
+r = await post({ who: 'daily', date: DAY, name: '', score: 1, detail: {} });
+ok(r.error === '昵称不能为空', '空昵称拒绝');
+/* 榜单上限 50 行：55 人首次投稿 = 恰 55 写（每人每天首投 1 写） */
+const wBeforeLoop = writes;
+for (let i = 0; i < 55; i++) await post({ who: 'daily', date: '20270101', name: '玩家' + i, score: i, detail: {} });
+const capped = await getDaily('20270101');
+ok(capped.rows.length === 50 && capped.rows[0].name === '玩家54', '榜单封顶 50 行，只留前 50 名');
+ok(writes - wBeforeLoop === 55, '55 人首次投稿恰好 55 写（每人每天 1 写的额度账）');
+const wAfterLoop = writes;
+await post({ who: 'daily', date: '20270101', name: '玩家50', score: 49, detail: {} });
+ok(writes === wAfterLoop, '重复投稿未破自己纪录 → 零 KV 写（榜内幸存者验证）');
+
 console.log('\n' + (fails ? ('有 ' + fails + ' 项失败') : '全部通过'));
 process.exit(fails ? 1 : 0);
