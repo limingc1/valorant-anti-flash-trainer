@@ -3050,25 +3050,65 @@ function drawRecChart(R,cvId){
   const cv=$(cvId); if(!cv||!cv.getContext) return;
   const g=cv.getContext('2d'), W=cv.width, H=cv.height;
   g.clearRect(0,0,W,H);
-  g.fillStyle='rgba(13,22,31,0.6)'; g.fillRect(0,0,W,H);
+  const rr=(x,y,w,h,r)=>{g.beginPath();g.moveTo(x+r,y);g.arcTo(x+w,y,x+w,y+h,r);
+    g.arcTo(x+w,y+h,x,y+h,r);g.arcTo(x,y+h,x,y,r);g.arcTo(x,y,x+w,y,r);g.closePath();};
+  rr(0,0,W,H,10); g.fillStyle='rgba(13,22,31,.65)'; g.fill();
   const mk=recChartMetric, isRate=(mk==='dodge'||mk==='acc');
+  const name=(METRICS.find(m=>m.k===mk)||{}).n||'';
   const pts=R.log.filter(e=>e.diff===recChartDiff).slice(0,24).reverse();  /* 时间正序 */
+  g.font='10px system-ui';
   if(pts.length<2){
-    g.fillStyle='rgba(154,167,180,0.8)'; g.font='12px system-ui';
-    g.fillText('该难度打满两局后，这里会出现'+(METRICS.find(m=>m.k===mk)||{}).n+'走势', 18, H/2+4);
+    g.fillStyle='rgba(154,167,180,.75)'; g.textAlign='center';
+    g.fillText('该难度打满两局后，这里会出现'+name+'走势', W/2, H/2+4);
+    g.textAlign='left';
     return;
   }
-  const max=isRate?100:Math.max(100,...pts.map(e=>metricVal(e,mk)));
-  const px=i=>14+(W-28)*i/(pts.length-1);
-  const py=v=>H-14-(H-30)*v/max;
-  g.strokeStyle='rgba(255,70,85,0.9)'; g.lineWidth=1.6; g.beginPath();
-  pts.forEach((e,i)=>{ const v=metricVal(e,mk); i?g.lineTo(px(i),py(v)):g.moveTo(px(i),py(v)); });
-  g.stroke();
-  pts.forEach((e,i)=>{ const v=metricVal(e,mk); g.fillStyle=e.pb?'#ffb02e':'#5aa9e6';
-    g.beginPath(); g.arc(px(i),py(v),e.pb?3:2,0,6.2832); g.fill(); });
-  g.fillStyle='rgba(154,167,180,0.9)'; g.font='10px system-ui';
-  g.fillText((isRate?max+'%':'最高 '+max), 14, 12);
-  g.fillText(pts.length+' 局', W-46, H-4);
+  const padL=16, padR=16, padT=18, padB=18;
+  const vals=pts.map(e=>metricVal(e,mk));
+  const max=isRate?100:Math.max(100,...vals);
+  const lo=isRate?0:Math.max(0,Math.min(...vals)-(max-Math.min(...vals))*0.4);
+  const X=i=>padL+(W-padL-padR)*i/(pts.length-1);
+  const Y=v=>H-padB-(H-padT-padB)*((v-lo)/((max-lo)||1));
+  /* 细网格线 */
+  g.strokeStyle='rgba(255,255,255,.055)'; g.lineWidth=1;
+  for(let i=1;i<=3;i++){ const gy=padT+(H-padT-padB)*i/4;
+    g.beginPath(); g.moveTo(padL,gy); g.lineTo(W-padR,gy); g.stroke(); }
+  const px=vals.map((v,i)=>X(i)), py=vals.map(v=>Y(v));
+  const trace=()=>{ g.beginPath(); g.moveTo(px[0],py[0]);
+    for(let i=1;i<px.length-1;i++) g.quadraticCurveTo(px[i],py[i],(px[i]+px[i+1])/2,(py[i]+py[i+1])/2);
+    g.lineTo(px[px.length-1],py[px.length-1]); };
+  /* 面积渐变 */
+  trace(); g.lineTo(px[px.length-1],H-padB); g.lineTo(px[0],H-padB); g.closePath();
+  const grd=g.createLinearGradient(0,padT,0,H-padB);
+  grd.addColorStop(0,'rgba(255,70,85,.30)'); grd.addColorStop(1,'rgba(255,70,85,0)');
+  g.fillStyle=grd; g.fill();
+  /* 曲线（辉光描边，平滑过弯） */
+  trace(); g.strokeStyle='rgba(255,86,102,.95)'; g.lineWidth=2; g.lineJoin='round'; g.lineCap='round';
+  g.shadowColor='rgba(255,70,85,.5)'; g.shadowBlur=6; g.stroke(); g.shadowBlur=0;
+  /* 点：橙=当时破纪录（延续旧语义），空芯=普通，末点白芯=最新 */
+  pts.forEach((e,i)=>{
+    const pb=e.pb, last=i===pts.length-1;
+    g.beginPath(); g.arc(px[i],py[i],pb?3.4:2.6,0,6.2832);
+    g.fillStyle=pb?'#ffb02e':'#101a24'; g.fill();
+    g.lineWidth=pb?1.6:1.4;
+    g.strokeStyle=pb?'rgba(255,176,46,.95)':(last?'rgba(255,120,132,.95)':'rgba(90,169,230,.85)');
+    if(pb){ g.shadowColor='rgba(255,176,46,.55)'; g.shadowBlur=5; }
+    g.stroke(); g.shadowBlur=0;
+    if(last){ g.beginPath(); g.arc(px[i],py[i],1.1,0,6.2832); g.fillStyle='#fff'; g.fill(); }
+  });
+  /* 峰值标注（峰值恰为最新点时跳过：左上角「峰值」已覆盖，避免和「N 局」角标重叠） */
+  const bi=vals.indexOf(Math.max(...vals));
+  if(bi!==pts.length-1){
+    g.fillStyle='#ffb02e'; g.textAlign='center';
+    g.fillText(isRate?Math.round(vals[bi])+'%':Math.round(vals[bi]), Math.min(W-padR,Math.max(padL,X(bi))), Y(vals[bi])-8);
+    g.textAlign='left';
+  } g.fillStyle='rgba(154,167,180,.9)';
+  g.fillText(isRate?'100%':('峰值 '+Math.round(max)), padL-4, 12);
+  g.textAlign='right';
+  g.fillText(pts.length+' 局', W-padR, 12);
+  g.fillText(fmtDT(pts[pts.length-1].t).split(' ')[0], W-padR, H-6);
+  g.textAlign='left';
+  g.fillText(fmtDT(pts[0].t).split(' ')[0], padL-4, H-6);
 }
 function recRowHtml(e2,best){
   const acc=e2.ss?Math.round(e2.hs/e2.ss*100)+'%':'--';
