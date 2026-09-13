@@ -531,6 +531,10 @@
               <div id="dailyBoard" style="margin-bottom:9px"></div>
               <div class="tip">入口在「单人训练」页 · 每日一条修饰规则（全网相同）· 同一串闪光同一条规则，纯拼操作 · 每人每天最好成绩上榜</div>
             </div>
+            <div class="sec" id="mstatBox">
+              <h3 style="font-size:10.5px;color:var(--txt2);letter-spacing:1.6px;margin-bottom:9px;font-weight:600">对战战绩</h3>
+              <div id="mstatCard" style="margin-bottom:9px"></div>
+            </div>
             <h3 style="font-size:10.5px;color:var(--txt2);letter-spacing:1.6px;margin:16px 0 9px;font-weight:600">最佳纪录 · 按 时长 × 难度</h3>
             <div id="recBest"></div>
             <h3 style="font-size:10.5px;color:var(--txt2);letter-spacing:1.6px;margin:16px 0 9px;font-weight:600">分数走势 · 最近 24 局（按难度）</h3>
@@ -845,7 +849,7 @@ let flashes=[], pops=[];
 let targets=[], nextAutoAt=0, flashSeq=0, autoN=0;
 let blindUntil=0, blindDur=0, blindSrc=0, blindStart=0, blindPeak=1;
 let score=0, combo=0, shownScore=0;
-const st={trials:0,dodges:0,blinds:0,graze:0,hits:0,shots:0,best:0,rtSum:0,rtN:0,rfSum:0,rfN:0};
+const st={trials:0,dodges:0,blinds:0,graze:0,hits:0,shots:0,best:0,rtSum:0,rtN:0,rfSum:0,rfN:0,by:{}};
 let reflickBase=0;
 /* 鼠标位移累积：同一帧内的多个 mousemove 合并后统一应用到相机 */
 let mdx=0, mdy=0;
@@ -1922,6 +1926,8 @@ function spawnFlash(key){
      「铁臂刚出现时混着一段旧合成音」。黄点动画照画，只是不再配音。 */
   showAgent(a);
   st.trials++;
+  const ba=st.by[a.key]||(st.by[a.key]={n:0,dg:0});   /* 按特工统计：n=出场数，dg=躲开数 */
+  ba.n++;
   return f;
 }
 /* 回靶计时的起点 = 「最早能出手」的时刻。
@@ -1973,12 +1979,13 @@ function popFlash(f){
     blindDur=Math.max(0.001,blindUntil-blindStart);
     blindSrc=f.id;
   }
+  const ba=st.by[a.key]||(st.by[a.key]={n:0,dg:0});
   if(graze) st.graze++;
   if(flashed && !graze){
     st.blinds++; combo=0;
     log('被 '+a.zh+' 闪到 '+dur.toFixed(1)+'s'+(peak<0.8?'（轻）':''),'b');
   }else{
-    st.dodges++; combo++; if(combo>st.best) st.best=combo;
+    st.dodges++; ba.dg++; combo++; if(combo>st.best) st.best=combo;
     const bonus=Math.round(SCORE.dodgeBase*(1+Math.min(combo,SCORE.comboCap)*SCORE.dodgeStep));
     addScore(bonus);
     log(graze ? ('擦闪 '+a.zh+' '+dur.toFixed(1)+'s   +'+bonus)
@@ -2040,13 +2047,15 @@ function openLeer(f){
   const ang=Math.acos(clamp(dot3(norm3(f.pos),fwdVec()),-1,1))*DEG;
   const losOK = f.pos.z<=ROOM.zW+0.02 || flashVisible(f.pos);
   if(ang<=f.a.coneHalf && len3(f.pos)<=22 && losOK){
+    const ba=st.by[f.a.key]||(st.by[f.a.key]={n:0,dg:0});
     st.blinds++; combo=0;
     nearStart=T; nearUntil=f.dieAt; nearSrc=f.id;
     sfx.leer();
     log('蕾娜之眼睁开 · 近视生效，击毁紫眼解除','b');
     reflickBase=reflickStart(T);           /* 近视退潮（fogNear≤0.15）就能打，不必等完全消散 */
   }else{
-    st.dodges++;
+    const ba=st.by[f.a.key]||(st.by[f.a.key]={n:0,dg:0});
+    st.dodges++; ba.dg++;
     combo++; if(combo>st.best) st.best=combo;
     const bonus=Math.round(SCORE.dodgeBase*(1+Math.min(combo,SCORE.comboCap)*SCORE.dodgeStep));
     addScore(bonus);
@@ -2950,6 +2959,37 @@ function loadRecords(){
 function saveRecords(r){
   try{ localStorage.setItem(LS_REC, JSON.stringify(r)); }catch(e){}   /* 私密浏览/满额：静默不记 */
 }
+/* ---------- 对战战绩（localStorage） ----------
+   同一局（房码+轮）只计一次 —— applyState 在等交卷阶段会被反复轮询。 */
+const LS_MSTAT='aft_matchstats';
+function loadMatchStats(){
+  try{ const s=JSON.parse(localStorage.getItem(LS_MSTAT)||'null');
+    if(s&&typeof s==='object') return {total:s.total|0,wins:s.wins|0,losses:s.losses|0,
+      draws:s.draws|0,streak:s.streak|0,best:s.best|0,last:s.last||null};
+  }catch(e){}
+  return {total:0,wins:0,losses:0,draws:0,streak:0,best:0,last:null};
+}
+function saveMatchStats(s){ try{ localStorage.setItem(LS_MSTAT,JSON.stringify(s)); }catch(e){} }
+function recordMatchResult(my,foe){
+  const s=loadMatchStats();
+  if(s.last&&s.last.code===match.code&&s.last.round===match.round) return;
+  s.last={code:match.code,round:match.round};
+  s.total++;
+  if(my>foe){ s.wins++; s.streak=s.streak>0?s.streak+1:1; }
+  else if(my<foe){ s.losses++; s.streak=s.streak<0?s.streak-1:-1; }
+  else s.draws++;
+  s.best=Math.max(s.best,s.streak);
+  saveMatchStats(s);
+}
+function renderMatchStats(){
+  const box=$('mstatCard'); if(!box) return;
+  const s=loadMatchStats();
+  const wr=s.total?Math.round(s.wins/s.total*100)+'%':'--';
+  const cur=s.streak>0?'连胜 '+s.streak:(s.streak<0?('连负 '+(-s.streak)):'—');
+  box.innerHTML='<div class="recRow"><span>总场次（胜/负/平）</span><b>'+s.total+'（'+s.wins+'/'+s.losses+'/'+s.draws+'）</b></div>'
+    +'<div class="recRow"><span>胜率</span><b>'+wr+'</b></div>'
+    +'<div class="recRow"><span>当前 / 最佳连胜</span><b>'+cur+' / '+s.best+'</b></div>';
+}
 function recordRound(){
   if(DAILY.active){ dailyFinish(); return; }   /* 每日挑战走独立榜单，不进常规纪录（配置不可比） */
   const sec=roundSec();
@@ -3188,6 +3228,35 @@ function renderDaily(){
   renderDailyBoard(null);
   dailyFetchBoard().then(rows=>{ if(rows&&DAILY.date===dailyKeyDate()) renderDailyBoard(rows); });
 }
+/* ---------- 弱项诊断：本轮 vs 同配置历史均值 + 点名躲闪率最低的特工 ----------
+   数据不够就闭嘴：同配置历史 <2 局不比均值，某特工样本 <3 次不点名。每日挑战不掺和。 */
+function buildCoachNotes(){
+  let out='';
+  try{
+    const R=loadRecords();
+    /* log[0] 永远是刚结算的本局（recordRound 先 unshift 再 fillResult）—— 对比对象是之前的历史 */
+    const hist=R.log.slice(1).filter(e=>e.ri===cfg.roundIdx&&e.diff===cfg.diff&&e.rf!=null);
+    if(st.rfN&&hist.length>=2){
+      const avg=hist.reduce((a,e)=>a+(e.rf||0),0)/hist.length;
+      const cur=Math.round(st.rfSum/st.rfN*1000);
+      const d=cur-Math.round(avg);
+      if(Math.abs(d)>=50)
+        out+=' 本次回靶 '+cur+'ms，比你的'+ROUNDS[cfg.roundIdx].n+'·'+DIFF[cfg.diff].n+'均值'
+            +(d>0?'慢 ':'快 ')+Math.abs(d)+'ms'+(d>0?'，甩枪再果断点。':'，手感在线。');
+    }
+    let worst=null;
+    for(const k in st.by){
+      const b=st.by[k];
+      if(b.n>=3&&AGENTS[k]){
+        const dr=b.dg/b.n;
+        if(!worst||dr<worst.dr) worst={zh:AGENTS[k].zh,dr:dr};
+      }
+    }
+    if(worst&&worst.dr<0.6)
+      out+=' '+worst.zh+'的闪你只躲了 '+Math.round(worst.dr*100)+'%，是最弱项，建议单独开它练两局。';
+  }catch(e){}
+  return out;
+}
 function fillResult(rec){
   $('resScore').textContent=score;
   $('resDodge').textContent=pct(st.dodges,st.trials);
@@ -3219,6 +3288,7 @@ function fillResult(rec){
       if(rf>700) note+=' 回靶偏慢（'+Math.round(rf)+'ms），躲开后立刻甩枪，别犹豫。';
     }
   }
+  if(!DAILY.active) note+=buildCoachNotes();   /* 对比式诊断（历史均值 + 最弱特工） */
   $('resNote').textContent=note;
   /* 对战里这两个按钮语义不同：再战要回大厅让双方重新确认，关闭等于退出对战 */
   $('resAgain').textContent=match.active?'再战一轮（回大厅）':'再来一轮';
@@ -3413,12 +3483,13 @@ function selectTab(name){
   for(const b of tabs) b.classList.toggle('act', b.dataset.tab===name);
   for(const pg of ['solo','battle','rec','music','set'])
     $('tab-'+pg).classList.toggle('act', pg===name);
-  if(name==='rec'){ renderRecords(); renderDaily(); }   /* 每次进这页都现读现画，保证是最新数据 */
+  if(name==='rec'){ renderRecords(); renderDaily(); renderMatchStats(); }   /* 每次进这页都现读现画 */
 }
 function toggleMini(){ $('miniStats').classList.toggle('hide'); }
 function resetStats(silent){
   score=0; combo=0; shownScore=0;
   st.trials=st.dodges=st.blinds=st.graze=st.hits=st.shots=st.best=0;
+  st.by={};
   st.rtSum=st.rtN=st.rfSum=st.rfN=0;
   flashes=[]; pops=[]; blindUntil=0; blindDur=0; blindSrc=0; blindStart=0; reflickBase=T;
   nearUntil=0; nearSrc=0; nearStart=0; fogNear=0;
@@ -3818,6 +3889,8 @@ function applyState(s){
   match.iReady=!!(me&&me.ready);
   const foe=match.players.filter(p=>p.name!==match.you)[0];
   match.foe=foe?foe.name:''; match.foeScore=foe&&foe.score!=null?foe.score:null;
+  /* 双方都交了卷 → 计一次战绩（recordMatchResult 自己按 房码+轮 去重） */
+  if(me&&me.score!=null&&foe&&foe.score!=null) recordMatchResult(me.score,foe.score);
   match.startAt=s.startAt||0;
   if(s.now) clockOff=s.now-Date.now();          /* 服务端时钟偏移，重连超时判定用 */
   if(before===JSON.stringify([match.players,match.startAt,match.round])) match.quiet++;

@@ -1089,6 +1089,31 @@ try{
   run('ensureName();');
   ok(run('myName()')===autoNm,'分配的昵称持久化 → 榜单名称跨局稳定');
   run('localStorage.removeItem("aft_name");');
+
+  /* [32] 战绩记录 + 弱项诊断 */
+  console.log('[32] 战绩记录 + 弱项诊断');
+  run('localStorage.removeItem("aft_matchstats");');
+  run('match.active=true;match.cloud=true;match.code="AB3K7M";match.you="我";match.round=1;match.phase="result";');
+  run('applyState({players:[{name:"我",score:800},{name:"他",score:900}],round:1,now:Date.now()});');
+  let ms=JSON.parse(run('JSON.stringify(loadMatchStats())'));
+  ok(ms.total===1&&ms.losses===1&&ms.streak===-1,'输一局：总场/负/连负计入');
+  run('applyState({players:[{name:"我",score:800},{name:"他",score:900}],round:1,now:Date.now()});');
+  ok(JSON.parse(run('JSON.stringify(loadMatchStats())')).total===1,'同轮重复轮询不重复计');
+  run('applyState({players:[{name:"我",score:1000},{name:"他",score:900}],round:2,now:Date.now()});');
+  ms=JSON.parse(run('JSON.stringify(loadMatchStats())'));
+  ok(ms.total===2&&ms.wins===1&&ms.streak===1,'赢一局：连胜从 -1 翻回 1');
+  run('renderMatchStats();');
+  ok(/总场次/.test(run('$("mstatCard").innerHTML'))&&/胜率/.test(run('$("mstatCard").innerHTML')),'战绩卡渲染');
+  run('leaveMatch(true); localStorage.removeItem("aft_matchstats");');
+  /* 弱项诊断：同配置历史均值对比 + 点名最弱特工 */
+  run('localStorage.removeItem("aft_records");');
+  run('(function(){var r={best:{},log:[]};for(var i=0;i<3;i++)r.log.push({t:i,ri:0,diff:0,mode:0,score:i,cb:0,bl:0,ag:"kayo",dg:5,tr:10,hs:5,ss:10,rf:1000,rt:null,pb:false});localStorage.setItem("aft_records",JSON.stringify(r));})();');
+  run('cfg.roundIdx=0;cfg.diff=0;startRound();');
+  run('st.rfN=4;st.rfSum=5.6;st.by={phoenix:{n:5,dg:4},kayo:{n:4,dg:1}};');
+  const note=run('buildCoachNotes()');
+  ok(/均值/.test(note)&&/慢\s*400/.test(note),'回靶对比：1400ms vs 均值1000 → 慢 400ms');
+  ok(/KO/.test(note)&&/25%/.test(note)&&/最弱项/.test(note),'最弱特工点名（KO 只躲 25%）');
+  run('localStorage.removeItem("aft_records"); playing=false; roundOver=false;');
   run('localStorage.removeItem("aft_daily"); localStorage.removeItem("aft_records");');
   run('playing=false; roundOver=false;');
 
