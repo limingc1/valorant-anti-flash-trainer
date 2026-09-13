@@ -3029,6 +3029,27 @@ function metricVal(e2,k){
   return e2.score||0;
 }
 let recChartDiff=0, recChartMetric='score';   /* 全局共享：两处面板联动 */
+const recDrawCache={};                        /* cvId -> 最近一次绘制的点位（悬停命中用） */
+let recHover={cv:'',i:-1};
+/* 鼠标跟随：就近吸附数据点（18px 内），触发重绘画提示框 */
+function bindChartHover(cv,cvId){
+  if(!cv||cv._hoverBound) return; cv._hoverBound=true;
+  cv.addEventListener('mousemove',e=>{
+    const c=recDrawCache[cvId]; if(!c) return;
+    const r=cv.getBoundingClientRect();
+    const mx=e.clientX-r.left, my=e.clientY-r.top;
+    let bi=-1, bd=1e9;
+    for(let i=0;i<c.px.length;i++){
+      const d=(c.px[i]-mx)*(c.px[i]-mx)+(c.py[i]-my)*(c.py[i]-my);
+      if(d<bd){ bd=d; bi=i; }
+    }
+    const ni=bd<=324?bi:-1;
+    if(ni!==recHover.i||recHover.cv!==cvId){ recHover={cv:cvId,i:ni}; drawRecChart(loadRecords(),cvId); }
+  });
+  cv.addEventListener('mouseleave',()=>{
+    if(recHover.cv===cvId&&recHover.i>=0){ recHover={cv:cvId,i:-1}; drawRecChart(loadRecords(),cvId); }
+  });
+}
 function renderChips(el){
   el.innerHTML='';
   for(let di=0;di<DIFF.length;di++){
@@ -3074,9 +3095,15 @@ function drawRecChart(R,cvId){
   for(let i=1;i<=3;i++){ const gy=padT+(H-padT-padB)*i/4;
     g.beginPath(); g.moveTo(padL,gy); g.lineTo(W-padR,gy); g.stroke(); }
   const px=vals.map((v,i)=>X(i)), py=vals.map(v=>Y(v));
+  /* Catmull-Rom 样条：曲线穿过每一个数据点 —— 中点平滑会让中间的点浮出线外 */
   const trace=()=>{ g.beginPath(); g.moveTo(px[0],py[0]);
-    for(let i=1;i<px.length-1;i++) g.quadraticCurveTo(px[i],py[i],(px[i]+px[i+1])/2,(py[i]+py[i+1])/2);
-    g.lineTo(px[px.length-1],py[px.length-1]); };
+    for(let i=0;i<px.length-1;i++){
+      const x0=px[Math.max(0,i-1)], y0=py[Math.max(0,i-1)];
+      const x1=px[i], y1=py[i], x2=px[i+1], y2=py[i+1];
+      const x3=px[Math.min(px.length-1,i+2)], y3=py[Math.min(py.length-1,i+2)];
+      g.bezierCurveTo(x1+(x2-x0)/6, y1+(y2-y0)/6, x2-(x3-x1)/6, y2-(y3-y1)/6, x2, y2);
+    }
+  };
   /* 面积渐变 */
   trace(); g.lineTo(px[px.length-1],H-padB); g.lineTo(px[0],H-padB); g.closePath();
   const grd=g.createLinearGradient(0,padT,0,H-padB);
@@ -3096,6 +3123,26 @@ function drawRecChart(R,cvId){
     g.stroke(); g.shadowBlur=0;
     if(last){ g.beginPath(); g.arc(px[i],py[i],1.1,0,6.2832); g.fillStyle='#fff'; g.fill(); }
   });
+  /* 悬停提示框：就近吸附数据点，亮环 + 日期/分数/背闪率/准度 */
+  recDrawCache[cvId]={px:px,py:py,pts:pts};
+  bindChartHover(cv,cvId);
+  if(recHover.cv===cvId&&recHover.i>=0&&recHover.i<pts.length){
+    const e=pts[recHover.i], hx=px[recHover.i], hy=py[recHover.i];
+    g.beginPath(); g.arc(hx,hy,5.5,0,6.2832);
+    g.strokeStyle='rgba(255,255,255,.85)'; g.lineWidth=1.4; g.stroke();
+    const lines=[fmtDT(e.t), '分数 '+(e.score|0),
+      '背闪率 '+(e.tr?Math.round(e.dg/e.tr*100)+'%':'--'),
+      '准度 '+(e.ss?Math.round(e.hs/e.ss*100)+'%':'--')];
+    g.font='10px system-ui';
+    const tw=Math.max.apply(null,lines.map(s=>g.measureText(s).width))+14, th=lines.length*13+9;
+    let bx=hx+10, by=Math.max(3,Math.min(H-th-3,hy-th/2));
+    if(bx+tw>W-4) bx=hx-10-tw;
+    rr(bx,by,tw,th,6); g.fillStyle='rgba(9,15,22,.94)'; g.fill();
+    g.strokeStyle='rgba(255,70,85,.45)'; g.lineWidth=1; g.stroke();
+    g.fillStyle='#dbe4ec'; g.textAlign='left';
+    lines.forEach((s,i)=>g.fillText(s,bx+7,by+15+i*13));
+    g.textAlign='left';
+  }
   /* 峰值标注（峰值恰为最新点时跳过：左上角「峰值」已覆盖，避免和「N 局」角标重叠） */
   const bi=vals.indexOf(Math.max(...vals));
   if(bi!==pts.length-1){
