@@ -9,7 +9,7 @@
 ## 改完必做
 
 ```
-node .workbuddy/smoke-test.js     # 期望 305 条 OK，末行「全部通过」
+node .workbuddy/smoke-test.js     # 期望 307 条 OK，末行「全部通过」
 node .workbuddy/api-test.mjs      # 期望 26 条 OK，末行「全部通过」
 ```
 

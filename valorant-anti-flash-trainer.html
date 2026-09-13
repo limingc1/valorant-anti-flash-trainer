@@ -2899,6 +2899,7 @@ let roundEndAt=0, roundOver=false, lastRoundSec=-1;
 function roundSec(){ return ROUNDS[cfg.roundIdx].sec; }
 function startRound(){
   roundOver=false;
+  dailyResultShown=false;
   roundEndAt = roundSec()>0 ? T+roundSec() : 0;
   lastRoundSec=-1;
   match.sent=false;                /* 新一轮：允许再上报一次比分 */
@@ -3120,7 +3121,8 @@ function refreshRecords(){
    固定配置 60s × 困难加强（频率 1.3×、全 6 特工、靶 7）—— 比普通困难更狠，
    也因此不与常规纪录互比（recordRound 里直接走独立榜单）。
    KV 写账：每人每天最多 1 写（只有刷新自己当日纪录才提交）。 */
-const DAILY = { active:false, seed:0, date:'', snap:null, mod:null, applied:null };
+const DAILY = { active:false, seed:0, date:'', snap:null, mod:null, applied:null, lastRows:null };
+let dailyResultShown=false;                     /* 本轮是每日挑战：结算面板里直接放榜单 */
 function dailyKeyDate(){ const d=new Date();
   return ''+d.getFullYear()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0'); }
 function dailySeedOf(date){ let h=2166136261, s='aft-daily-'+date;
@@ -3189,7 +3191,29 @@ function dailyFinish(){
   const prev=dailyMyBest();
   if(prev==null||sc>prev){ dailySetBest(sc); if(prev!=null) log('今日最佳刷新！'+prev+' → '+sc,'y'); }
   const eb=$('dailyBest2'); if(eb) eb.textContent=sc|0;     /* 开屏挑战条的今日最佳同步 */
+  dailyResultShown=true;                  /* 结算面板直接放当日榜（paintDailyResult） */
   dailyPost(sc);                          /* 只有刷新当日纪录才产生 KV 写（每人每天 ≤1 写） */
+}
+/* 结算面板里的每日榜：有云端数据 → 前 10 + 我的排名；拉不到 → 本地最佳兜底 */
+function paintDailyResult(rows){
+  const box=$('mCmp'); if(!box) return;
+  let html='<div style="font-size:11px;letter-spacing:2px;color:var(--txt2);margin-bottom:8px">'
+    +'每日挑战 · '+(DAILY.mod?DAILY.mod.n:'')+' · 榜单</div>';
+  if(rows&&rows.length){
+    const nm=myName(); let mine=0;
+    rows.slice(0,10).forEach((r,i)=>{
+      const me=nm&&r.name===nm; if(me) mine=i+1;
+      html+='<div style="display:flex;justify-content:space-between;align-items:center;background:var(--bg3);'
+        +'border:1px solid '+(me?'var(--grn)':'var(--line)')+';border-radius:6px;padding:7px 10px;margin-bottom:4px">'
+        +'<span style="font-size:12px;color:var(--txt)">'+(i+1)+'. '+esc(me?r.name+'（你）':r.name)+'</span>'
+        +'<b style="font-size:16px;color:'+(me?'var(--grn)':'var(--txt)')+'">'+(r.score|0)+'</b></div>';
+    });
+    if(mine) html='<div style="font-size:14px;font-weight:700;color:var(--grn);margin-bottom:8px">今日第 '+mine+' 名</div>'+html;
+  }else{
+    const mb=dailyMyBest();
+    html+='<div class="tip">榜单暂时拉不到（云端未连上）。本地已记今日最佳 <b>'+(mb==null?'—':mb)+'</b>，联网后打开训练记录页可上榜。</div>';
+  }
+  box.innerHTML=html; box.style.display='';
 }
 async function dailyPost(sc){
   const nm=ensureName();
@@ -3197,6 +3221,8 @@ async function dailyPost(sc){
     detail:{dodge:pct(st.dodges,st.trials), acc:pct(st.hits,st.shots)}});
   if(res&&res.rows){
     renderDailyBoard(res.rows);
+    DAILY.lastRows=res.rows;
+    if(dailyResultShown) paintDailyResult(res.rows);   /* 结算面板开着：榜单到了直接刷进去 */
     let rank=0; res.rows.forEach((r,i)=>{ if(!rank&&r.name===nm) rank=i+1; });
     if(rank) log('已上榜：今日第 '+rank+' 名','c');
   }else log('榜单没送上（云端不可用），只记了本地最佳','y');
@@ -3290,6 +3316,9 @@ function fillResult(rec){
   }
   if(!DAILY.active) note+=buildCoachNotes();   /* 对比式诊断（历史均值 + 最弱特工） */
   $('resNote').textContent=note;
+  /* 每日挑战：结算面板直接放当日榜（榜单数据由 dailyPost 异步刷进来） */
+  if(dailyResultShown) paintDailyResult(DAILY.lastRows);
+  else if(!match.active){ const cmp=$('mCmp'); if(cmp) cmp.style.display='none'; }
   /* 对战里这两个按钮语义不同：再战要回大厅让双方重新确认，关闭等于退出对战 */
   $('resAgain').textContent=match.active?'再战一轮（回大厅）':'再来一轮';
   $('resClose').textContent=match.active?'退出对战':'继续自由练习';

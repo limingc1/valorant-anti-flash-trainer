@@ -1077,6 +1077,11 @@ try{
   ok(run('loadRecords().log.length')===0,'挑战结算不进常规纪录（配置不可比）');
   ok(JSON.parse(run('localStorage.getItem("aft_daily")')).best===777,'本地今日最佳已记 777');
   ok(+run('$("dailyBest2").textContent')===777,'开屏挑战条的今日最佳结算后实时同步');
+  ok(run('$("mCmp").style.display')===''&&/每日挑战/.test(run('$("mCmp").innerHTML')),
+     '结算面板直接显示当日榜（离线兜底=本地最佳）');
+  /* 普通回合：结算面板不放每日榜 */
+  run('startRound(); score=60; st.trials=2; st.shots=2; endRound();');
+  ok(run('$("mCmp").style.display')==='none','普通回合结算不显示每日榜');
   run('localStorage.setItem("aft_name","我");');
   run('renderDailyBoard([{name:"我",score:900},{name:"他",score:100}]);');
   const boardHtml=run('$("dailyBoard").innerHTML');
