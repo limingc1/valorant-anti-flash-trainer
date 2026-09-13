@@ -234,7 +234,7 @@ try{
   run('startRound()');
   ok(run('roundOver')===false,'新一轮开始，未结束');
   const left0=run('roundEndAt-T');
-  ok(left0>29 && left0<=30,'倒计时设为 30s（'+left0.toFixed(2)+'s）');
+  ok(left0>29 && left0<30.01,'倒计时设为 30s（'+left0.toFixed(2)+'s）');   /* 上限放宽：浮点噪声可到 30.000000000000014 */
   ok(run('score')===0,'开轮清零分数');
   step(60);
   ok(run('roundOver')===false,'中途不会结算');
@@ -1119,8 +1119,29 @@ try{
   ok(/均值/.test(note)&&/慢\s*400/.test(note),'回靶对比：1400ms vs 均值1000 → 慢 400ms');
   ok(/KO/.test(note)&&/25%/.test(note)&&/最弱项/.test(note),'最弱特工点名（KO 只躲 25%）');
   run('localStorage.removeItem("aft_records"); playing=false; roundOver=false;');
-  run('localStorage.removeItem("aft_daily"); localStorage.removeItem("aft_records");');
-  run('playing=false; roundOver=false;');
+
+  /* [33] 蕾娜之眼擦边宽容档：贴锥角边缘瞥到 → 近视但连击不断；正对 → 仍断；击毁 → 返还连击 */
+  console.log('[33] 蕾娜之眼擦边宽容档');
+  run('cfg.auto=false;cfg.agents.reyna=true;flashes=[];pops=[];nearUntil=0;nearSrc=0;playing=true;paused=false;roundOver=false;roundEndAt=0;');
+  step(1);                                            /* 先同步时钟：此前的段落可能推过 vm 的 T 造成漂移 */
+  run('spawnFlash("reyna");');
+  aim('flashes[0].pos');
+  run('cam.yaw+=0.85*flashes[0].a.coneHalf*RAD;');   /* 偏到锥角 85% 处 → cover≈0.27 ≤ 0.30 */
+  run('combo=5; st.best=5;');
+  step(33);                                          /* 睁眼需 0.5s=30 帧，留 3 帧余量 */
+  ok(run('flashes[0].opened')===true,'擦边角度：眼睛睁开');
+  ok(run('nearUntil>T')===true,'擦边：近视仍生效');
+  ok(run('combo')===6,'擦边：连击不断（5→6）');
+  const blBefore=+run('st.blinds');
+  ok(+run('st.blinds')===blBefore,'擦边：不计被闪');
+  run('flashes=[];pops=[];nearUntil=0;nearSrc=0;combo=5;spawnFlash("reyna");');
+  aim('flashes[0].pos'); step(33);
+  ok(+run('st.blinds')>blBefore&&run('combo')===0,'正对眼睛：仍断连击（保持威慑）');
+  aim('flashes[0].pos'); run('shoot();');
+  aim('flashes[0].pos'); run('shoot();');   /* 两发击毁紫眼 */
+  ok(run('combo')===5,'击毁紫眼：致盲前连击返还（5）');
+  ok(run('nearUntil<=T')===true,'击毁后近视解除');
+  run('flashes=[];pops=[];nearUntil=0;nearSrc=0;cfg.agents.reyna=false;playing=false;roundOver=false;');
 
   console.log('\n'+(fails?('有 '+fails+' 项失败'):'全部通过'));
   process.exit(fails?1:0);

@@ -539,7 +539,7 @@
             <div id="recBest"></div>
             <h3 style="font-size:10.5px;color:var(--txt2);letter-spacing:1.6px;margin:16px 0 9px;font-weight:600">分数走势 · 最近 24 局（按难度）</h3>
             <div class="chk" id="recChips"></div>
-            <canvas id="recChart" width="560" height="120" style="width:100%;height:120px;margin-top:8px"></canvas>
+            <canvas id="recChart" width="560" height="150" style="width:100%;height:150px;margin-top:8px"></canvas>
             <h3 style="font-size:10.5px;color:var(--txt2);letter-spacing:1.6px;margin:16px 0 9px;font-weight:600">最近训练</h3>
             <div id="recList"></div>
             <div class="tabBtns" style="margin-top:12px">
@@ -722,7 +722,7 @@
             <button id="resRecToggle" style="padding:3px 10px;font-size:10.5px">收起 ▴</button></div>
           <div id="resRecBody">
             <div class="chk" id="resChips" style="margin-bottom:8px"></div>
-            <canvas id="resChart" width="520" height="110" style="width:100%;height:110px;margin-bottom:8px"></canvas>
+            <canvas id="resChart" width="560" height="150" style="width:100%;height:150px;margin-bottom:8px"></canvas>
             <div id="resRecList" style="max-height:160px;overflow-y:auto"></div>
           </div>
         </div>
@@ -817,6 +817,9 @@ function comboMult(){ return 1+Math.min(combo,SCORE.comboCap)*SCORE.comboStep; }
    对夜露（锥角 50°）已经背掉三成——按锥角比例（cover）才跨特工等价。
    想收紧就把这个值调小。 */
 const GRAZE_COVER=0.20;
+/* 蕾娜之眼的擦边宽容档：贴着锥角边缘瞥到眼睛依然近视，但不断连击。
+   眼睛是静止目标、还有 leer 音预警，比飞行闪光更不该断连击 —— 给 0.30（比 0.20 更宽）。 */
+const EYE_GRAZE_COVER=0.30;
 
 const AGENTS={
   phoenix:{zh:'菲尼克斯',en:'曲球 Curveball',color:'#ff4d2e',rgb:'255,86,52',
@@ -837,7 +840,7 @@ const AGENTS={
     note:'深蓝色光球，高抛弹地，锥角小'},
   reyna:{zh:'蕾娜',en:'致盲之眼 Leer',color:'#ff5f8d',rgb:'255,95,141',
     shape:'eye',travel:0.55,popFrac:1.0,coneHalf:45,dur:[0.50,2.60],arc:0.3,vf:0.55,
-    spawn:0.5, life:6.0, noPath:true, nearsight:true, destructible:true, hp:2,
+    spawn:0.5, life:4.0, noPath:true, nearsight:true, destructible:true, hp:2,
     note:'紫眼凭空浮现后睁开：视野被暗紫近视笼罩、看不见靶球，需要打两下才摧毁'}
 };
 for(const k in AGENTS) AGENTS[k].key=k;   /* 便于回查音效来源 */
@@ -2048,11 +2051,22 @@ function openLeer(f){
   const losOK = f.pos.z<=ROOM.zW+0.02 || flashVisible(f.pos);
   if(ang<=f.a.coneHalf && len3(f.pos)<=22 && losOK){
     const ba=st.by[f.a.key]||(st.by[f.a.key]={n:0,dg:0});
-    st.blinds++; combo=0;
+    const eyeCover=Math.pow(1-ang/f.a.coneHalf,0.7);   /* 与闪光的 cover 同衰减 */
     nearStart=T; nearUntil=f.dieAt; nearSrc=f.id;
     sfx.leer();
-    log('蕾娜之眼睁开 · 近视生效，击毁紫眼解除','b');
     reflickBase=reflickStart(T);           /* 近视退潮（fogNear≤0.15）就能打，不必等完全消散 */
+    if(eyeCover<=EYE_GRAZE_COVER){
+      /* 擦边视瞥：依然近视，但连击不断（对齐闪光的擦闪宽容） */
+      st.dodges++; ba.dg++;
+      combo++; if(combo>st.best) st.best=combo;
+      const bonus=Math.round(SCORE.dodgeBase*(1+Math.min(combo,SCORE.comboCap)*SCORE.dodgeStep));
+      addScore(bonus);
+      log('擦边瞥见蕾娜之眼 · 近视生效，连击不断   +'+bonus,'y');
+    }else{
+      f.preCombo=combo;                /* 留档：击毁紫眼时返还致盲前的连击 */
+      st.blinds++; combo=0;
+      log('被蕾娜之眼晃到 · 近视生效，击毁紫眼解除','b');
+    }
   }else{
     const ba=st.by[f.a.key]||(st.by[f.a.key]={n:0,dg:0});
     st.dodges++; ba.dg++;
@@ -2156,6 +2170,11 @@ function shoot(){
         let freed=false;
         if(f.a.nearsight && nearSrc===f.id){ nearUntil=0; nearSrc=0; freed=true; }
         else if(blind>0 && blindSrc===f.id){ blindUntil=0; blindDur=0; blindSrc=0; blindStart=0; freed=true; }
+        /* 击毁紫眼：返还致盲前的连击 —— 打得好就该把连击赚回来 */
+        if(freed && f.preCombo!=null && f.preCombo>combo){
+          combo=f.preCombo; if(combo>st.best) st.best=combo;
+          log('连击返还 '+combo,'g');
+        }
         log('击毁 '+f.a.zh+' 之眼  +120'+(freed?' · 近视解除':''),'c');
         updateStats(); return;
       }
@@ -3143,11 +3162,15 @@ function drawRecChart(R,cvId){
     lines.forEach((s,i)=>g.fillText(s,bx+7,by+15+i*13));
     g.textAlign='left';
   }
-  /* 峰值标注（峰值恰为最新点时跳过：左上角「峰值」已覆盖，避免和「N 局」角标重叠） */
+  /* 峰值标注：贴左缘时挪到点右侧、贴近顶缘时挪到点下方 —— 别和角标叠在一起 */
   const bi=vals.indexOf(Math.max(...vals));
   if(bi!==pts.length-1){
-    g.fillStyle='#ffb02e'; g.textAlign='center';
-    g.fillText(isRate?Math.round(vals[bi])+'%':Math.round(vals[bi]), Math.min(W-padR,Math.max(padL,X(bi))), Y(vals[bi])-8);
+    const leftEdge=X(bi)<padL+40, topEdge=Y(vals[bi])<padT+12;
+    g.fillStyle='#ffb02e';
+    const lx=leftEdge?X(bi)+8:Math.min(W-padR-16,Math.max(padL+10,X(bi)));
+    const ly=topEdge?Y(vals[bi])+17:Y(vals[bi])-8;
+    g.textAlign=leftEdge?'left':'center';
+    g.fillText(isRate?Math.round(vals[bi])+'%':Math.round(vals[bi]), lx, ly);
     g.textAlign='left';
   } g.fillStyle='rgba(154,167,180,.9)';
   g.fillText(isRate?'100%':('峰值 '+Math.round(max)), padL-4, 12);
