@@ -220,9 +220,9 @@ try{
   ok(Math.abs(y2)<=budget2+1e-6,'但仍不超过 3 倍上限');
   run('cam.yaw=0;cam.pitch=0;mdx=0;mdy=0;');
 
-  console.log('[10] 六特工全开 + 9 靶点长跑');
-  run('cfg.targetN=9;fillTargets();cfg.agents.kayo=true;cfg.agents.yoru=true;');
-  for(const k of ['phoenix','skye','breach','kayo','yoru','reyna']) run('spawnFlash("'+k+'")');
+  console.log('[10] 七特工全开 + 9 靶点长跑');
+  run('cfg.targetN=9;fillTargets();cfg.agents.kayo=true;cfg.agents.yoru=true;cfg.agents.vyse=true;');
+  for(const k of ['phoenix','skye','breach','kayo','yoru','reyna','vyse']) run('spawnFlash("'+k+'")');
   step(400);
   ok(true,'400 帧无异常（含穿墙闪充能、恺滴答、夜露高抛）');
   run('cfg.mode=1'); step(40); run('cfg.mode=2'); step(40); run('cfg.mode=0');
@@ -1142,6 +1142,216 @@ try{
   ok(run('combo')===5,'击毁紫眼：致盲前连击返还（5）');
   ok(run('nearUntil<=T')===true,'击毁后近视解除');
   run('flashes=[];pops=[];nearUntil=0;nearSrc=0;cfg.agents.reyna=false;playing=false;roundOver=false;');
+
+  /* [34] 维斯金属玫瑰：贴墙绽放（预警窗口）→ 绽放完成爆闪；直视致盲、背对算躲 */
+  console.log('[34] 维斯金属玫瑰');
+  const Z_WALL=+run('ROOM.zW');                       /* 墙面 z，贴墙位置按它校验 */
+  ok(Z_WALL>0,'墙面常量可读（z='+Z_WALL+'）');
+  ok(run('!!AGENTS.vyse')===true,'AGENTS 注册了 vyse');
+  ok(run('AGENTS.vyse.shape')==='rose'&&run('AGENTS.vyse.coneHalf')>0&&run('AGENTS.vyse.noPath')===true,
+     '玫瑰形态：放置型（无飞行段）');
+  /* 默认值看源码声明 —— 跑到这里时 cfg 已被前面的用例改过，只能查常量字面量 */
+  ok(/agents:\{phoenix:true,skye:true,breach:true,kayo:false,yoru:false,reyna:false,vyse:false\}/.test(html),
+     '维斯默认关闭（与 KO/夜露/蕾娜 一致）');
+  run('cfg.agents.vyse=true;');
+  ok(run('enabledAgents().indexOf("vyse")>=0')===true,'开启后进入抽签池');
+  run('cfg.agents.vyse=false;');
+  ok(run('enabledAgents().indexOf("vyse")<0')===true,'关闭后不在抽签池');
+  ok(run('SFX_NAMES.indexOf("vyse_pop")>=0')===true,
+     '引爆音已注册可被 sfx/vyse_pop.wav 覆盖（放置音走合成，不登记）');
+  /* 放置形态 */
+  run('cfg.agents.vyse=true;cfg.auto=false;flashes=[];pops=[];blindUntil=0;blindDur=0;playing=true;paused=false;roundOver=false;roundEndAt=0;');
+  step(1);                                            /* 对齐时钟后再生成 */
+  run('spawnFlash("vyse")');
+  const vy=JSON.parse(run('JSON.stringify({pos:flashes[0].pos,travel:flashes[0].travel,audOff:flashes[0].audOff,trail:flashes[0].trail.length,popAt:flashes[0].popAt,t0:flashes[0].t0,bloomAt:flashes[0].bloomAt,bloomDur:flashes[0].bloomDur,det:!!flashes[0].a.destructible,hp:flashes[0].hp})'));
+  ok(vy.trail===0,'贴墙金属滴不留拖尾');
+  ok(Math.abs(vy.pos.z-(Z_WALL-0.05))<0.02,'紧贴墙面（z=6.45，玩家一侧）');
+  ok(Math.abs(vy.pos.x)>=1.9&&Math.abs(vy.pos.x)<=3.4,'落在拱门两侧实墙面（不悬在门洞空中）');
+  ok(vy.audOff===0,'放置声立刻响（放置型没有可见窗口可提前）');
+  ok(vy.det===true&&vy.hp===1,'玫瑰可击毁且一击即毁');
+  /* 蓄势：放置后藏成半透明花蕊，过一段随机时间才突然绽放 */
+  ok(vy.bloomAt>vy.t0+2&&vy.bloomAt<vy.t0+7,'蓄势时长落在 2~7 秒随机区间（不是立刻引爆）');
+  ok(vy.popAt>vy.bloomAt&&vy.bloomDur>0.3&&vy.bloomDur<1.0,'引爆 = 绽放开始 + 很短的绽放时长');
+  run('T=flashes[0].t0+0.8;updateFlashes();');
+  ok(run('flashes[0].popped')===false,'蓄势期：不引爆');
+  ok(run('blindUntil')===0,'蓄势期不致盲');
+  ok(run('flashes[0].visAt')===0,'蓄势期不计入「看得见」（不污染转身反应统计）');
+  ok(run('flashes.length')===1,'蓄势期玫瑰仍在场（花蕊未消失）');
+  /* 突然绽放 → 引爆 */
+  aim('flashes[0].pos');
+  run('T=flashes[0].bloomAt+flashes[0].bloomDur*0.5;updateFlashes();');
+  ok(run('flashes[0].popped')===false,'绽放中（半程）仍未引爆');
+  run('T=flashes[0].popAt;updateFlashes();');
+  ok(run('flashes[0].popped')===true,'绽放完成即引爆');
+  ok(run('blindUntil>T')===true,'直视爆闪 → 白屏致盲');
+  ok(run('pops.length')>=1,'爆闪粒子已生成（亮白 + 淡紫）');
+  /* 背对 → 同一朵玫瑰判躲开、连击不断 */
+  run('flashes=[];pops=[];blindUntil=0;blindDur=0;combo=3;');
+  step(1);
+  run('spawnFlash("vyse")');
+  aim('flashes[0].pos');
+  run('cam.yaw+=1.5;');                                /* 转身背对（> 锥角 +4） */
+  const dgBefore=+run('st.dodges');
+  run('T=flashes[0].popAt;updateFlashes();');
+  ok(run('flashes[0].popped')===true,'背对时玫瑰照常引爆');
+  ok(run('st.dodges')>dgBefore&&run('combo')===4,'背对爆闪 → 判躲开、连击 3→4');
+  ok(run('blindUntil')===0,'背对不致盲');
+  run('flashes=[];pops=[];blindUntil=0;blindDur=0;cfg.agents.vyse=false;playing=false;roundOver=false;');
+
+  console.log('[35] 维斯开满后亮光预警');
+  ok(run('roseStage(0.5).bloom')<1&&run('roseStage(0.5).charge')===0,'未开满时不进入充能段');
+  ok(run('roseStage(0.65).bloom')===1&&run('roseStage(0.65).charge')===0,'65% 时间花瓣开满');
+  ok(run('roseStage(0.8).bloom')===1&&run('roseStage(0.8).charge')>0,'开满后保持花形并发出预警光');
+  ok(run('roseStage(1).charge')===1,'引爆时预警亮度到峰值');
+  /* 引爆音 = 用户提供的录音素材；放置音 = 自制合成音（故意不放 wav） */
+  const popWav=fs.readFileSync(path.resolve(__dirname,'..','sfx','vyse_pop.wav'));
+  ok(popWav.toString('ascii',0,4)==='RIFF'&&popWav.length<70000,
+     '引爆音用录音素材且 ≤70KB（实际 '+popWav.length+' 字节）');
+  ok(!fs.existsSync(path.resolve(__dirname,'..','sfx','vyse_throw.wav')),
+     '放置音不放 wav 文件 → 自动回退到合成音（用户要求放置音自制）');
+  ok(run('SFX_NAMES.indexOf("vyse_pop")>=0&&SFX_NAMES.indexOf("vyse_throw")<0'),
+     'SFX_NAMES 只登记引爆音：放置音走合成，避免误用录音');
+  ok(run('typeof THROW_SYNTH.vyse')==='function'&&run('typeof POP_SYNTH.vyse')==='function',
+     '放置/引爆都有合成音兜底（素材缺失时也不会哑）');
+  ok(run('playFile("vyse_throw",0.9)')===false,'放置时刻拿不到 vyse_throw 素材 → 落到合成音');
+  run('playing=true;paused=false;roundOver=false;roundEndAt=0;spawnFlash("vyse");');
+  run('T=flashes[0].bloomAt+flashes[0].bloomDur*0.8;updateFlashes();');
+  ok(run('flashes[0].popped')===false,'开满并亮光预警期间仍不引爆');
+  const warningLeft=run('flashes[0].popAt-T');
+  const bloomLeft=run('flashes[0].bloomAt-T');
+  run('shiftTime(3);T+=3;updateFlashes();');
+  ok(Math.abs(run('flashes[0].popAt-T')-warningLeft)<1e-8,'暂停平移保留预警剩余时间');
+  ok(Math.abs(run('flashes[0].bloomAt-T')-bloomLeft)<1e-8,'暂停平移同时保留绽放时刻（恢复后不会立刻绽放）');
+  run('T=flashes[0].popAt;updateFlashes();');
+  ok(run('pops.some(p=>p.rose)')===true,'到点才生成维斯专属紫光爆闪');
+  run('playing=false;flashes=[];pops=[];');
+
+  /* [36] 维斯玫瑰可击毁：蓄势期打掉终止生成，绽放期打掉取消爆闪 */
+  console.log('[36] 维斯玫瑰可击毁');
+  run('cfg.agents.vyse=true;cfg.auto=false;playing=true;paused=false;roundOver=false;roundEndAt=0;flashes=[];pops=[];blindUntil=0;blindDur=0;combo=0;');
+  step(1);
+  run('spawnFlash("vyse")');
+  aim('flashes[0].pos');
+  const dg0=+run('st.dodges'), sc0=+run('score'), pop0=+run('flashes[0].popAt');
+  run('shoot();');
+  ok(run('flashes[0].popped')===true&&run('flashes[0].dead')===true,'蓄势期一枪打掉（一击即毁）');
+  ok(+run('score')>sc0,'击毁给分（+'+run('SCORE.roseKill')+'）');
+  ok(+run('st.dodges')===dg0+1,'击毁算一次成功应对（躲闪率不被稀释）');
+  run('updateFlashes();');
+  ok(run('flashes.length')===0,'打掉后该闪光消失，不再继续生成');
+  run('T='+pop0+'+0.5;updateFlashes();');
+  ok(run('blindUntil')===0,'越过了原引爆时刻也不会爆闪致盲');
+  /* 绽放期打掉：同样取消爆闪 */
+  run('flashes=[];pops=[];blindUntil=0;blindDur=0;combo=0;spawnFlash("vyse")');
+  run('T=flashes[0].bloomAt+flashes[0].bloomDur*0.4;updateFlashes();');
+  ok(run('flashes[0].popped')===false,'绽放中还没爆');
+  aim('flashes[0].pos');
+  const pop1=+run('flashes[0].popAt');
+  run('shoot();');
+  ok(run('flashes[0].dead')===true,'绽放期打掉玫瑰');
+  run('T='+pop1+'+0.5;updateFlashes();');
+  ok(run('blindUntil')===0,'引爆前打掉 → 不会爆闪');
+  /* 引爆之后打不到（不再重复给分） */
+  run('flashes=[];pops=[];blindUntil=0;spawnFlash("vyse");T=flashes[0].popAt;updateFlashes();');
+  ok(run('flashes[0].popped')===true,'已引爆');
+  const scAfter=+run('score'), hpAfter=+run('flashes[0].hp');
+  aim('flashes[0].pos');
+  run('shoot();');
+  ok(+run('flashes[0].hp')===hpAfter&&+run('score')===scAfter,'引爆后无法再击毁（不重复给分）');
+  run('flashes=[];pops=[];blindUntil=0;cfg.agents.vyse=false;playing=false;roundOver=false;');
+
+  /* [37] 「边缘提示」已按用户要求整体删除（不是关闭，是移除）
+     —— 顺带记下它当年被误当成 bug 的原因：维斯蓄势期长达数秒，
+     若照常提示，屏幕边缘会长期挂着一个维斯色小箭头随视角滑动。 */
+  console.log('[37] 边缘提示功能已移除');
+  ok(run('typeof drawEdgeHints')==='undefined','drawEdgeHints 已删除（不是留个空壳）');
+  ok(run('cfg.edge')===undefined,'cfg.edge 配置项已删除');
+  ok(/data-k="edge"/.test(html)===false,'设置页的「边缘提示」开关已删除');
+  ok(/边缘提示/.test(html)===false,'源码里不再有「边缘提示」字样');
+  ok(run('(function(){ render(); return 1; })()')===1,'渲染主流程不依赖它（render() 正常跑完）');
+
+  /* [38] 花蕊的光点必须落在花蕊上：平移块内误用屏幕坐标会画到 (2x,2y)
+     —— 实测表现为「花蕊右下角一颗幽灵淡紫小白点」，只有维斯出现过。
+     要点：光记原始参数分不清「平移前用屏幕坐标」与「平移内用局部坐标」，
+     必须跟着追踪 translate/save/restore 的累积，比对**有效屏幕位置**。 */
+  console.log('[38] 花蕊光点不跑到别处');
+  run('window.__tx=0; window.__ty=0; window.__glows=[]; window.__st=[];'
+     +'if(!window.__realGlow) window.__realGlow=glowDot;'
+     +'ctx.translate=function(x,y){ window.__tx+=x; window.__ty+=y; };'
+     +'ctx.save=function(){ window.__st.push([window.__tx,window.__ty]); };'
+     +'ctx.restore=function(){ var s=window.__st.pop(); if(s){ window.__tx=s[0]; window.__ty=s[1]; } };'
+     +'glowDot=function(x,y,r,rgb,a0,a1){'
+     +'  window.__glows.push([Math.round(x+window.__tx),Math.round(y+window.__ty)]);'
+     +'  return window.__realGlow(x,y,r,rgb,a0,a1); };');
+  run('drawRoseBud(300,200,20,"205,170,255",1);');
+  const budGlows=JSON.parse(run('JSON.stringify(window.__glows)'));
+  ok(budGlows.length>=2,'花蕊确实画了多处光点（实测 '+budGlows.length+' 处）');
+  ok(budGlows.every(g=>g[0]===300&&g[1]===200),
+     '每处光点的有效屏幕位置都落在花蕊 (300,200)，实测 '+JSON.stringify(budGlows));
+  ok(budGlows.some(g=>g[0]===600&&g[1]===400)===false,
+     '没有画到 (2x,2y)=(600,400) —— 平移叠加的幽灵点');
+  /* 绽放态同理（它的光点在平移之外，顺手一起钉住） */
+  run('window.__glows=[]; drawRose(300,200,20,"205,170,255",0.9,1);');
+  const roseGlows=JSON.parse(run('JSON.stringify(window.__glows)'));
+  ok(roseGlows.every(g=>g[0]===300&&g[1]===200),
+     '绽放态的光点同样都落在花体位置，实测 '+JSON.stringify(roseGlows));
+  run('glowDot=window.__realGlow; delete ctx.translate; delete ctx.save; delete ctx.restore;');
+
+  /* [39] 每日榜单：新开页面也要能渲染（曾经 DAILY.date 是空串，守卫永远不成立，
+     拉回来的榜单被丢弃 = 「等多久都不出榜单」）+ 缓存避免每次切页重拉 */
+  console.log('[39] 每日榜单渲染与缓存');
+  run('window.__fetchN=0; window.__board=[{name:"甲",score:300},{name:"我",score:200}];'
+     +'dailyFetchBoard=function(){ window.__fetchN++; return Promise.resolve(window.__board); };'
+     +'localStorage.setItem("aft_name","我");'
+     +'DAILY.date=""; DAILY.rows=null; DAILY.rowsDate=""; DAILY.rowsAt=0;');
+  run('renderDaily();');
+  await run('new Promise(r=>setTimeout(r,25))');
+  const boardHtml2=run('$("dailyBoard").innerHTML');
+  ok(/甲/.test(boardHtml2)&&/300/.test(boardHtml2),'DAILY.date 为空（新开页面）也能把榜单渲染出来');
+  ok(/class="recRow mine"/.test(boardHtml2),'我的那一行带高亮');
+  const fetchN1=+run('window.__fetchN');
+  ok(fetchN1===1,'首次进入发起 1 次请求（实测 '+fetchN1+'）');
+  run('renderDaily();renderDaily();');
+  await run('new Promise(r=>setTimeout(r,25))');
+  ok(+run('window.__fetchN')===fetchN1,'缓存有效期内反复切页不重复请求（实测仍 '+fetchN1+' 次）');
+  run('DAILY.rowsAt=0; renderDaily();');
+  await run('new Promise(r=>setTimeout(r,25))');
+  ok(+run('window.__fetchN')===fetchN1+1,'缓存过期后重新拉一次');
+  run('DAILY.rows=null; DAILY.rowsDate=""; DAILY.rowsAt=0;'
+     +'dailyFetchBoard=function(){ return new Promise(function(){}); }; renderDaily();');
+  ok(/加载中/.test(run('$("dailyBoard").innerHTML')),'数据未到时显示「加载中」，不是空白');
+  run('DAILY.rows=null; DAILY.rowsDate=""; DAILY.rowsAt=0;'
+     +'dailyFetchBoard=function(){ return Promise.resolve(null); }; renderDaily();');
+  await run('new Promise(r=>setTimeout(r,25))');
+  const notAvail=run('$("dailyBoard").innerHTML');
+  ok(/拉不到/.test(notAvail),'云端不可用时给明确兜底文案（实测: '+String(notAvail).slice(0,110)+'）');
+  run('dailyFetchBoard=function(){ return Promise.resolve([]); };');
+
+  /* [40] 走势图吸附：画布被 CSS 缩放后，鼠标的 CSS 像素必须换算成位图像素
+     —— 混用会让吸附点整体横移，「移到圆点上大多数不显示」 */
+  console.log('[40] 走势图悬停命中');
+  run('$("recChart").width=560; $("recChart").height=150;');   /* vm 的 canvas 桩没有尺寸，图表几何要靠它 */
+  run('localStorage.setItem("aft_records", JSON.stringify({best:{},log:'
+     +'[0,1,2,3,4].map(function(i){return {t:Date.now()-(5-i)*3600e3,ri:0,diff:0,mode:0,'
+     +'score:100+i*10,cb:1,bl:0,ag:"phoenix",dg:5,tr:10,hs:8,ss:10,rf:1000,rt:null,pb:false};})}));');
+  run('recChartDiff=0; recChartMetric="score"; drawRecChart(loadRecords(),"recChart");');
+  const pxArr=JSON.parse(run('JSON.stringify(recDrawCache["recChart"].px)'));
+  const pyArr=JSON.parse(run('JSON.stringify(recDrawCache["recChart"].py)'));
+  const mid=pxArr.length>>1;
+  ok(pxArr.length===5&&pxArr.every(v=>typeof v==='number'&&isFinite(v)),
+     '画布缓存了 5 个有效点位（实测 px='+JSON.stringify(pxArr)+'）');
+  /* 情况一：CSS 与位图同尺寸（无缩放）——老逻辑在这种情况才是对的 */
+  run('$("recChart").getBoundingClientRect=function(){ return {left:0,top:0,width:560,height:150}; };');
+  ok(run('chartHitIndex($("recChart"),"recChart",'+pxArr[mid].toFixed(1)+','+pyArr[mid].toFixed(1)+')')===mid,
+     '不缩放时命中中间点（位图 '+pxArr[mid].toFixed(0)+','+pyArr[mid].toFixed(0)+'）');
+  /* 情况二：CSS 只有位图的一半宽（width:100% 的真实情形）——修好后仍要命中 */
+  run('$("recChart").getBoundingClientRect=function(){ return {left:0,top:0,width:280,height:75}; };');
+  const cx2=(pxArr[mid]/2).toFixed(1), cy2=(pyArr[mid]/2).toFixed(1);
+  ok(run('chartHitIndex($("recChart"),"recChart",'+cx2+','+cy2+')')===mid,
+     'CSS 缩到一半宽时同样命中（鼠标 ('+cx2+','+cy2+') → 位图 ('+pxArr[mid].toFixed(0)+','+pyArr[mid].toFixed(0)+')）');
+  ok(run('chartHitIndex($("recChart"),"recChart",'+cx2+','+(+cy2+45)+')')===-1,
+     '离数据点够远时不吸附（不会乱弹提示框）');
+  run('localStorage.removeItem("aft_records"); recChartDiff=0;');
 
   console.log('\n'+(fails?('有 '+fails+' 项失败'):'全部通过'));
   process.exit(fails?1:0);

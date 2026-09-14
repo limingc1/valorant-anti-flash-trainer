@@ -593,7 +593,7 @@
                   <input type="range" id="rInt" min="0.3" max="1" step="0.1" value="1"></div>
               </div>
               <div class="sec" data-lockfair>
-                <h3>闪光类型 · 点击开关（后 3 种默认关闭）</h3>
+                <h3>闪光类型 · 点击开关（后 4 种默认关闭）</h3>
                 <div class="ags" id="agBox"></div>
               </div>
               <div class="sec">
@@ -629,7 +629,6 @@
                 <div class="chk" id="chkBox">
                   <button data-k="sound" class="act">音效</button>
                   <button data-k="blur" class="act">动态模糊</button>
-                  <button data-k="edge">边缘提示</button>
                   <button data-k="invert">反转 Y 轴</button>
                 </div>
               </div>
@@ -756,6 +755,16 @@ const lerp=(a,b,t)=>a+(b-a)*t;
 function mulberry32(a){ return function(){ a|=0; a=a+0x6D2B79F5|0;
   let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t;
   return ((t^t>>>14)>>>0)/4294967296; }; }
+/* 确定性 0~1（输入相同必得同值）。给「需要随机感但不能扰动种子流」的量用：
+   维斯的蓄势时长若走 grand()，会给内容流多插一次取值，把后面所有特工的
+   同种子序列整体错位（联机同种子公平靠那条流）。这里用闪光序号+房间种子的
+   哈希代替 —— 不消耗任何流，且同房间两人算出的延迟一致。 */
+function hash01(n){
+  let h=(n|0)>>>0;
+  h=Math.imul(h^(h>>>15),2246822507)>>>0;
+  h=Math.imul(h^(h>>>13),3266489909)>>>0;
+  return ((h^(h>>>16))>>>0)/4294967296;
+}
 let contentRnd=Math.random;
 const rand=(a,b)=>a+Math.random()*(b-a);
 const grand=(a,b)=>a+contentRnd()*(b-a);          /* grand / gpickEl 消耗内容流 */
@@ -779,9 +788,9 @@ const cfg={
   sens:0.8, fov:103, invertY:false, targetR:0.1, targetN:5, quality:1,
   diff:0, mode:0, vis:0, auto:true, rate:1, roundIdx:1,
   crossKind:0, crossColor:0, crossLen:4, crossThick:2, crossGap:2, crossDot:false,
-  sound:true, blur:true, edge:false, gain:0.8, flashGain:1.0, audioLead:0.25,
+  sound:true, blur:true, gain:0.8, flashGain:1.0, audioLead:0.25,
   musicVol:0.4, musicDuck:1, musicWhen:2,      /* 音乐盒：音量/出手声压低/播放范围(0关1仅菜单2菜单+训练) */
-  agents:{phoenix:true,skye:true,breach:true,kayo:false,yoru:false,reyna:false}
+  agents:{phoenix:true,skye:true,breach:true,kayo:false,yoru:false,reyna:false,vyse:false}
 };
 const DIFF=[
   {n:'普通',speed:1.35,tr:1.45,tele:1.55,gap:[2.3,3.8]},
@@ -803,7 +812,8 @@ const SCORE={
   dodgeBase:15,     /* 躲开一次闪光 */
   dodgeStep:0.03,
   eyeHit:8,         /* 打裂蕾娜之眼 */
-  eyeKill:25        /* 摧毁蕾娜之眼 */
+  eyeKill:25,       /* 摧毁蕾娜之眼 */
+  roseKill:20       /* 击毁维斯玫瑰（打断爆闪） */
 };
 function comboMult(){ return 1+Math.min(combo,SCORE.comboCap)*SCORE.comboStep; }
 
@@ -841,7 +851,11 @@ const AGENTS={
   reyna:{zh:'蕾娜',en:'致盲之眼 Leer',color:'#ff5f8d',rgb:'255,95,141',
     shape:'eye',travel:0.55,popFrac:1.0,coneHalf:45,dur:[0.50,2.60],arc:0.3,vf:0.55,
     spawn:0.5, life:4.0, noPath:true, nearsight:true, destructible:true, hp:2,
-    note:'紫眼凭空浮现后睁开：视野被暗紫近视笼罩、看不见靶球，需要打两下才摧毁'}
+    note:'紫眼凭空浮现后睁开：视野被暗紫近视笼罩、看不见靶球，需要打两下才摧毁'},
+  vyse:{zh:'维斯',en:'弧玫瑰 Arc Rose',color:'#c9a6ff',rgb:'205,170,255',
+    shape:'rose',travel:1.2,popFrac:1.0,coneHalf:55,dur:[0.35,2.20],arc:0.3,vf:0.0,
+    noPath:true, delay:[2.5,6.0], bloomDur:0.55, destructible:true, hp:1,
+    note:'液态金属贴墙凝成花蕊蓄势，随机延迟后突然绽放爆闪；蓄势或绽放期都能打掉它'}
 };
 for(const k in AGENTS) AGENTS[k].key=k;   /* 便于回查音效来源 */
 
@@ -1141,9 +1155,13 @@ function noise(dur,gain,f0,f1){
 /* 自定义音频：把音频文件放进 HTML 同目录的 sfx/ 文件夹，按下列名字命名即可自动生效。
    支持 mp3 / wav / ogg / m4a。没放文件或加载失败时，自动回退到下面的合成音。 */
 const SFX_DIR='sfx/';
-const SFX_EXTS=['mp3','wav','ogg','m4a'];
+/* 仓库里的素材都是 wav，所以 wav 排第一：每少试一个扩展就少一次 404 往返，
+   单线程的 python -m http.server 下（14 个文件排队）载入时间大约减半。
+   顺序不影响支持范围 —— 放 mp3/ogg/m4a 照样能按后面的顺序找到。 */
+const SFX_EXTS=['wav','mp3','ogg','m4a'];
 const SFX_NAMES=[
   'throw','pop','hit','miss','dodge','breakEye','charge','beep','over','leer','record',
+  'vyse_pop',
   'phoenix_throw','phoenix_pop',
   'skye_throw','skye_pop',
   'breach_throw','breach_pop','breach_charge',
@@ -1220,7 +1238,8 @@ const POP_SYNTH={
   breach(){  noise(0.58,0.62,2600,95);  tone(72,0.60,'sine',0.15,42); tone(250,0.22,'square',0.04,84); },
   kayo(){    noise(0.30,0.36,5200,760); tone(1560,0.14,'square',0.07,430); tone(780,0.20,'sawtooth',0.05,250); },
   yoru(){    noise(0.40,0.38,4200,420); tone(540,0.28,'triangle',0.06,180); tone(1320,0.11,'sine',0.03,620); },
-  reyna(){   noise(0.38,0.42,3000,250); tone(310,0.32,'sine',0.08,120); tone(125,0.42,'triangle',0.06,58); }
+  reyna(){   noise(0.38,0.42,3000,250); tone(310,0.32,'sine',0.08,120); tone(125,0.42,'triangle',0.06,58); },
+  vyse(){    noise(0.50,0.40,9000,700); tone(2400,0.30,'sine',0.08,300); tone(120,0.42,'sine',0.14,50); }
 };
 const THROW_SYNTH={
   phoenix(){ noise(0.16,0.22,500,1800); tone(320,0.10,'triangle',0.05,180); },
@@ -1228,7 +1247,12 @@ const THROW_SYNTH={
   breach(){  tone(185,0.15,'sawtooth',0.05,92); noise(0.10,0.12,900,300); },
   kayo(){    tone(430,0.07,'square',0.05,265); noise(0.07,0.11,1800,620); },
   yoru(){    tone(305,0.12,'sine',0.05,530); noise(0.08,0.10,1200,500); },
-  reyna(){   tone(525,0.13,'sine',0.05,245); noise(0.06,0.10,1500,520); }
+  reyna(){   tone(525,0.13,'sine',0.05,245); noise(0.06,0.10,1500,520); },
+  /* 维斯的「放置音」必须自己合成：用户提供的录音是「绽放完成→引爆」那一下，
+     放置阶段只有液态金属凝聚、贴附墙面的过程声，没有现成素材。
+     质感取「金属流体上滑共鸣 + 表面张力亮闪 + 贴墙闷响」四层。 */
+  vyse(){    tone(620,0.16,'triangle',0.045,1750); tone(2480,0.07,'sine',0.028,1560);
+             noise(0.08,0.075,5200,2400); tone(185,0.22,'sine',0.060,105); }
 };
 
 const sfx={
@@ -1871,6 +1895,8 @@ function spawnFlash(key){
   const yLo=ROOM.yF+0.55, yHi=archTopAt(0)-0.55;
   let   E=P(-side*grand(0.0,1.45), grand(yLo,yHi), grand(2.8,4.4));
   if(a.noPath) E=P(side*grand(0.15,0.95), grand(0.3,1.5), 6.15);   /* 凭空出现，没有飞行段 */
+  /* 维斯：贴墙放置 —— x 落在拱门两侧的实墙面上（|x|>拱门半宽），z 紧贴墙面朝玩家一侧 */
+  if(a.shape==='rose') E=P(side*grand(1.95,3.35), grand(0.25,1.75), ROOM.zW-0.05);
 
   /* 曲球：先朝拐角「外侧」抛出去，x 越过最外点后反向绕回门洞 —— 真正的回头弧。
      普通闪光仍是斜穿门洞的单向弧。控制点等距排布，拐点落在 u=0.5 上。 */
@@ -1904,6 +1930,15 @@ function spawnFlash(key){
     hp: a.hp||1, hitAt:0,
     turnPos, turnAt: turnPos?T+travel*0.5:0
   };
+  /* 维斯蓄势：放置后先藏成半透明花蕊，随机延迟后才突然绽放 → 引爆。
+     延迟走 hash01（不消耗内容流），难度越高蓄势越短。 */
+  if(a.delay){
+    const k=hash01(f.id*2654435761 ^ (match.active?matchSeed():0));
+    const sp=DIFF[cfg.diff].speed/1.35;               /* 普通=1，困难≈0.81 */
+    f.bloomDur=Math.max(0.3,(a.bloomDur||0.55)*sp);
+    f.bloomAt=T+(a.delay[0]+k*(a.delay[1]-a.delay[0]))*sp;
+    f.popAt=f.bloomAt+f.bloomDur;                     /* 绽放走完才引爆 */
+  }
   if(a.throughWall){
     /* 只在墙面某一个点亮起提示，不要大面积铺开 */
     const sg=contentRnd()<0.5?-1:1;
@@ -1948,7 +1983,7 @@ function reflickStart(now){
 }
 function popFlash(f){
   f.popped=true; f.deadAt=T; f.popPos={...f.pos};
-  pops.push({x:f.popPos.x,y:f.popPos.y,z:f.popPos.z,t:T,rgb:f.a.rgb,dur:0.8});
+  pops.push({x:f.popPos.x,y:f.popPos.y,z:f.popPos.z,t:T,rgb:f.a.rgb,dur:0.8,rose:f.a.shape==='rose'});
   sfx.pop(f.a.key);
 
   const ang=Math.acos(clamp(dot3(norm3(f.popPos),fwdVec()),-1,1))*DEG;
@@ -2027,11 +2062,14 @@ function updateFlashes(){
         sfx.throw(f.a.key);
       }
 
-      if(flashVisible(f.pos) && !f.visAt){
+      /* 蓄势期只是一枚半透明花蕊、还不算「看得见」：反应与躲闪计时都从绽放开算，
+         否则玩家在蓄势期间随手转个身，就会把「转身反应」统计成 0ms。 */
+      const armed = !f.bloomAt || T>=f.bloomAt;
+      if(armed && flashVisible(f.pos) && !f.visAt){
         f.visAt=T;
         f.lookedAtVis = angleTo(f.pos)<=f.a.coneHalf;
       }
-      if(!f.dodgeAt && angleTo(f.pos)>f.a.coneHalf+4) f.dodgeAt=T;
+      if(armed && !f.dodgeAt && angleTo(f.pos)>f.a.coneHalf+4) f.dodgeAt=T;
 
       if(f.a.nearsight){
         if(!f.opened && T>=f.openAt) openLeer(f);
@@ -2152,7 +2190,8 @@ function shoot(){
   st.shots++;
   const blind=blindAmount();
 
-  /* 可击毁目标：蕾娜之眼 */
+  /* 可击毁目标：蕾娜之眼（两下）/ 维斯玫瑰（一下）。
+     玫瑰在蓄势期和绽放期都能打：打掉即终止生成，绝不再爆闪。 */
   for(const f of flashes){
     if(f.a.destructible && !f.popped && f.opened){   /* 眼睛睁开后才可以打 */
       const d=len3(f.pos);
@@ -2160,13 +2199,23 @@ function shoot(){
         f.hp--; f.hitAt=T;
         if(f.hp>0){                    /* 蕾娜之眼要打两下：第一下只是打裂 */
           sfx.hit(); addScore(SCORE.eyeHit);
-          log('击中 '+f.a.zh+' 之眼  还需 '+(f.hp)+' 下','y');
+          log('击中 '+f.a.zh+(f.a.shape==='rose'?' 玫瑰':' 之眼')+'  还需 '+(f.hp)+' 下','y');
           updateStats(); return;
         }
         f.popped=true; f.deadAt=T; f.dead=true;
         pops.push({x:f.pos.x,y:f.pos.y,z:f.pos.z,t:T,rgb:f.a.rgb,dur:0.5});
-        sfx.breakEye(); addScore(SCORE.eyeKill);
+        sfx.breakEye();
         st.hits++;                    /* 击毁算有效命中，不再拉低命中率 */
+        if(f.a.shape==='rose'){
+          /* 打断爆闪：用枪解决掉，算一次成功的应对（躲闪率分母已经记过这发闪光） */
+          addScore(SCORE.roseKill);
+          st.dodges++;
+          const rb=st.by[f.a.key]||(st.by[f.a.key]={n:0,dg:0}); rb.dg++;
+          combo++; if(combo>st.best) st.best=combo;
+          log((f.bloomAt&&T<f.bloomAt?'击毁蓄势中的玫瑰':'引爆前击毁玫瑰')+' · 爆闪已打断   +'+SCORE.roseKill,'c');
+          updateStats(); return;
+        }
+        addScore(SCORE.eyeKill);
         let freed=false;
         if(f.a.nearsight && nearSrc===f.id){ nearUntil=0; nearSrc=0; freed=true; }
         else if(blind>0 && blindSrc===f.id){ blindUntil=0; blindDur=0; blindSrc=0; blindStart=0; freed=true; }
@@ -2587,6 +2636,179 @@ function drawEye(sx,sy,rr,rgb,open,hit,cracked){
   }
   ctx.restore();
 }
+/* 维斯金属玫瑰：贴在墙上的液态金属在绽放期被「拧」开成尖刺花瓣的银紫金属玫瑰。
+   整个绽放过程就是引爆预警（花瓣逐层旋开、花心越来越亮），绽放完成即爆闪。
+   bloom = (T-t0)/travel，0→1 对应 液滴 → 外层张开 → 内层旋开 → 盛放露蕊。
+   三层花瓣各 3 片、层间错开 60° 且依次旋开 —— 单一层会读成螺旋桨，不是花。 */
+const ROSE_BLOOM_END=0.65;
+function roseStage(progress){
+  return {bloom:clamp(progress/ROSE_BLOOM_END,0,1),
+          charge:clamp((progress-ROSE_BLOOM_END)/(1-ROSE_BLOOM_END),0,1)};
+}
+/* 维斯的「蓄势」形态：液滴凝住后收成一枚半透明花蕊花苞贴在墙上。
+   用户要求「隐藏起来」但它是可击毁目标，所以给一圈缓慢呼吸的微光让玩家找得到。
+   birth 0→1 是液滴落下凝聚的过程。 */
+function drawRoseBud(sx,sy,R,rgb,birth){
+  const b=clamp(birth===undefined?1:birth,0,1);
+  const be=1-Math.pow(1-b,3);
+  const pulse=0.5+0.5*Math.sin(T*2.6);
+  /* 光晕收得很小：原来那圈大柔光是「远看糊成一个淡紫圆点」的元凶，
+     花蕊必须读成「一个可以打掉的物件」，而不是一颗莫名其妙的光点。 */
+  glowDot(sx,sy,R*(0.62+0.16*pulse),rgb,0.10+0.07*pulse,0.20);
+  ctx.save();
+  ctx.translate(sx,sy);
+  const mg=ctx.createLinearGradient(0,-R*1.5,0,R*1.2);
+  mg.addColorStop(0,'#ffffff'); mg.addColorStop(0.3,'#ece7f6');
+  mg.addColorStop(0.66,'#bdb8cb'); mg.addColorStop(1,'#6f6a80');
+  /* 根部压暗：给半透明的花苞一点体积，不然贴在亮墙面上只剩一团雾 */
+  const bg=ctx.createLinearGradient(0,0,0,-R*1.1);
+  bg.addColorStop(0,'rgba(52,46,70,0.90)'); bg.addColorStop(1,'rgba(52,46,70,0)');
+  const rim='rgba('+rgb+',0.72)';
+  if(b<1){                                    /* 液滴凝聚：只在放置后头 0.45s 出现 */
+    const dw=R*(1.05-0.45*be), dh=R*(1.30-0.70*be);
+    const wob=Math.sin(T*6.5+cam.yaw)*R*0.09*(1-be);
+    ctx.globalAlpha=0.35+0.65*be;
+    ctx.beginPath();
+    ctx.moveTo(wob*0.4,-dh);
+    ctx.bezierCurveTo(dw*0.96,-dh*0.28, dw*0.86,dh*0.56, wob*0.2,dh*0.94);
+    ctx.bezierCurveTo(-dw*0.86,dh*0.56,-dw*0.96,-dh*0.28, wob*0.4,-dh);
+    ctx.closePath();
+    ctx.fillStyle=mg; ctx.fill();
+    ctx.strokeStyle=rim; ctx.lineWidth=Math.max(1,R*0.055); ctx.stroke();
+    ctx.globalAlpha=1;
+  }
+  if(b>0.3){
+    /* 花苞：三片合拢的花瓣。透明度比初版高一档、并描出明确边缘 ——
+       「藏」要藏在亮度上（不抢眼），不是藏在轮廓上（看不见就打不掉）。 */
+    const o=clamp((b-0.3)/0.7,0,1);
+    const spin=T*0.45;                        /* 极慢自转：有生命感，但不像在倒计时 */
+    ctx.globalAlpha=(0.55+0.20*o)+0.10*pulse;
+    for(let i=0;i<3;i++){
+      const rot=i*2.0944+0.55+spin;
+      const L=R*(0.80+0.22*o), W2=R*0.40*(0.7+0.3*o);
+      ctx.save(); ctx.rotate(rot);
+      ctx.beginPath(); ctx.moveTo(0,0);
+      ctx.bezierCurveTo(-W2*1.10,-L*0.20, -W2*0.58,-L*0.86, 0,-L);
+      ctx.bezierCurveTo(W2*0.58,-L*0.86, W2*1.10,-L*0.20, 0,0);
+      ctx.closePath();
+      ctx.fillStyle=mg; ctx.fill();
+      ctx.fillStyle=bg; ctx.fill();
+      ctx.strokeStyle='rgba(255,255,255,0.62)';        /* 白棱 + 紫边：金属边缘，轮廓清晰 */
+      ctx.lineWidth=Math.max(1,R*0.05); ctx.stroke();
+      ctx.strokeStyle=rim; ctx.lineWidth=Math.max(1,R*0.032); ctx.stroke();
+      ctx.restore();
+    }
+    ctx.globalAlpha=1;
+    /* 花心微光 + 收紧的呼吸环：标示这是可击毁目标，但不再是一团散光。
+       注意：此处仍在 ctx.translate(sx,sy) 之内，坐标必须用局部 (0,0) ——
+       写成 (sx,sy) 会被平移叠加成 (2sx,2sy)，在花蕊右下画出一颗
+       幽灵般的淡紫小白点（只有维斯有，因为只有这里在平移内调 glowDot）。 */
+    glowDot(0,0,R*0.16,'236,212,255',0.30+0.22*pulse,0.5);
+    ctx.strokeStyle='rgba('+rgb+','+(0.20+0.16*pulse)+')';
+    ctx.lineWidth=Math.max(1,R*0.05);
+    ctx.beginPath(); ctx.arc(0,0,R*(0.72+0.10*pulse),0,Math.PI*2); ctx.stroke();
+  }
+  ctx.restore();
+}
+function drawRose(sx,sy,rr,rgb,prog,birth){
+  const R=rr*1.15;                            /* 花朵基准半径（1.95 / 1.50 两版实测都偏大，收到 1.15） */
+  if(prog<0){ drawRoseBud(sx,sy,R,rgb,birth); return; }   /* 蓄势期：半透明花蕊 */
+  const phase=roseStage(clamp(prog,0,1));
+  const k=phase.bloom, charge=phase.charge;
+  const open=clamp((k-0.18)/0.82,0,1);        /* 开满后才进入独立的亮光预警段 */
+  const ease=1-Math.pow(1-open,2.4);
+  glowDot(sx,sy,R*(1.15+1.30*k),rgb,0.34+0.44*k,0.52+0.34*k);
+  ctx.save();
+  ctx.translate(sx,sy);
+  ctx.rotate(k*Math.PI*1.15);                 /* 全程旋转：金属被拧开的感觉 */
+  /* 银白偏冷的金属渐变：创建于旋转之前，光源固定在上方而不是跟着花瓣转 */
+  const mg=ctx.createLinearGradient(0,-R*2.1,0,R*1.7);
+  mg.addColorStop(0,'#ffffff'); mg.addColorStop(0.26,'#f0ecf8');
+  mg.addColorStop(0.52,'#c9c4d8'); mg.addColorStop(0.78,'#9b95ad');
+  mg.addColorStop(1,'#5f5a70');
+  /* 花瓣根部压暗用的第二层渐变：单靠一条线性渐变换不来金属体积感 */
+  const bg=ctx.createLinearGradient(0,0,0,-R*1.35);
+  bg.addColorStop(0,'rgba(58,52,76,0.95)'); bg.addColorStop(0.55,'rgba(74,68,92,0.42)');
+  bg.addColorStop(1,'rgba(74,68,92,0)');
+  const rim='rgba('+rgb+',0.82)';
+  const rimBand='rgba('+rgb+',0.42)';           /* 有宽度的虹彩色带（参考图的紫边不是发丝线） */
+  if(open<1){
+    /* 液态金属滴：圆钝的金属块，随旋转轻甩、展开时被拉薄压扁 */
+    const dw=R*(0.86-0.34*ease), dh=R*(1.10-0.52*ease);
+    const wob=Math.sin(T*6.5+cam.yaw)*R*0.09*(1-ease);
+    ctx.beginPath();
+    ctx.moveTo(wob*0.4,-dh);
+    ctx.bezierCurveTo(dw*0.96,-dh*0.28, dw*0.86,dh*0.56, wob*0.2,dh*0.94);
+    ctx.bezierCurveTo(-dw*0.86,dh*0.56,-dw*0.96,-dh*0.28, wob*0.4,-dh);
+    ctx.closePath();
+    ctx.fillStyle=mg; ctx.fill();
+    ctx.fillStyle=bg; ctx.fill();
+    ctx.strokeStyle=rim; ctx.lineWidth=Math.max(1,R*0.055); ctx.stroke();
+    ctx.fillStyle='rgba(255,255,255,0.86)';
+    ctx.beginPath(); ctx.ellipse(-dw*0.30,-dh*0.32,R*0.16,R*0.30,-0.5,0,6.2832); ctx.fill();
+  }
+  if(open>0){
+    /* 一片尖刺花瓣：根部宽圆、尖端收成刺（对应参考图的锯齿花形） */
+    const petal=(rot,len,wid,op,shade,i0)=>{
+      const o=clamp(op,0,1); if(o<=0.002) return;
+      const e=1-Math.pow(1-o,3);
+      const L=len*(0.20+0.80*e), W2=wid*(0.34+0.66*e);
+      ctx.save(); ctx.rotate(rot+(i0-1)*0.05);        /* 微错角：纯 3 重对称会显得太机械 */
+      ctx.beginPath(); ctx.moveTo(0,0);
+      /* 肩部收得快、尖端才够尖（参考图是锯齿尖刺，不是圆花瓣） */
+      ctx.bezierCurveTo(-W2*1.12,-L*0.18, -W2*0.60,-L*0.88, 0,-L);
+      ctx.bezierCurveTo(W2*0.60,-L*0.88, W2*1.12,-L*0.18, 0,0);
+      ctx.closePath();
+      ctx.fillStyle=mg; ctx.fill();
+      if(shade){ ctx.fillStyle=bg; ctx.fill(); }      /* 内层不压暗，保持亮部集中在花心 */
+      ctx.strokeStyle=rimBand;                        /* 宽紫边 → 白棱 → 细亮紫：金属虹彩 */
+      ctx.lineWidth=Math.max(1.4,R*0.085); ctx.stroke();
+      ctx.strokeStyle='rgba(255,255,255,0.60)';
+      ctx.lineWidth=Math.max(1,R*0.045); ctx.stroke();
+      ctx.strokeStyle=rim; ctx.lineWidth=Math.max(1,R*0.024); ctx.stroke();
+      /* 瓣中折面：中脊高光 + 两侧副折线，让平面花瓣立起来 */
+      ctx.strokeStyle='rgba(255,255,255,0.42)'; ctx.lineWidth=Math.max(1,R*0.030);
+      ctx.beginPath(); ctx.moveTo(0,-L*0.08); ctx.lineTo(0,-L*0.82); ctx.stroke();
+      ctx.strokeStyle='rgba(120,112,146,0.35)';
+      ctx.beginPath();
+      ctx.moveTo(-W2*0.42,-L*0.16); ctx.lineTo(-W2*0.14,-L*0.70);
+      ctx.moveTo(W2*0.42,-L*0.16);  ctx.lineTo(W2*0.14,-L*0.70);
+      ctx.stroke();
+      ctx.restore();
+    };
+    /* 三层花瓣依次旋开：外层先、中心最后，错开 60° 层层包裹 */
+    const k1=clamp(open/0.46,0,1);
+    const k2=clamp((open-0.22)/0.50,0,1);
+    const k3=clamp((open-0.44)/0.56,0,1);
+    for(let i=0;i<3;i++){
+      const rot=i*2.0944;
+      petal(rot+0.34, R*2.42, R*1.02, k1, true, i);    /* 外圈：大尖瓣 */
+      petal(rot+1.0472, R*1.78, R*0.80, k2, true, i);  /* 中圈：错开 60° */
+      petal(rot+0.00, R*1.20, R*0.58, k3, false, i);   /* 内圈：最亮，聚成花心 */
+    }
+    const kc=clamp((open-0.58)/0.42,0,1);           /* 花心最后翻开：暗红蕊 + 白芯 */
+    if(kc>0.002){
+      const cr=R*(0.24+0.34*kc);
+      const cg=ctx.createRadialGradient(0,0,0,0,0,cr);
+      cg.addColorStop(0,'#fff6f9'); cg.addColorStop(0.30,'#c9526b');
+      cg.addColorStop(0.72,'#7a2334'); cg.addColorStop(1,'rgba(58,13,23,0.12)');
+      ctx.fillStyle=cg; ctx.beginPath(); ctx.arc(0,0,cr,0,6.2832); ctx.fill();
+      ctx.strokeStyle='rgba(255,255,255,'+(0.28+0.52*kc)+')';
+      ctx.lineWidth=Math.max(1,R*0.045);
+      ctx.beginPath(); ctx.arc(0,0,cr,0,6.2832); ctx.stroke();
+    }
+  }
+  ctx.restore();
+  if(charge>0){
+    ctx.save();
+    glowDot(sx,sy,R*(2.0+charge*1.4),'174,90,255',0.35+0.55*charge,0.3+0.6*charge);
+    ctx.strokeStyle='rgba(222,185,255,'+(0.35+0.6*charge)+')';
+    ctx.lineWidth=Math.max(1,R*0.065);
+    ctx.beginPath(); ctx.arc(sx,sy,R*(1.3+0.5*charge),0,Math.PI*2); ctx.stroke();
+    glowDot(sx,sy,R*(0.35+0.5*charge),'240,217,255',0.6+0.4*charge,0.8);
+    ctx.restore();
+  }
+}
 /* 布雷奇穿墙：引爆前墙面单点亮起黄色提示，引爆后扩散为冲击环 */
 const CHARGE_RGB='255,206,74';        /* 黄色预警 */
 function drawWallCharges(f){
@@ -2710,6 +2932,11 @@ function drawFlashes(){
       const jit=hz>0?(Math.random()-0.5)*rr*0.55*hz:0;
       drawEye(s.x+jit, s.y+jit*0.6, rr*1.35*(0.45+0.55*grow)*(1+0.22*hz),
               f.a.rgb, grow, hz, f.hp<(f.a.hp||1));
+    }else if(kind==='rose'){
+      /* prog<0 = 蓄势期（半透明花蕊）；0→1 = 绽放 + 开满后的亮光预警。
+         绽放窗口用 bloomAt/bloomDur 算，和平移逻辑（shiftTime）一致。 */
+      const b0=f.bloomAt||f.t0, bd=f.bloomDur||f.travel||1;
+      drawRose(s.x, s.y, rr, f.a.rgb, (T-b0)/bd, clamp((T-f.t0)/0.45,0,1));
     }
     ctx.restore();
   }
@@ -2724,7 +2951,13 @@ function drawFlashes(){
     ctx.save();
     if(p.z>ROOM.zW+0.02 && archScreen){ pathFromScreen(archScreen); ctx.clip(); }
     ctx.globalAlpha=clamp(al,0,1);
-    ctx.drawImage(orbSprite(p.rgb), s.x-rad, s.y-rad, rad*2, rad*2);
+    ctx.drawImage(orbSprite(p.rose?'165,65,255':p.rgb), s.x-rad, s.y-rad, rad*2, rad*2);
+    if(p.rose){
+      ctx.globalCompositeOperation='lighter';
+      ctx.strokeStyle='rgba(191,112,255,.95)'; ctx.lineWidth=Math.max(2,rad*0.12*(1-age));
+      ctx.beginPath(); ctx.arc(s.x,s.y,rad*(0.22+age*0.65),0,Math.PI*2); ctx.stroke();
+      glowDot(s.x,s.y,rad*0.38,'235,208,255',1,0.85);
+    }
     ctx.restore();
   }
 }
@@ -2742,23 +2975,6 @@ function drawOneTarget(tg){
      原来每颗球每帧要新建两个 radialGradient，球一多就是一笔不小的开销 */
   const k=R/BALL_R, half=BALL_S*k/2;
   ctx.drawImage(ballSprite, s.x-half, s.y-half, BALL_S*k, BALL_S*k);
-}
-function drawEdgeHints(){
-  if(!cfg.edge) return;
-  const cx=CX, cy=CY, R=Math.min(W,H)*0.36;
-  for(const f of flashes){
-    if(f.popped) continue;
-    const c=toCam(f.pos); if(c.z<NEAR) continue;
-    const s=proj(c);
-    const dx=s.x-cx, dy=s.y-cy, d=Math.hypot(dx,dy);
-    if(d<Math.min(W,H)*0.30) continue;
-    const a=Math.atan2(dy,dx);
-    const px=cx+Math.cos(a)*R, py=cy+Math.sin(a)*R;
-    ctx.save(); ctx.translate(px,py); ctx.rotate(a);
-    ctx.fillStyle=f.a.color; ctx.globalAlpha=0.85;
-    ctx.beginPath(); ctx.moveTo(11,0); ctx.lineTo(-7,6.5); ctx.lineTo(-7,-6.5); ctx.closePath(); ctx.fill();
-    ctx.restore(); ctx.globalAlpha=1;
-  }
 }
 /* 近视紫幕：盖在场景与靶点之上，中心留一点可视区，越靠边缘越浓 */
 let nearGradCache=null, nearGradKey='';
@@ -2846,7 +3062,6 @@ function render(){
   drawTarget();
   drawNearsight();
   drawBlind();
-  if(!blindAmount()) drawEdgeHints();
   drawCrosshair();                 /* 准星画在最后，永远在最上层 */
 
   /* 白屏用 CSS 模糊。值没变化就不写 style —— 每帧无条件赋值会强制样式重算，
@@ -3050,19 +3265,29 @@ function metricVal(e2,k){
 let recChartDiff=0, recChartMetric='score';   /* 全局共享：两处面板联动 */
 const recDrawCache={};                        /* cvId -> 最近一次绘制的点位（悬停命中用） */
 let recHover={cv:'',i:-1};
-/* 鼠标跟随：就近吸附数据点（18px 内），触发重绘画提示框 */
+const CHART_SNAP_R=20;                          /* 吸附半径（位图像素） */
+/* 鼠标坐标 → 数据点索引。
+   画布位图是 560×150，但 CSS 上是 width:100%（实际宽度随面板变化），
+   所以鼠标的 CSS 像素必须按 cv.width/rect.width 换算成位图像素再比 ——
+   直接混用会让吸附点整体横向偏移（越靠右偏得越多），
+   实测表现就是「鼠标移到圆点上大多数不显示、偶尔附近才显示」。 */
+function chartHitIndex(cv,cvId,clientX,clientY){
+  const c=recDrawCache[cvId]; if(!c||!c.px||!c.px.length) return -1;
+  const r=cv.getBoundingClientRect();
+  const kx=cv.width/Math.max(1,r.width), ky=cv.height/Math.max(1,r.height);
+  const mx=(clientX-r.left)*kx, my=(clientY-r.top)*ky;
+  let bi=-1, bd=1e9;
+  for(let i=0;i<c.px.length;i++){
+    const d=(c.px[i]-mx)*(c.px[i]-mx)+(c.py[i]-my)*(c.py[i]-my);
+    if(d<bd){ bd=d; bi=i; }
+  }
+  return bd<=CHART_SNAP_R*CHART_SNAP_R?bi:-1;
+}
+/* 鼠标跟随：就近吸附数据点，触发重绘画提示框 */
 function bindChartHover(cv,cvId){
   if(!cv||cv._hoverBound) return; cv._hoverBound=true;
   cv.addEventListener('mousemove',e=>{
-    const c=recDrawCache[cvId]; if(!c) return;
-    const r=cv.getBoundingClientRect();
-    const mx=e.clientX-r.left, my=e.clientY-r.top;
-    let bi=-1, bd=1e9;
-    for(let i=0;i<c.px.length;i++){
-      const d=(c.px[i]-mx)*(c.px[i]-mx)+(c.py[i]-my)*(c.py[i]-my);
-      if(d<bd){ bd=d; bi=i; }
-    }
-    const ni=bd<=324?bi:-1;
+    const ni=chartHitIndex(cv,cvId,e.clientX,e.clientY);
     if(ni!==recHover.i||recHover.cv!==cvId){ recHover={cv:cvId,i:ni}; drawRecChart(loadRecords(),cvId); }
   });
   cv.addEventListener('mouseleave',()=>{
@@ -3231,7 +3456,8 @@ function refreshRecords(){
    固定配置 60s × 困难加强（频率 1.3×、全 6 特工、靶 7）—— 比普通困难更狠，
    也因此不与常规纪录互比（recordRound 里直接走独立榜单）。
    KV 写账：每人每天最多 1 写（只有刷新自己当日纪录才提交）。 */
-const DAILY = { active:false, seed:0, date:'', snap:null, mod:null, applied:null, lastRows:null };
+const DAILY = { active:false, seed:0, date:'', snap:null, mod:null, applied:null, lastRows:null,
+                rows:null, rowsDate:'', rowsAt:0 };   /* 当日榜单缓存（避免每次切页都重新请求） */
 let dailyResultShown=false;                     /* 本轮是每日挑战：结算面板里直接放榜单 */
 function dailyKeyDate(){ const d=new Date();
   return ''+d.getFullYear()+String(d.getMonth()+1).padStart(2,'0')+String(d.getDate()).padStart(2,'0'); }
@@ -3332,6 +3558,7 @@ async function dailyPost(sc){
   if(res&&res.rows){
     renderDailyBoard(res.rows);
     DAILY.lastRows=res.rows;
+    DAILY.rows=res.rows; DAILY.rowsDate=dailyKeyDate(); DAILY.rowsAt=Date.now();   /* 顺手更新缓存 */
     if(dailyResultShown) paintDailyResult(res.rows);   /* 结算面板开着：榜单到了直接刷进去 */
     let rank=0; res.rows.forEach((r,i)=>{ if(!rank&&r.name===nm) rank=i+1; });
     if(rank) log('已上榜：今日第 '+rank+' 名','c');
@@ -3342,7 +3569,7 @@ async function dailyFetchBoard(){
   try{ const r=await fetch(ROOM_API+'?daily='+dailyKeyDate(),{cache:'no-store'});
     if(!r.ok) return null; const j=await r.json(); return j.rows||[]; }catch(e){ return null; }
 }
-function renderDailyBoard(rows){
+function renderDailyBoard(rows,pending){
   const box=$('dailyBoard'); if(!box) return;
   const mb=dailyMyBest();
   let html='<div class="recRow"><span>我的今日最佳</span><b>'+(mb==null?'—':mb)+'</b></div>';
@@ -3353,16 +3580,34 @@ function renderDailyBoard(rows){
         +(i+1)+'. '+esc(r.name)+'</span><b>'+(r.score|0)+'</b></div>';
     });
   }else if(rows) html+='<div class="tip">今天还没人上榜，你来当第一个。</div>';
+  else if(pending) html+='<div class="tip">榜单加载中…</div>';
+  else html+='<div class="tip">榜单暂时拉不到（云端未连上）。本地打出来的成绩仍会记在「我的今日最佳」。</div>';
   box.innerHTML=html;
 }
 function renderDaily(){
   const dateStr=dailyKeyDate(), mod=dailyModOf(dateStr);
+  /* DAILY.date 必须在这里就设上：下面那个守卫曾经拿它跟今天比，
+     而它只在「开始挑战」时才赋值 —— 新开页面是空串，守卫永远不成立，
+     于是拉回来的榜单被直接丢弃，表现就是「等多久都不出榜单」。
+     另外同一份榜单 20 秒内不重复拉：切菜单页来回走不再每次干等。 */
+  DAILY.date=dateStr;
   const put=(id,v)=>{ const e=$(id); if(e) e.textContent=v; };
   put('dailyDate',dateStr); put('dailyDate2',dateStr);
   put('dailyModName',mod.n); put('dailyModName2',mod.n); put('dailyDesc2',mod.d);
   const mb=dailyMyBest(); put('dailyBest2',mb==null?'—':mb);
-  renderDailyBoard(null);
-  dailyFetchBoard().then(rows=>{ if(rows&&DAILY.date===dailyKeyDate()) renderDailyBoard(rows); });
+  const cached=(DAILY.rowsDate===dateStr)?DAILY.rows:null;
+  const fresh=cached&&(Date.now()-(DAILY.rowsAt||0)<20000);
+  renderDailyBoard(cached,fresh?false:true);      /* 有缓存先画，没缓存显示「加载中」 */
+  if(fresh) return;
+  dailyFetchBoard().then(rows=>{
+    if(DAILY.date!==dailyKeyDate()) return;        /* 跨日了：丢弃这轮结果 */
+    if(rows===null){                               /* 拉不到：换成明确文案，别一直停在「加载中」 */
+      renderDailyBoard(DAILY.rowsDate===DAILY.date?DAILY.rows:null,false);
+      return;
+    }
+    DAILY.rows=rows; DAILY.rowsDate=dateStr; DAILY.rowsAt=Date.now();
+    renderDailyBoard(rows);
+  });
 }
 /* ---------- 弱项诊断：本轮 vs 同配置历史均值 + 点名躲闪率最低的特工 ----------
    数据不够就闭嘴：同配置历史 <2 局不比均值，某特工样本 <3 次不点名。每日挑战不掺和。 */
@@ -3577,6 +3822,7 @@ function shiftTime(dt){
   if(!(dt>0)) return;
   for(const f of flashes){
     f.t0+=dt; f.arriveAt+=dt; f.popAt+=dt;
+    if(f.bloomAt) f.bloomAt+=dt;              /* 蓄势结束时刻：不平移的话暂停恢复会立刻绽放 */
     if(f.deadAt) f.deadAt+=dt;
     if(f.visAt) f.visAt+=dt;
     if(f.dodgeAt) f.dodgeAt+=dt;
@@ -4300,7 +4546,7 @@ renderDaily();           /* 开屏挑战条（单人训练页）要日期/最佳
 if(urlRoom()) { /* 带 ?r= 房码进来，initMatchUI 已尝试进房，菜单直接定位到对战页 */ selectTab('battle'); }
 log('点击「开始训练」进入 · 按 Esc 打开菜单','c');
 log('拱门内同时出现多颗靶球，打掉一颗就地补一颗','y');
-log('提示：KO / 夜露 / 蕾娜 默认关闭，可在设置里开启','y');
+log('提示：KO / 夜露 / 蕾娜 / 维斯 默认关闭，可在设置里开启','y');
 requestAnimationFrame(frame);
 </script>
 </body>
