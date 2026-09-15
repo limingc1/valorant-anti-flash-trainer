@@ -1879,7 +1879,138 @@ function enabledAgents(){
   const ks=Object.keys(cfg.agents).filter(k=>cfg.agents[k]);
   return ks.length?ks:['phoenix'];
 }
-function spawnFlash(key){
+/* ---------- 引爆间隔保护 ----------
+   玩家真正要应对的是「引爆」这一刻：两发同时炸、或刚被炸完下一发就贴到脸上，
+   都来不及反应。这里保证任意两次引爆至少隔开 IMPACT_GAP 秒，并且新闪光不会
+   在别人引爆后的恢复窗口里冒出来。调整顺序按「对画面影响最小」排：
+     ① 撞上的是一枚还在蓄势的维斯花蕊 → 延长它的花苞（蓄势本就随机，玩家看不出）；
+     ② 自己还没出手 → 整体后移（t0/全程一起挪，飞行与预警时长不变）；
+     ③ 对方已经在飞行/绽放 → 谁都不动。宁可挨近一点，也不让花「开完不炸」、
+        或者让飞一半的闪光突然变速 —— 那是听声判断转身的根据。
+   判定只读排期账本、不读 popped/dead：玩家打掉玫瑰或是否被闪，都不能改变后面的
+   题目顺序，否则联机两人、每日挑战全网的排期会分叉。 */
+const impactSlots=[];                      /* {t: 引爆时刻, f: 归属闪光}，按登记顺序 */
+const IMPACT_GAP=[1.2,0.9];                /* 普通 / 困难：两次引爆之间的最小间隔（秒） */
+const TURN_BACK=0.5;                       /* 背闪后把视角转回拱门所需时间 */
+const REACT=0.7;                         /* 转回后看清并再次转身所需的反应余量 */
+/* 一发闪光「把玩家打废」多久：引爆 + 它自己的最长致盲 + 转回视野。
+   只按引爆后 1.2s 排间隔是不够的 —— 布雷奇正脸白 2.2s，那 1.2s 里冒出来的闪光
+   玩家既看不见也来不及背，实测就是「刚背完回正、别人动画已经在脸上」。
+   用 dur[1]（正脸最长致盲）而不是玩家实际被白多久：排期必须与玩家操作无关，
+   否则联机两人、每日挑战全网的题目会分叉。 */
+function recoveryOf(f){
+  const blind=f.a.nearsight?(f.a.life||2.6)   /* 蕾娜之眼：近视持续到 dieAt，不是 dur[1] */
+            :(f.a.dur?Math.min(f.a.dur[1],2.6):0);
+  return TURN_BACK+blind;
+}
+function flashClearAt(f){ return flashImpactAt(f)+recoveryOf(f); }
+function flashImpactAt(f){ return f.a.nearsight?f.openAt:f.popAt; }
+function shiftFlashPlan(f,dt){
+  /* launchAt 是「计划出手时刻」这个锚点本身，不能跟着平移 ——
+     否则蕾娜的 openAt−launchAt（睁眼延迟）会被越拉越长。 */
+  for(const k of ['t0','arriveAt','popAt','openAt','dieAt','turnAt','bloomAt'])
+    if(k==='t0'||f[k]) f[k]+=dt;
+}
+function reserveFlash(f){
+  const gap=IMPACT_GAP[cfg.diff]||IMPACT_GAP[0];
+  const isRose=g=>!!(g.a&&g.a.shape==='rose');
+  const beginOf=g=>isRose(g)?g.bloomAt:g.t0;
+  const impOf=g=>flashImpactAt(g);
+  const shiftBy=(g,d)=>{ if(!(d>1e-9)) return;
+    if(isRose(g)){ g.bloomAt+=d; g.popAt+=d; }   /* 花蕊已贴墙：只推绽放，不挪放置时刻 */
+    else { shiftFlashPlan(g,d);
+      if(g.a.spawn){ g.launchAt+=d; g.openAt=g.launchAt+g.a.spawn; g.dieAt=g.openAt+(g.a.life||5); }
+      else g.launchAt+=d; }                      /* 出手时刻随整体一起后移 */ };
+  /* 蕾娜的「引爆」是睁眼 openAt，而 shiftFlashPlan 会挪它 —— 但 recoveryOf 之前
+     对眼睛取的是 dur[1]（它没有 dur 数组）→ 恢复窗口算成 0，等于没保护。
+     这里统一：眼睛的致盲时长用近视寿命 life，玫瑰/其它用 dur[1]。 */
+  const earliestRoseImpact=g=>Math.max(g.bloomMin??-1e9,(g.bloomMin??0)+g.bloomDur);
+  /* 谁能动：新来的 f（还没出手/绽放）与「还在蓄势的玫瑰」（花苞延后玩家看不出）。
+     已经飞在天上或已经开炸的谁都不动 —— 宁可挨近一点也不破坏听声判断的节奏。 */
+  const adjustable=g=>g===f ? (!isRose(g)||T<g.bloomAt) : (isRose(g)&&T<g.bloomAt);
+  const roseFloor=g=>g.bloomMin!==undefined? g.bloomMin+g.bloomDur : -1e9;
+  /* 先把 f 自己抬到「不早于任何已排期闪光的恢复完成 + 反应余量」，
+     以及不早于它自己的随机最早绽放点。之前只在成对收敛里推别人、从不推 f，
+     于是 f 总是插在已排期闪光的恢复窗口里 —— 这才是「背完立刻撞上」的根因。 */
+  {
+    const floorAll=Math.max(0,...impactSlots.map(e=>((e.clear??(e.t+gap))+REACT)-beginOf(f)));
+    if(floorAll>0) shiftBy(f,floorAll);
+  }
+  if(isRose(f)){
+    /* 玫瑰：绽放时刻 = max(随机最早, 排期要求)。随机区间仍然生效（不总在同一时刻开），
+       但绝不会挤进别人正在致盲/转回的时间。 */
+    const need=Math.max(0,...impactSlots.map(e=>(e.clear??(e.t+gap))+REACT-impOf(f)));
+    if(need>0) shiftBy(f,need);
+    const floor=f.bloomMin!==undefined? f.bloomMin+f.bloomDur : -1e9;
+    if(impOf(f)<floor) shiftBy(f, floor-impOf(f));
+  }
+  /* 反过来：玫瑰已经排在后面时，新来的普通闪光也不能插到它「引爆前」的窗口里 ——
+     否则玩家背完玫瑰立刻撞上这发（实测就是这条没挡住）。 */
+  if(!isRose(f)){
+    const need=Math.max(0,...impactSlots.map(e=>{
+      const rose=e.f&&e.f.a.shape==='rose';
+      if(!rose) return 0;
+      const ri=e.t;                                   /* 玫瑰引爆 */
+      if(impOf(f)>ri) return 0;                        /* 我们在它之后，交给下一轮处理 */
+      return (impOf(f)+recoveryOf(f)+REACT)-ri;        /* 玫瑰得让到我们恢复之后 */
+    }));
+    if(need>0){ const r=impactSlots.filter(e=>e.f&&e.f.a.shape==='rose'&&T<e.f.bloomAt)
+                          .sort((a,b)=>a.t-b.t)[0];
+      if(r) shiftBy(r.f,need); }
+  }
+  impactSlots.push({t:impOf(f),dur:Math.max(0,impOf(f)-beginOf(f)),f,clear:flashClearAt(f)});
+  /* 成对收敛：A 两个引爆相距 < gap；B 某个的「预警开始」落在别人的恢复窗口里。
+     漏检任何一对都会漏出「刚被炸完下一发就贴脸」，所以按所有有序对扫。 */
+  for(let guard=0;guard<300;guard++){
+    let fixed=false;
+    const n=impactSlots.length;
+    for(let i=0;i<n&&!fixed;i++) for(let j=0;j<n&&!fixed;j++){
+      if(i===j) continue;
+      const X=impactSlots[i].f, Y=impactSlots[j].f;
+      if(!X||!Y) continue;
+      const xi=impOf(X), yi=impOf(Y), xb=beginOf(X);
+      if(Math.abs(xi-yi)<gap-1e-9){
+        if(adjustable(Y)){ shiftBy(Y, xi+gap-yi); fixed=true; }
+        else if(adjustable(X)){ shiftBy(X, yi+gap-xi); fixed=true; }
+      }else if(xb>=yi-1e-9&&xb<(impactSlots[j].clear??(yi+gap))-1e-9){
+        /* B：对方引爆后「白屏 + 转回」这段时间里不许开始本发的预警 */
+        const clearY=impactSlots[j].clear??(yi+gap);
+        if(adjustable(X)){ shiftBy(X, clearY-xb); fixed=true; }
+        else if(adjustable(Y)){ shiftBy(Y, xb+gap-yi); fixed=true; }
+      }
+      /* C：真正的坑在这里 —— 后引爆的那发如果早在前一发引爆前就出手了，玩家背完前一发
+         转回视野时它只剩不到 1 秒，而规则 A 的 1.2s「引爆间隔」照样放行。
+         所以对**所有配对**要求：后引爆 >= 先引爆恢复完成 + 反应余量。
+         只检查「f 是后者」不够 —— 新来的 f 也可能是先引爆的那个。 */
+      /* C：后引爆的那发，玩家必须「看得见它预警」够久才来得及背。
+         正确条件是：后一发的预警开始 >= 前一发的恢复完成 + 反应余量。
+         （先前写成「后一发引爆 >= 前一发恢复完成」，等于允许它在玩家转回那一瞬
+           才刚出现 —— 飞行段全被吃掉，实测就是「刚背完回正，动画已经在脸上」。） */
+      const [late,early] = yi>xi ? [impactSlots[j],impactSlots[i]] : [impactSlots[i],impactSlots[j]];
+      const li=impOf(late.f), ei=impOf(early.f), lb=beginOf(late.f);
+      const clearE=(early.clear??(ei+gap))+REACT;
+      if(lb<clearE-1e-9){
+        if(adjustable(late.f)){ shiftBy(late.f, clearE-lb); fixed=true; }
+        else if(adjustable(early.f)){ shiftBy(early.f, lb-REACT-TURN_BACK-(early.dur||0)-ei); fixed=true; }
+      }
+    }
+    if(!fixed) break;
+    for(const e of impactSlots){ e.t=impOf(e.f); e.dur=Math.max(0,impOf(e.f)-beginOf(e.f)); e.clear=flashClearAt(e.f); }
+  }
+  /* 账本只清「已经彻底过去」的条目：clear 早于场上最早的未引爆闪光。
+     不能按条数裁、也不能按 T 裁 —— 排期是提前几十秒算好的，按 T 裁会把
+     刚刚登记、引爆在即的条目直接抹掉，后续闪光于是失去参照（实测漏检就在这）。 */
+  const live=Math.min(T,...flashes.filter(g=>!g.popped).map(impOf),Infinity);
+  if(live<Infinity) while(impactSlots.length&&impactSlots[0].clear<live) impactSlots.shift();
+}
+function activateFlash(f){
+  if(f.announced) return;
+  f.announced=true;
+  showAgent(f.a); st.trials++;
+  const ba=st.by[f.a.key]||(st.by[f.a.key]={n:0,dg:0}); ba.n++;
+}
+function spawnFlash(key,scheduled=false,at_){
+  const at=(at_===undefined?T:at_);
   const a=AGENTS[key||gpickEl(enabledAgents())]; if(!a) return null;
   const d=DIFF[cfg.diff];
   const side=contentRnd()<0.5?-1:1;
@@ -1922,22 +2053,26 @@ function spawnFlash(key){
   const f={
     id:++flashSeq, key:a.key, a, side, travel, popFrac,
     pts, arcH, home:{...E},
-    t0:T, arriveAt:T+travel, popAt:T+travel*popFrac,
+    t0:T, launchAt:at, arriveAt:T+travel, popAt:T+travel*popFrac,
     pos: a.noPath?{...E}:{...S}, popped:false, dead:false, deadAt:0,
     visAt:0, dodgeAt:0, lookedAtVis:false, trail:[], hover:0,
-    openAt: a.spawn?T+a.spawn:0, opened: !a.spawn,
-    dieAt:  a.spawn?T+a.spawn+(a.life||5):0,
+    openAt: a.spawn?at+a.spawn:0, opened: !a.spawn,
+    dieAt:  a.spawn?at+a.spawn+(a.life||5):0,
     hp: a.hp||1, hitAt:0,
     turnPos, turnAt: turnPos?T+travel*0.5:0
   };
   /* 维斯蓄势：放置后先藏成半透明花蕊，随机延迟后才突然绽放 → 引爆。
      延迟走 hash01（不消耗内容流），难度越高蓄势越短。 */
   if(a.delay){
-    const k=hash01(f.id*2654435761 ^ (match.active?matchSeed():0));
+    const k=hash01(f.id*2654435761 ^ (match.active?matchSeed():DAILY.active?DAILY.seed:0));
     const sp=DIFF[cfg.diff].speed/1.35;               /* 普通=1，困难≈0.81 */
     f.bloomDur=Math.max(0.3,(a.bloomDur||0.55)*sp);
-    f.bloomAt=T+(a.delay[0]+k*(a.delay[1]-a.delay[0]))*sp;
-    f.popAt=f.bloomAt+f.bloomDur;                     /* 绽放走完才引爆 */
+    /* 关键：蓄势时长必须锚在「实际出手时刻 launchAt」上，不能锚在 T。
+       排期是提前算好的（launchAt 在未来若干秒），用 T 当锚点会把绽放算到
+       自己出现之前（实测 bloomMin=3.92 而 t0=10.25），整条时间轴错乱 ——
+       这就是「背完维斯回正、别的闪光已经在脸上」的真正原因。 */
+    f.bloomMin=f.launchAt+(a.delay[0]+k*(a.delay[1]-a.delay[0]))*sp;
+    f.bloomAt=f.bloomMin; f.popAt=f.bloomAt+f.bloomDur;
   }
   if(a.throughWall){
     /* 只在墙面某一个点亮起提示，不要大面积铺开 */
@@ -1962,10 +2097,13 @@ function spawnFlash(key){
   /* 布雷奇的合成 charge 预警音已删：真实音效里本身就含充能预警的嗡鸣，
      两个声音在 t=0 叠播（lead 恒为 0），合成音盖在真实音上就是实测的
      「铁臂刚出现时混着一段旧合成音」。黄点动画照画，只是不再配音。 */
-  showAgent(a);
-  st.trials++;
-  const ba=st.by[a.key]||(st.by[a.key]={n:0,dg:0});   /* 按特工统计：n=出场数，dg=躲开数 */
-  ba.n++;
+  if(scheduled){
+    shiftFlashPlan(f,at-T);
+    if(a.spawn){ f.openAt=f.launchAt+a.spawn; f.dieAt=f.openAt+(a.life||5); }
+    reserveFlash(f);
+  }
+  if(f.launchAt===undefined) f.launchAt=f.t0;
+  if(T>=f.t0) activateFlash(f);
   return f;
 }
 /* 回靶计时的起点 = 「最早能出手」的时刻。
@@ -2041,6 +2179,8 @@ function popFlash(f){
 }
 function updateFlashes(){
   for(const f of flashes){
+    if(T<f.t0) continue;
+    activateFlash(f);
     if(!f.popped){
       if(f.a.noPath){
         f.pos={x:f.home.x,y:f.home.y,z:f.home.z};   /* 凭空出现：不飞、不留轨迹 */
@@ -2193,7 +2333,7 @@ function shoot(){
   /* 可击毁目标：蕾娜之眼（两下）/ 维斯玫瑰（一下）。
      玫瑰在蓄势期和绽放期都能打：打掉即终止生成，绝不再爆闪。 */
   for(const f of flashes){
-    if(f.a.destructible && !f.popped && f.opened){   /* 眼睛睁开后才可以打 */
+    if(T>=f.t0 && f.a.destructible && !f.popped && f.opened){   /* 眼睛睁开后才可以打 */
       const d=len3(f.pos);
       if(angleTo(f.pos) <= Math.atan(0.26/d)*DEG+0.3){
         f.hp--; f.hitAt=T;
@@ -2853,6 +2993,7 @@ const TRAIL_LIFE=0.80;               /* 拖尾时长（秒） */
 function drawFlashes(){
   const visMul=[1.45,0.70,0][cfg.vis];
   for(const f of flashes){
+    if(T<f.t0) continue;
     if(f.a.throughWall) drawWallCharges(f);
     if(f.popped) continue;
     const u=clamp((T-f.t0)/f.travel,0,1);
@@ -3688,21 +3829,26 @@ const RATE_CAL=0.7;
    这样两个玩家 60s 内出闪光的次数与节奏完全一致；自由练习退回真随机。 */
 function gapFor(k){
   const [a,b]=DIFF[cfg.diff].gap;
-  if(match.active){ const r=mulberry32((matchSeed()^(k+1)*0x9E3779B1))(); return a+(b-a)*r; }
+  if(match.active||DAILY.active){ const seed=match.active?matchSeed():DAILY.seed;
+    const r=mulberry32((seed^(k+1)*0x9E3779B1))(); return a+(b-a)*r; }
   return rand(a,b);
 }
-function scheduleAuto(){
-  nextAutoAt=T+gapFor(autoN)/Math.max(0.2,cfg.rate*RATE_CAL);
+function scheduleAuto(at=T){
+  nextAutoAt=at+gapFor(autoN)/Math.max(0.2,cfg.rate*RATE_CAL);
 }
 function updateAuto(){
   if(!cfg.auto||cfg.mode===2){ nextAutoAt=T+2; return; }
-  if(T>=nextAutoAt){ autoN++; spawnFlash(gpickEl(enabledAgents())); scheduleAuto(); }
+  if(T>=nextAutoAt){
+    const at=nextAutoAt;
+    autoN++; const f=spawnFlash(gpickEl(enabledAgents()),true,at);
+    scheduleAuto(f?Math.max(at,f.t0):at);
+  }
 }
 /* 手动丢闪：对战模式禁用 —— 任何一侧多/少一发都会让两人的闪光序列整体错位 */
 function manualFlash(){
   if(!playing||paused||roundOver) return;
-  if(match.active){ log('对战中由系统统一出闪光，不能手动','y'); return; }
-  spawnFlash(gpickEl(enabledAgents())); scheduleAuto();
+  if(match.active||DAILY.active){ log('挑战中由系统统一出闪光，不能手动','y'); return; }
+  spawnFlash(gpickEl(enabledAgents()),true); scheduleAuto();
 }
 
 /* ---------- 主循环 ---------- */
@@ -3820,6 +3966,7 @@ function start(){
    恢复时把这段时间统一补回去，否则飞行中的闪光会瞬间引爆、靶点立刻超时。 */
 function shiftTime(dt){
   if(!(dt>0)) return;
+  for(const slot of impactSlots){ slot.begin+=dt; slot.end+=dt; }
   for(const f of flashes){
     f.t0+=dt; f.arriveAt+=dt; f.popAt+=dt;
     if(f.bloomAt) f.bloomAt+=dt;              /* 蓄势结束时刻：不平移的话暂停恢复会立刻绽放 */
@@ -3849,7 +3996,7 @@ function resume(){
     paused=false; mdx=0; mdy=0;
     shiftTime(T-pauseT);
     $('bStart').textContent='暂停';
-    blindUntil=0; blindDur=0; blindSrc=0; blindStart=0; scheduleAuto();
+    blindUntil=0; blindDur=0; blindSrc=0; blindStart=0;
   }
   closeMenu();
   /* 结算面板还开着(从结算进设置再回来)就不抢指针锁，否则鼠标被吸进画布点不动面板 */
@@ -3881,7 +4028,7 @@ function resetStats(silent){
   cam.yaw=0; cam.pitch=0; mdx=0; mdy=0;
   /* 对战：每轮把内容流重新播种到房间 seed，两人每轮看到完全相同的闪光。
      自由练习：内容流退回真随机，每轮新鲜。 */
-  autoN=0;
+  autoN=0; flashSeq=0; impactSlots.length=0;
   /* 每日挑战进行中：contentRnd 用当日种子 —— 全网同一串闪光（与对战同机制） */
   contentRnd = match.active ? mulberry32(matchSeed())
             : DAILY.active ? mulberry32(DAILY.seed) : Math.random;

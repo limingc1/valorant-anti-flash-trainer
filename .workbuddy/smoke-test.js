@@ -1353,6 +1353,148 @@ try{
      '离数据点够远时不吸附（不会乱弹提示框）');
   run('localStorage.removeItem("aft_records"); recChartDiff=0;');
 
+  console.log('[41] 引爆间隔保护');
+  for(const difficulty of [0,1]){
+    const spacing=JSON.parse(run(`(function(){
+      match.active=true;match.seed=12345;match.round=1;DAILY.active=false;
+      const gapDbg=${difficulty===0?1.2:0.9};cfg.diff=${difficulty};T=100;resetStats(true);window.__trace=[];
+      const seq=['vyse','reyna','phoenix','kayo','vyse','skye','yoru','breach'];
+      window.__viol=[];
+      const checkAll=function(){
+        const L=flashes.map(function(f){return {k:f.key,b:f.a.shape==='rose'?f.bloomAt:f.t0,e:flashImpactAt(f),c:flashClearAt(f)};});
+        for(let x=0;x<L.length;x++) for(let y=0;y<L.length;y++){
+          if(x===y) continue;
+          if(Math.abs(L[x].e-L[y].e)<gapDbg-1e-9)
+            return 'S'+x+'('+L[x].k+'@'+L[x].e.toFixed(2)+') 与 S'+y+'('+L[y].k+'@'+L[y].e.toFixed(2)+')';
+          if(L[x].b>=L[y].e-1e-9&&L[x].b<L[y].c-1e-9)
+            return 'begin: S'+x+'('+L[x].k+' b='+L[x].b.toFixed(2)+') 落在 S'+y+'('+L[y].k+' @'+L[y].e.toFixed(2)+') 恢复窗口';
+        }
+        return null;
+      };
+      for(let i=0;i<40;i++){ spawnFlash(seq[i%seq.length],true,100+i*0.25);
+        const bad=checkAll(); if(bad) window.__viol.push('第'+(i+1)+'发: '+bad); if(window.__viol.length>3) break; }
+      /* 生成完再采样：玫瑰的引爆会被「后续预留」推后，spawn 当时的快照是过期的 */
+      const plans=flashes.map(function(f){ return {key:f.key,
+        begin:f.a.shape==='rose'?f.bloomAt:f.t0, end:flashImpactAt(f), clear:flashClearAt(f), travel:f.travel,
+        duration:f.a.nearsight?f.openAt-f.launchAt:f.a.shape==='rose'?f.popAt-f.bloomAt:f.popAt-f.t0,
+        expected:f.a.nearsight?f.a.spawn:f.a.shape==='rose'?f.bloomDur:f.travel*f.popFrac}; });
+      window.spacingDbg=plans;
+      plans.sort((a,b)=>a.end-b.end);   /* 按引爆时刻排序：相邻项才是真正要比较的一对 */
+      return JSON.stringify(plans);
+    })()`));
+    const gap=difficulty===0?1.2:0.9;
+    const viol=JSON.parse(run('JSON.stringify(window.__viol)'));
+    ok(viol.length===0,'每加一发都校验不变式：全程无违例（实测 '+viol.length+' 条：'+viol.join(' / ')+'）');
+    const details=run(`(function(){
+      var s=JSON.parse(JSON.stringify(window.spacingDbg));var out=[];
+      for(var i=1;i<s.length;i++){var d=s[i].end-s[i-1].end;
+        if(d<${gap}-1e-8) out.push(s[i-1].key+'@'+s[i-1].end.toFixed(2)+' → '+s[i].key+'@'+s[i].end.toFixed(2)+' gap='+d.toFixed(2)+' begin='+s[i].begin.toFixed(2));}
+      return out.join(' ｜ ');
+    })()`);
+    if(details) console.log('       引爆间隔违例: '+details);
+
+    ok(spacing.every((f,i)=>!i||f.end-spacing[i-1].end>=gap-1e-8),'混合40发：引爆至少间隔 '+gap+'s');
+    /* 规则③：不得在别人引爆后的恢复窗口里出手/绽放（对方已在飞行/绽放时除外） */
+    const intrude=spacing.filter(a=>spacing.some(b=>b!==a&&a.begin>=b.end-1e-9&&a.begin<b.clear-1e-8));
+    ok(intrude.length===0,'没有闪光在别人引爆后的恢复窗口里冒头（违例 '+intrude.length+' 例）');
+    const dBad=spacing.filter(f=>Math.abs(f.duration-f.expected)>=1e-8).slice(0,4).map(f=>f.key+' dur='+f.duration.toFixed(2)+' 期望='+f.expected.toFixed(2));
+    ok(dBad.length===0,'排期不改变飞行、睁眼及绽放速度'+(dBad.length?'（'+dBad.join(' / ')+'）':''));
+  }
+  const deterministic=run(`(function(){
+    function sample(destroy,dailyMode){
+      T=100;match.active=!dailyMode;DAILY.active=dailyMode;DAILY.seed=9876;
+      match.seed=12345;match.round=1;cfg.diff=0;flashSeq=destroy?888:12;resetStats(true);
+      const out=[];
+      for(let i=0;i<12;i++){
+        const f=spawnFlash(i%2?'reyna':'vyse',true,100+i*0.4);
+        out.push([f.key,f.t0,f.bloomAt,flashImpactAt(f)]);
+        if(destroy){f.dead=true;f.popped=true;flashes=[];Math.random();}
+      }
+      return JSON.stringify(out);
+    }
+    return sample(false,false)===sample(true,false)&&sample(false,true)===sample(true,true);
+  })()`);
+  ok(deterministic,'练习历史/击毁操作不同，同房间和每日挑战排期仍一致');
+  run('match.active=false;DAILY.active=false;T=100;resetStats(true);spawnFlash("vyse",true);spawnFlash("reyna",true);');
+  const frozen=run('JSON.stringify([impactSlots.map(s=>[s.begin-T,s.end-T]),flashes.map(f=>[f.t0-T,flashImpactAt(f)-T])])');
+  run('shiftTime(8);T+=8;');
+  const shifted=run('JSON.stringify([impactSlots.map(s=>[s.begin-T,s.end-T]),flashes.map(f=>[f.t0-T,flashImpactAt(f)-T])])');
+  ok(frozen===shifted,'暂停统一平移排期与闪光，剩余窗口不变');
+  run('T=100;resetStats(true);spawnFlash("reyna",true);spawnFlash("reyna",true);');
+  ok(run('flashes[1].t0>T'),'冲突眼睛延后出手，不提前显示');
+  const announced=run('st.trials');
+  run('updateFlashes();');
+  ok(run('st.trials')===announced,'待出手闪光不提前计入统计');
+  run('T=flashes[1].t0;updateFlashes();');
+  ok(run('st.trials')===announced+1,'到出手时刻只登记一次');
+  run('updateFlashes();');
+  ok(run('st.trials')===announced+1,'重复帧不重复登记闪光');
+  run('resetStats(true);');
+  ok(run('impactSlots.length===0&&flashSeq===0'),'新回合清空排期和序号');
+  /* 恢复窗口必须按「那一发的最长致盲 + 转回视野」算，不是固定 1.2s：
+     被布雷奇白 2.2 秒时，1.2s 里冒出来的闪光玩家根本看不见也来不及背。 */
+  const recov=JSON.parse(run(`(function(){
+    match.active=true;match.seed=777;match.round=1;DAILY.active=false;cfg.diff=0;T=100;resetStats(true);
+    const out={};
+    for(const k of ['breach','reyna','phoenix','vyse']){
+      const f=spawnFlash(k,true,100);
+      out[k]={impact:+flashImpactAt(f).toFixed(2),clear:+flashClearAt(f).toFixed(2),
+              blindMax:f.a.dur?f.a.dur[1]:(f.a.life||0),lead:+(flashClearAt(f)-flashImpactAt(f)).toFixed(2)};
+    }
+    return JSON.stringify(out);
+  })()`));
+  ok(recov.breach.lead>=2.2,'布雷奇（正脸白 2.2s）后的恢复窗口 ≥2.2s（实测 '+recov.breach.lead+'s）');
+  ok(recov.reyna.lead>=2.6,'蕾娜之眼（近视最长 2.6s）后的恢复窗口 ≥2.6s（实测 '+recov.reyna.lead+'s）');
+  ok(recov.phoenix.lead>=2.0,'菲尼克斯（白 2.05s）后的恢复窗口 ≥其最长致盲（实测 '+recov.phoenix.lead+'s）');
+  /* 正确的不变式（按引爆时刻配对，不是生成顺序 —— 维斯随机蓄势会让后生成的先炸）：
+     任何一发的「预警开始」都不许落在另一发「引爆 → 白屏 → 转回」的整段时间里。 */
+  const pairwise=JSON.parse(run(`(function(){
+    match.active=true;match.seed=4242;match.round=1;DAILY.active=false;cfg.diff=1;T=100;resetStats(true);
+    for(let i=0;i<60;i++) spawnFlash(['breach','reyna','vyse','kayo','yoru','phoenix','skye'][i%7],true,100+i*0.1);
+    const L=flashes.map(function(g){return {k:g.key,b:g.a.shape==='rose'?g.bloomAt:g.t0,
+                                            e:flashImpactAt(g),c:flashClearAt(g)};});
+    var bad=null;
+    for(var i=0;i<L.length&&!bad;i++) for(var j=0;j<L.length;j++){
+      if(i===j) continue;
+      if(L[i].b>=L[j].e-1e-9 && L[i].b<L[j].c-1e-9)
+        bad=L[i].k+' 预警@'+L[i].b.toFixed(2)+' 撞上 '+L[j].k+' 恢复窗['+L[j].e.toFixed(2)+','+L[j].c.toFixed(2)+')';
+    }
+    return JSON.stringify({bad:bad, n:L.length});
+  })()`));
+  ok(pairwise.bad===null,'60 发高难密集：任何预警都不落在别人「引爆+白屏+转回」窗口内'+(pairwise.bad?'（'+pairwise.bad+'）':''));
+  run('DAILY.active=false;match.active=false;flashes=[];impactSlots.length=0;playing=false;');
+  /* [42] 排期锚点回归：这轮真正的根因是「蓄势时长锚在 T 而不是计划出手时刻」。
+     排期是提前几十秒算好的，用当前帧 T 当锚点会把绽放算到自己出现之前
+     （实测 bloomMin=3.92 而 t0=10.25），整条时间轴错乱 ——
+     用户表现就是「背完维斯回正，别的闪光动画已经在脸上」。 */
+  console.log('[42] 排期锚点与反应时间');
+  const REACT_MIN=0.7, TURN_BACK_MIN=0.5;
+  const anchor=JSON.parse(run("(function(){"
+    +"match.active=true;match.seed=1847;match.round=1;DAILY.active=false;cfg.diff=1;T=100;resetStats(true);"
+    +"var out=[];"
+    +"for(var i=0;i<40;i++){"
+    +"  var at=100+i*2.4;"
+    +"  var f=spawnFlash(['vyse','phoenix','yoru','breach','kayo','skye','reyna'][i%7],true,at);"
+    +"  out.push({k:f.key,launch:+f.launchAt.toFixed(3),t0:+f.t0.toFixed(3),"
+    +"    b:+(f.a.shape==='rose'?f.bloomAt:f.launchAt).toFixed(3), e:+flashImpactAt(f).toFixed(3),"
+    +"    min:f.bloomMin?+f.bloomMin.toFixed(3):null,"
+    +"    blind:+(f.a.nearsight?(f.a.life||0):f.a.dur[1]).toFixed(2)});"
+    +"}"
+    +"return JSON.stringify(out);})()"));
+  const beforeSelf=anchor.filter(a=>a.k==='vyse'&&a.b<a.min-1e-6);
+  ok(beforeSelf.length===0,'玫瑰绽放不早于它的随机最早时刻（也不早于出手）'+(beforeSelf.length?'（'+JSON.stringify(beforeSelf[0])+'）':''));
+  const preLaunch=anchor.filter(a=>a.e<a.launch-1e-6);
+  ok(preLaunch.length===0,'任何闪光的引爆都不早于自己的出手时刻');
+  const drifted=anchor.filter(a=>a.t0<a.launch-1e-6);
+  ok(drifted.length===0,'排期不会把出手时刻挪到计划之前');
+  let worst=99;
+  for(const a of anchor) for(const b of anchor){
+    if(a===b) continue;
+    if(b.e<a.b){ const react=a.b-(b.e+b.blind+TURN_BACK_MIN); if(react<worst) worst=react; }
+  }
+  ok(worst>=REACT_MIN-1e-6,'40 发真实节奏排期下，玩家转回后至少还有 '+REACT_MIN+'s 看到下一发（实测 '+worst.toFixed(2)+'s）');
+  run('match.active=false;flashes=[];impactSlots.length=0;');
+
   console.log('\n'+(fails?('有 '+fails+' 项失败'):'全部通过'));
   process.exit(fails?1:0);
   })().catch(e=>{ console.log('运行时异常: '+e.message); console.log(e.stack.split('\n').slice(0,6).join('\n')); process.exit(1); });
