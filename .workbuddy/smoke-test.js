@@ -6,8 +6,8 @@ const m=html.match(/<script>([\s\S]*?)<\/script>/);
 if(!m){ console.log('FAIL: 找不到 script 块'); process.exit(1); }
 const code=m[1];
 
-let fails=0;
-const ok=(c,msg)=>{ console.log((c?'  OK   ':'  FAIL ')+msg); if(!c) fails++; };
+let fails=0, assertions=0;
+const ok=(c,msg)=>{ assertions++; console.log((c?'  OK   ':'  FAIL ')+msg); if(!c) fails++; };
 
 /* ---- 语法 ---- */
 try{ new vm.Script(code,{filename:'game.js'}); console.log('[1] 语法检查'); ok(true,'脚本可解析'); }
@@ -1066,6 +1066,37 @@ try{
   run('dailyRestoreCfg();');
   ok(run('cfg.rate')===0.8&&run('cfg.targetN')===5&&run('cfg.diff')===0&&run('cfg.targetR')===0.09
      &&run('cfg.agents.kayo')===false,'结算后配置按快照还原（含靶径）');
+  /* 每日挑战加入维斯与盖克。坑在「限定特工」类规则：它们直接写死一份特工表，
+     基础池新增的特工会漏进去（本该只有两只特工的规则里冒出维斯和盖克），
+     所以那些规则必须显式把它们关掉。这里把合并结果与规则表都钉住。
+     断言期间一律用 apply/restore 成对调用，别把全局 cfg 留在挑战配置上。 */
+  ok(run('DAILY_BASE.agents.vyse===true && DAILY_BASE.agents.gekko===true'),
+     '每日挑战基础配置已登记维斯与盖克');
+  run('DAILY.mod=DAILY_MODS[0]; dailyApplyCfg();');
+  const dailyMainOn=run('cfg.agents.vyse===true && cfg.agents.gekko===true');
+  run('dailyRestoreCfg();');
+  ok(dailyMainOn,'常规规则下维斯与盖克进入挑战出闪光池');
+  for(const nm of ['五只眼','铁幕试炼']){
+    run('DAILY.mod=DAILY_MODS.find(m=>m.n==='+JSON.stringify(nm)+'); dailyApplyCfg();');
+    const excluded=run('cfg.agents.vyse===false && cfg.agents.gekko===false');
+    const onlyTwo=run('Object.values(cfg.agents).filter(Boolean).length===2');
+    run('dailyRestoreCfg();');
+    ok(excluded, nm+' 显式排除维斯与盖克（新增特工不漏进限定规则）');
+    ok(onlyTwo, nm+' 仍然只出规则指定的两只特工');
+  }
+  /* 特殊特工专场规则（丢丢/玫瑰/飞鸟）。限定规则的表必须写全所有特工键，
+     否则合并时会继承基础表的 true。dailyOnlyAgents 就是为了根治这个坑，
+     但规则可能被手写整表，所以逐条按「实际抽签结果」验证，而不是只读配置。 */
+  for(const [nm,expect] of [['丢丢疯潮',['gekko']],['荆棘玫瑰',['vyse']],['群鸟乱舞',['skye']],
+                            ['一枪一个',['gekko','vyse']],['三色闪光',['gekko','vyse','skye']]]){
+    run('DAILY.mod=DAILY_MODS.find(m=>m.n==='+JSON.stringify(nm)+'); dailyApplyCfg();');
+    const pool=run('enabledAgents().slice().sort().join(",")');
+    run('dailyRestoreCfg();');
+    ok(pool===expect.slice().sort().join(','), nm+' 只出指定特工（实际 '+pool+'）');
+  }
+  ok(run('DAILY_MODS.length===11'),'规则池共 11 条（原 6 条 + 5 条特工专场）');
+  ok(run('DAILY_MODS.every(m=>Object.values(m.cfg.agents||{}).some(Boolean)||!m.cfg.agents)'),
+     '限定类规则的 cfg.agents 不会全 false（否则抽出一条空池子、开局没有闪光）');
   run('dailyStart();');
   ok(run('DAILY.active')===true&&run('cfg.rate')===run('DAILY.applied.rate')&&run('playing')===true,
      '开始挑战：按当日修饰规则生效并直接开局');
@@ -1151,7 +1182,7 @@ try{
   ok(run('AGENTS.vyse.shape')==='rose'&&run('AGENTS.vyse.coneHalf')>0&&run('AGENTS.vyse.noPath')===true,
      '玫瑰形态：放置型（无飞行段）');
   /* 默认值看源码声明 —— 跑到这里时 cfg 已被前面的用例改过，只能查常量字面量 */
-  ok(/agents:\{phoenix:true,skye:true,breach:true,kayo:false,yoru:false,reyna:false,vyse:false\}/.test(html),
+  ok(/agents:\{phoenix:true,skye:true,breach:true,kayo:false,yoru:false,reyna:false,vyse:false,gekko:false\}/.test(html),
      '维斯默认关闭（与 KO/夜露/蕾娜 一致）');
   run('cfg.agents.vyse=true;');
   ok(run('enabledAgents().indexOf("vyse")>=0')===true,'开启后进入抽签池');
@@ -1416,10 +1447,16 @@ try{
   })()`);
   ok(deterministic,'练习历史/击毁操作不同，同房间和每日挑战排期仍一致');
   run('match.active=false;DAILY.active=false;T=100;resetStats(true);spawnFlash("vyse",true);spawnFlash("reyna",true);');
-  const frozen=run('JSON.stringify([impactSlots.map(s=>[s.begin-T,s.end-T]),flashes.map(f=>[f.t0-T,flashImpactAt(f)-T])])');
+  /* 账本真实字段是 t/clear；旧 begin/end 为 undefined，减 T 后 NaN 被 JSON 写成 null，
+     原断言实际只比较了 null。保留这一条断言，改查有限数值和真实剩余窗口。 */
+  const ledgerLeft=()=>JSON.parse(run('JSON.stringify([impactSlots.map(s=>[s.t-T,s.clear-T]),flashes.map(f=>[f.t0-T,flashImpactAt(f)-T])])'));
+  const frozen=ledgerLeft();
   run('shiftTime(8);T+=8;');
-  const shifted=run('JSON.stringify([impactSlots.map(s=>[s.begin-T,s.end-T]),flashes.map(f=>[f.t0-T,flashImpactAt(f)-T])])');
-  ok(frozen===shifted,'暂停统一平移排期与闪光，剩余窗口不变');
+  const shifted=ledgerLeft();
+  ok(frozen.flat(2).every(Number.isFinite) && shifted.flat(2).every(Number.isFinite) &&
+     frozen.flat(2).length===shifted.flat(2).length &&
+     frozen.flat(2).every((v,i)=>Math.abs(v-shifted.flat(2)[i])<1e-8),
+     '暂停统一平移排期与闪光，剩余窗口不变');
   run('T=100;resetStats(true);spawnFlash("reyna",true);spawnFlash("reyna",true);');
   ok(run('flashes[1].t0>T'),'冲突眼睛延后出手，不提前显示');
   const announced=run('st.trials');
@@ -1495,7 +1532,503 @@ try{
   ok(worst>=REACT_MIN-1e-6,'40 发真实节奏排期下，玩家转回后至少还有 '+REACT_MIN+'s 看到下一发（实测 '+worst.toFixed(2)+'s）');
   run('match.active=false;flashes=[];impactSlots.length=0;');
 
-  console.log('\n'+(fails?('有 '+fails+' 项失败'):'全部通过'));
+  console.log('[43] 盖克丢丢：击毁时机与独立电浆');
+  /* 直跳时钟用于精确边界；pause/混合排期另用真实 rAF step，不替换游戏逻辑。 */
+  const gekkoReset=()=>run(`
+    match.active=false;DAILY.active=false;cfg.auto=false;cfg.roundIdx=3;
+    cfg.diff=0;cfg.mode=0;cfg.vis=0;playing=true;paused=false;roundOver=false;
+    T=100;roundEndAt=0;resetStats(true);contentRnd=mulberry32(2468);
+    var g=spawnFlash('gekko');
+  `);
+  gekkoReset();
+  ok(run('g.a.shape==="dizzy" && g.a.destructible && g.hp===1'),'盖克注册为一枪可击毁的丢丢');
+  /* 旧测试把扫描锚在 arriveAt，还要求到达后才锁定/开火；新反馈要求飞行中
+     t0+0.25s 就锁定，普通难度 t0+0.60s 发射，不能再以旧慢节奏为期望。 */
+  ok(run('g.t0<g.lockAt && g.lockAt<g.arriveAt && g.lockAt<g.fireAt && g.fireAt<g.popAt'),
+     '出手 → 飞行中锁定 → 发射 → 电浆命中，锁定不等待飞抵');
+  ok(run('Math.abs(g.lockAt-g.t0-0.25)<1e-8 && Math.abs(g.fireAt-g.lockAt-0.35)<1e-8 && Math.abs(g.popAt-g.fireAt-0.28)<1e-8'),
+     '普通难度出手0.25s锁定、前摇0.35s、电浆飞行0.28s');
+  run('cfg.agents.gekko=true;');
+  ok(run('enabledAgents().includes("gekko")'),'盖克开启后进入抽签池');
+  run('cfg.agents.gekko=false;');
+  ok(run('!enabledAgents().includes("gekko")'),'盖克关闭后退出抽签池');
+  ok(run('["gekko_throw","gekko_lock","gekko_fire","gekko_pop"].every(k=>SFX_NAMES.includes(k))'),
+     '出手、锁定、发射、命中四种音效都已注册');
+  /* 用户录制的素材要真的入库：放置（出手）与引爆（电浆命中）各一段。
+     只断言「名字在 SFX_NAMES 里」是不够的 —— 名字早就登记了，文件没放时
+     玩家听到的全是合成音（实测反馈过「怎么都变成合成音了」）。 */
+  for(const n of ['gekko_throw','gekko_lock','gekko_pop']){
+    const fp=path.resolve(__dirname,'..','sfx',n+'.wav');
+    const size=fs.existsSync(fp)?fs.statSync(fp).size:0;
+    ok(size>0 && size<=200*1024, '用户录音 sfx/'+n+'.wav 已入库且压到 200KB 内（实际 '+size+' 字节）');
+  }
+  ok(run('typeof THROW_SYNTH.gekko==="function" && typeof POP_SYNTH.gekko==="function"'),
+     '录音缺失或加载失败时，放置音与引爆音都有合成音兜底');
+  ok(run('typeof sfx.dizzyLock==="function" && typeof sfx.dizzyFire==="function"'),
+     '锁定与发射保留独立入口：锁定用切分录音，缺素材时合成音兜底');
+
+  for(const phase of ['flight','scan','lock']){
+    gekkoReset();
+    run(`T=${phase==='flight'?'g.t0+0.05':phase==='scan'?'g.t0+(g.lockAt-g.t0)*0.75':'g.fireAt-0.001'};updateFlashes();combo=4;`);
+    ok(run(phase==='lock'?'g.locked&&!g.fired':'!g.locked&&!g.fired'),phase+' 阶段确实尚未发射');
+    aim('g.pos');run('shoot();');
+    ok(run('g.dead && g.popped && g.hp===0 && st.hits===1 && st.shots===1'),phase+' 一枪击毁计有效命中');
+    ok(run('score===SCORE.dizzyKill && st.dodges===1 && st.by.gekko.dg===1 && combo===5 && st.best===5'),
+       phase+' 发射前击毁给25分、一次成功应对、保持连击');
+    ok(run('st.rtN===0 && st.rtSum===0 && reflickBase===T'),phase+' 击毁只开始回靶，不伪造转身反应');
+    run('T=g.popAt+3;updateFlashes();updateFlashes();');
+    ok(run('dizzyPlasmas.length===0 && dizzyBlindAmount()===0 && st.blinds===0 && flashes.length===0'),
+       phase+' 击毁后越过命中时刻仍不会生成电浆或致盲');
+  }
+  for(const boundary of [false,true]){
+    gekkoReset();
+    run('T=g.lockAt;updateFlashes();combo=4;');
+    if(boundary) run('T=g.fireAt;'); // 刻意不 updateFlashes：模拟两帧间点击
+    else run('T=g.fireAt+0.01;updateFlashes();');
+    ok(run(boundary?'!g.fired && dizzyPlasmas.length===0':'g.fired && dizzyPlasmas.length===1'),
+       boundary?'恰好 fireAt 点击前尚未跑发射帧':'发射后电浆已独立入场');
+    /* fireAt 时本体可能还在飞；shoot 内会刷新位置，不能再瞄准 home。 */
+    aim('pathAt(g,(T-g.t0)/g.travel)');run('shoot();');
+    ok(run('g.fired && g.dead && dizzyPlasmas.length===1'),
+       boundary?'fireAt 边界先按时发射再击毁，不可撤销电浆':'发射后本体可击毁，电浆仍保留');
+    ok(run('st.hits===1 && score===0 && st.dodges===0 && st.by.gekko.dg===0 && combo===4'),
+       '发射后击毁只计命中，不白送躲闪分/连击');
+    run('T=g.popAt-0.001;updateFlashes();');
+    ok(run('st.blinds===0 && dizzyPlasmas.length===1'),'命中时刻之前不提前致盲');
+    run('T=g.popAt;updateFlashes();');
+    ok(run('st.blinds===1 && combo===0 && dizzyBlindAmount()===1 && dizzyPlasmas.length===0'),
+       '本体已死仍准时蓝屏致盲，电浆仅结算一次');
+    const blindEnd=run('dizzyBlindUntil');
+    run('updateFlashes();updateFlashes();T+=0.1;updateFlashes();');
+    ok(run('st.blinds===1 && dizzyBlindUntil')===blindEnd,'重复更新不重复结算或延长蓝屏');
+  }
+
+  console.log('[44] 盖克不能背闪、蓝屏与回靶恢复');
+  gekkoReset();
+  run('T=g.t0+0.1;updateFlashes();');aim('g.pos');
+  run('T=g.lockAt;updateFlashes();cam.yaw+=Math.PI;T=g.fireAt;updateFlashes();T=g.popAt;updateFlashes();');
+  ok(run('st.blinds===1 && st.dodges===0 && st.by.gekko.dg===0 && combo===0'),'转身180°仍被电浆命中，永远不算背闪成功');
+  ok(run('g.visAt===0 && g.dodgeAt===0 && !g.lookedAtVis && st.rtN===0 && st.rtSum===0'),
+     '正视再转身不登记可见/躲闪时刻，不污染转身RT');
+  ok(run('blindUntil===0 && nearUntil===0 && dizzyBlindStart===g.popAt && Math.abs(dizzyBlindUntil-g.popAt-1.8)<1e-8'),
+     '电浆独立蓝屏持续1.8s，不借用白屏或近视');
+  ok(run('Math.abs(reflickBase-(dizzyBlindUntil-0.35*0.45))<1e-8'),'蓝屏回靶基线 = 最后0.45s淡出降到35%的可射击时刻');
+  aim('targets[0]');run('shoot();');
+  ok(run('st.hits===0 && st.shots===1'),'满蓝屏不能打靶');
+  run('T=dizzyBlindUntil-0.45*0.36;');aim('targets[0]');run('shoot();');
+  ok(run('st.hits===0'),'蓝屏36%仍吞弹');
+  run('T=dizzyBlindUntil-0.45*0.34;');aim('targets[0]');run('shoot();');
+  ok(run('st.hits===1 && st.rfN===1 && st.rfSum<0.01'),'蓝屏34%已可命中，回靶不多计致盲时间');
+  run('T=dizzyBlindUntil;updateFlashes();');
+  ok(run('dizzyBlindAmount()===0 && st.blinds===1 && flashes.length===0'),'蓝屏到期归零，本体退场且不会再结算');
+  gekkoReset();run('T=g.fireAt;updateFlashes();');
+  ok(run('dizzyPlasmas.length===1'),'重置测试前确有飞行中的电浆');
+  run('resetStats(true);T+=5;updateFlashes();');
+  ok(run('dizzyPlasmas.length===0 && dizzyBlindUntil===0 && dizzyBlindStart===0 && st.blinds===0'),
+     '重置清掉在途电浆，不会跨局命中');
+  gekkoReset();run('T=g.popAt;updateFlashes();');
+  ok(run('dizzyBlindAmount()===1'),'重置测试前确有蓝屏');
+  run('resetStats(true);');
+  ok(run('dizzyBlindAmount()===0 && dizzyBlindUntil===0 && dizzyBlindStart===0 && flashes.length===0'),
+     '重置清掉蓝屏状态和本体');
+
+  console.log('[45] 盖克暂停：阶段、电浆、蓝屏的剩余时间');
+  const syncFrameClock=()=>{ T=run('T')*1000;run('lastTs=T;'); };
+  for(const phase of ['flight','scan','lock','plasma','blind']){
+    gekkoReset();
+    run(`T=${({flight:'g.t0+0.05',scan:'g.t0+(g.lockAt-g.t0)*0.75',lock:'g.lockAt+0.1',plasma:'g.fireAt+0.05',blind:'g.popAt+1.5'})[phase]};updateFlashes();`);
+    syncFrameClock();
+    /* 蓝屏尾声本体已经退场；shiftTime 只需平移仍在场的对象，不能检查已删除的 g。 */
+    const remaining=()=>JSON.parse(run(`JSON.stringify([
+      ...flashes.flatMap(f=>[f.t0-T,f.arriveAt-T,f.lockAt-T,f.fireAt-T,f.popAt-T]),
+      ...dizzyPlasmas.flatMap(p=>[p.fireAt-T,p.hitAt-T]),
+      ...(dizzyBlindUntil?[dizzyBlindStart-T,dizzyBlindUntil-T,reflickBase-T]:[])])`));
+    const left=remaining(), frozenAmount=run('dizzyBlindAmount()'), frozenTime=run('T');
+    const state=run('JSON.stringify([g.locked,g.fired,st.blinds,dizzyPlasmas.length])');
+    run('pause();');step(90);
+    ok(run('JSON.stringify([g.locked,g.fired,st.blinds,dizzyPlasmas.length])')===state,
+       phase+' 暂停90帧不推进阶段或电浆结算');
+    ok(run('dizzyRenderTime()')===frozenTime && run('dizzyBlindAmount()')===frozenAmount,
+       phase+' 暂停期间动画时钟和蓝屏强度冻结');
+    run('resume();');
+    const after=remaining();
+    ok(left.length===after.length && left.every((v,i)=>Number.isFinite(after[i])&&Math.abs(v-after[i])<1e-8),
+       phase+' 恢复保持全部阶段/电浆/蓝屏/回靶剩余时间');
+    step(1);
+    ok(run('JSON.stringify([g.locked,g.fired,st.blinds,dizzyPlasmas.length])')===state,
+       phase+' 恢复第一帧不跳阶段或重复命中');
+  }
+
+  console.log('[46] 盖克可见性与未来计划激活');
+  gekkoReset();run('cfg.vis=2;T=g.t0+g.travel/2;updateFlashes();');aim('g.pos');
+  /* 只包裹绘制入口计数，仍执行真实画法；不能仅凭 render 不抛错判定“看得见”。 */
+  run('var originalDrawDizzy=drawDizzy, dizzyDraws=0;drawDizzy=function(...args){dizzyDraws++;return originalDrawDizzy(...args);};');
+  try{
+    run('drawFlashes();');
+    ok(run('dizzyDraws===1'),'cfg.vis=2 隐藏普通轨迹时丢丢仍进入真实绘制');
+    run('shoot();');
+    ok(run('g.dead && st.dodges===1'),'cfg.vis=2 飞行中的丢丢仍可瞄准击毁');
+    gekkoReset();
+    run('resetStats(true);cfg.vis=2;g=spawnFlash("gekko",true,T+5);dizzyDraws=0;');
+    const planned=run('g.t0');
+    run('updateFlashes();');aim('g.pos');run('drawFlashes();shoot();');
+    ok(run('!g.announced && st.trials===0 && !st.by.gekko && !g.audioPlayed'),'未来计划不提前统计或播出手声');
+    ok(run('dizzyDraws===0 && !g.dead && g.hp===1 && dizzyPlasmas.length===0'),'未来丢丢不画、不可击毁、不生成电浆');
+    ok(run('g.t0')===planned && run('g.t0===g.launchAt && g.lockAt<g.arriveAt && Math.abs(g.lockAt-g.t0-0.25)<1e-8 && Math.abs(g.fireAt-g.lockAt-0.35)<1e-8'),
+       '未来计划整体平移，保持阶段顺序与出手锚点');
+    run('T=g.t0;updateFlashes();updateFlashes();');aim('g.pos');run('drawFlashes();');
+    ok(run('g.announced && g.audioPlayed && st.trials===1 && st.by.gekko.n===1 && dizzyDraws===1'),
+       '到计划时刻才显示、播声、且只登记一次');
+    run('shoot();');
+    ok(run('g.dead && st.dodges===1'),'计划出手边界已经可击毁');
+  }finally{ run('drawDizzy=originalDrawDizzy;'); }
+
+  console.log('[47] 盖克与维斯混合：真实帧循环、操作无关排期');
+  /* 每4秒新增计划，期间真的 shoot 击毁。保留账本对象引用而非 spawn 时快照，
+     后续 reserveFlash 可能调整玫瑰的 t/clear；事件在真实 updateFlashes 之后收集。 */
+  function mixedFrames(destroy,dailyMode){
+    run(`T=200;cfg.auto=false;cfg.diff=${dailyMode?1:0};cfg.vis=2;cfg.roundIdx=3;
+      playing=true;paused=false;roundOver=false;roundEndAt=0;
+      match.active=${!dailyMode};match.seed=4731;match.round=2;
+      DAILY.active=${dailyMode};DAILY.seed=7321;resetStats(true);
+      var mixedSlots=[], mixedEvents=[], mixedSeen=new Set(), mixedKills=0;
+      var mixedAim=function(p){cam.yaw=Math.atan2(p.x,p.z);cam.pitch=Math.atan2(p.y,Math.hypot(p.x,p.z));};
+    `);
+    syncFrameClock();
+    let spawned=0, frames=0;
+    while(frames++<6000){
+      if(spawned<8 && run('T')>=200+spawned*4){
+        run(`var mf=spawnFlash(${spawned<4?JSON.stringify(['gekko','vyse','phoenix','gekko'][spawned]):'gpickEl(["gekko","vyse","breach","skye"])'},true,T+0.1);
+          mixedSlots.push(impactSlots.find(s=>s.f===mf));`);
+        spawned++;
+      }
+      if(destroy) run(`for(const s of mixedSlots){const f=s.f;
+        if(f.dead||f.popped||T<f.t0) continue;
+        if((f.key==='gekko'&&T>=f.lockAt&&!f.fired)||(f.key==='vyse'&&T<f.bloomAt)){
+          mixedAim(f.pos);shoot();if(f.dead) mixedKills++;
+        }
+      }`);
+      step(1);
+      run(`for(const s of mixedSlots){const f=s.f;
+        const hit=f.key==='gekko'?dizzyBlindStart===s.t:(f.popped&&f.hp>0);
+        if(hit&&!mixedSeen.has(f.id)){mixedSeen.add(f.id);mixedEvents.push({id:f.id,k:f.key,at:T,t:s.t,clear:s.clear});}
+      }`);
+      if(spawned===8 && run('mixedSlots.every(s=>T>s.clear+0.1)')) break;
+    }
+    return JSON.parse(run(`JSON.stringify({frames:${frames},kills:mixedKills,blinds:st.blinds,
+      events:mixedEvents,plans:mixedSlots.map(s=>({id:s.f.id,k:s.f.key,t:s.t,clear:s.clear,
+        begin:s.f.key==='vyse'?s.f.bloomAt:s.f.t0,impact:flashImpactAt(s.f),
+        expectedClear:flashClearAt(s.f),home:s.f.home,pts:s.f.pts,
+        phases:[s.f.arriveAt-s.f.t0,s.f.lockAt?s.f.lockAt-s.f.t0:0,
+                s.f.fireAt?s.f.fireAt-s.f.lockAt:0,s.f.key==='gekko'?s.f.popAt-s.f.fireAt:0]}))})`));
+  }
+  for(const dailyMode of [false,true]){
+    const untouched=mixedFrames(false,dailyMode), killed=mixedFrames(true,dailyMode);
+    const label=dailyMode?'每日种子/困难':'房间种子/普通';
+    ok(untouched.frames<6000 && killed.frames<6000 && untouched.plans.length===8,label+' 真实 step 循环跑完8发混合闪光');
+    ok(killed.kills>=3 && untouched.kills===0,label+' 两次运行确实采用不同的击毁操作');
+    ok(JSON.stringify(untouched.plans)===JSON.stringify(killed.plans),label+' 不同击毁下最终排期、轨迹、落点和阶段时长完全一致');
+    ok(untouched.events.length===8 && new Set(untouched.events.map(e=>e.id)).size===8,
+       label+' 未击毁局逐发收集8次实际命中/引爆，无遗漏或重复');
+    ok(untouched.events.some(e=>e.k==='gekko') && untouched.events.some(e=>e.k==='vyse'),
+       label+' 实际事件包含电浆命中和维斯引爆');
+    ok(killed.events.length===8-killed.kills,label+' 发射前击毁恰好取消对应事件');
+    ok(untouched.events.concat(killed.events).every(e=>e.at>=e.t-1e-8 && e.at-e.t<0.0168),
+       label+' 实际事件发生在更新后的账本时刻首帧内（非过期生成快照）');
+    ok(untouched.plans.every(s=>Math.abs(s.t-s.impact)<1e-8 && Math.abs(s.clear-s.expectedClear)<1e-8),
+       label+' 账本 t/clear 与最终本体排期一致');
+    const sorted=[...untouched.plans].sort((a,b)=>a.t-b.t);
+    ok(sorted.every((s,i)=>!i||s.t-sorted[i-1].t>=(dailyMode?0.9:1.2)-1e-8),label+' 真实帧循环满足引爆最小间隔');
+    ok(sorted.every((s,i)=>!i||s.begin>=sorted[i-1].clear+0.7-1e-8),label+' 后一发预警在恢复窗口+0.7s反应余量之后');
+    const gs=sorted.filter(s=>s.k==='gekko');
+    ok(gs.length>=2 && gs.every(s=>Math.abs(s.clear-s.t-2.3)<1e-8),label+' 盖克恢复界限包含1.8s蓝屏+0.5s转回');
+    ok(gs.every(s=>Math.abs(s.phases[3]-0.28)<1e-8 &&
+       Math.abs(s.phases[1]-0.25)<1e-8 &&
+       Math.abs(s.phases[2]-0.35*run('DIFF[cfg.diff].speed/1.35'))<1e-8),
+       label+' 排期保持出手后0.25s锁定、难度缩放前摇与固定电浆飞行');
+  }
+  run('match.active=false;DAILY.active=false;cfg.auto=false;resetStats(true);playing=false;');
+
+  console.log('[48] 丢丢直线匀速、飞行中锁定与发射原点');
+  for(const diff of [0,1]){
+    const label=diff?'困难':'普通';
+    gekkoReset();run(`resetStats(true);cfg.diff=${diff};contentRnd=mulberry32(2468);g=spawnFlash('gekko');`);
+    ok(run('AGENTS.gekko.travel===0.55 && g.travel>=0.55*DIFF[cfg.diff].speed*0.92 && g.travel<=0.55*DIFF[cfg.diff].speed*1.10'),
+       label+' 飞行基准0.55s，仅乘难度和既有随机抖动');
+    ok(run('Math.abs(g.lockAt-g.t0-0.25)<1e-8 && Math.abs(g.fireAt-g.lockAt-0.35*DIFF[cfg.diff].speed/1.35)<1e-8 && g.fireAt-g.t0<=0.60+1e-8 && g.fireAt<g.arriveAt'),
+       label+' 0.25s锁定，不等飞抵，普通最多0.60s已发射');
+    const samples=JSON.parse(run(`JSON.stringify(Array.from({length:41},(_,i)=>{
+      const u=i/40, p=pathAt(g,u), a=g.pts[1], b=g.home;
+      return {p,expected:{x:a.x+(b.x-a.x)*u,y:a.y+(b.y-a.y)*u,z:a.z+(b.z-a.z)*u}};
+    }))`));
+    ok(samples.every(s=>['x','y','z'].every(k=>Math.abs(s.p[k]-s.expected[k])<1e-10)),
+       label+' 41个采样逐轴等于起点到home的线性插值，无弧线/样条拐弯');
+    ok(samples.slice(1).every((s,i)=>['x','y','z'].every(k=>Math.abs((s.p[k]-samples[i].p[k])-(samples[1].p[k]-samples[0].p[k]))<1e-10)),
+       label+' 等时间步长位移相等，无缓入缓出或中途加速');
+    ok(run('JSON.stringify(pathAt(g,-0.1))===JSON.stringify(g.pts[1]) && ["x","y","z"].every(k=>Math.abs(pathAt(g,1.1)[k]-g.home[k])<1e-10)'),
+       label+' 飞行前后夹在起点和home，不外推');
+    run('T=g.lockAt-0.001;updateFlashes();');
+    ok(run('!g.locked && !g.fired'),'锁定边界前不提前锁定 '+label);
+    run('T=g.lockAt;updateFlashes();');
+    ok(run('g.locked && !g.fired && T<g.arriveAt'),'锁定边界即在飞行中锁定 '+label);
+    run('T=g.fireAt-0.001;updateFlashes();');
+    ok(run('!g.fired && dizzyPlasmas.length===0'),'发射边界前没有电浆 '+label);
+    /* 故意迟一帧：电浆原点须用计划fireAt的位置，而非当前帧位置或home。 */
+    run('T=g.fireAt+0.02;updateFlashes();');
+    ok(run('dizzyPlasmas.length===1 && ["x","y","z"].every(k=>Math.abs(dizzyPlasmas[0].from[k]-pathAt(g,(g.fireAt-g.t0)/g.travel)[k])<1e-10)'),
+       label+' 掉帧后电浆仍从计划发射时的飞行位置出发');
+    ok(run('Math.hypot(...["x","y","z"].map(k=>dizzyPlasmas[0].from[k]-g.home[k]))>0.01 && Math.hypot(...["x","y","z"].map(k=>dizzyPlasmas[0].from[k]-g.pos[k]))>0.01'),
+       label+' 原点既不是home，也不是延迟更新后的本体位置');
+    run('var plasmaOrigin=JSON.stringify(dizzyPlasmas[0].from);g.home.x+=10;g.pos.x+=10;updateFlashes();');
+    ok(run('dizzyPlasmas.length===1 && JSON.stringify(dizzyPlasmas[0].from)===plasmaOrigin'),label+' 电浆原点为独立快照，不随本体修改');
+    run('resetStats(true);spawnFlash("breach",true,T+5);var plannedDizzyAt=T+5;g=spawnFlash("gekko",true,plannedDizzyAt);');
+    ok(run('g.t0>plannedDizzyAt && Math.abs(g.lockAt-g.t0-0.25)<1e-8 && Math.abs(g.fireAt-g.lockAt-0.35*DIFF[cfg.diff].speed/1.35)<1e-8 && Math.abs(g.popAt-g.fireAt-0.28)<1e-8 && Math.abs(g.arriveAt-g.t0-g.travel)<1e-8'),
+       label+' 真实排期冲突整体后移，保留新锁定/前摇/飞行/电浆时长');
+  }
+
+  console.log('[49] 丢丢录音切分：WAV头、逐样本内容、时长');
+  /* _sfx_split 是本地原始素材，不随仓库部署；固定原始PCM哈希使CI也能
+     校验逐样本无损拼回。原件存在时另直接比较字节，不跳过任何断言。 */
+  const pcmHash=b=>require('crypto').createHash('sha256').update(b).digest('hex');
+  function readWav(fp){
+    const b=fs.readFileSync(fp);let fmt=null,data=null;
+    if(b.toString('ascii',0,4)!=='RIFF'||b.toString('ascii',8,12)!=='WAVE'||b.readUInt32LE(4)!==b.length-8) throw new Error('无效WAV头 '+fp);
+    for(let at=12;at+8<=b.length;){
+      const size=b.readUInt32LE(at+4),end=at+8+size;
+      if(end>b.length) throw new Error('WAV块越界 '+fp);
+      const id=b.toString('ascii',at,at+4);
+      if(id==='fmt ') fmt=b.subarray(at+8,end);
+      if(id==='data') data=b.subarray(at+8,end);
+      at=end+(size%2);
+    }
+    if(!fmt||fmt.length<16||!data) throw new Error('WAV缺少fmt/data '+fp);
+    return {b,fmt,data};
+  }
+  const wavs={};
+  for(const name of ['gekko_throw','gekko_lock','gekko_pop']){
+    try{ wavs[name]=readWav(path.resolve(__dirname,'..','sfx',name+'.wav')); }
+    catch(e){ console.log(e.message); }
+    const w=wavs[name];
+    ok(!!w && w.fmt.readUInt16LE(0)===1 && w.fmt.readUInt16LE(2)===1 && w.fmt.readUInt32LE(4)===44100 && w.fmt.readUInt32LE(8)===88200 && w.fmt.readUInt16LE(12)===2 && w.fmt.readUInt16LE(14)===16 && w.data.length%2===0,
+       name+' WAV头有效，保持原录音44.1kHz/16bit/单声道PCM格式');
+  }
+  const throwPCM=wavs.gekko_throw?.data,lockPCM=wavs.gekko_lock?.data,popPCM=wavs.gekko_pop?.data;
+  ok(throwPCM?.length===11025*2,'出手音恰好11025样本 = 0.25s');
+  ok(lockPCM?.length===77616*2,'锁定音保留余下77616样本 = 1.76s');
+  ok(popPCM?.length===31750*2,'命中音保留原始31750样本，时长不变');
+  const joined=throwPCM&&lockPCM?Buffer.concat([throwPCM,lockPCM]):null;
+  ok(!!joined && pcmHash(joined)==='b15408ef354d5539ca7582c1bdaef453ad076b2a7430465b384bb7f32700cb3f',
+     '出手+锁定逐样本无损拼回原录音，无重采样、间隙、重叠或淡变');
+  ok(!!popPCM && pcmHash(popPCM)==='33a3a10abbeaa921c592dab62bf47e51ac012d97cbc702028bb57ce8297ddacd' && pcmHash(wavs.gekko_pop.b)==='79c2d7bdee221700736e119e1317095d60fe03f64a80d72cf64dec6e2bd1b734',
+     '命中录音PCM与完整WAV均逐字节保持原样');
+  const originalPath=path.resolve(__dirname,'_sfx_split','gekko_throw.wav');
+  const original=fs.existsSync(originalPath)?readWav(originalPath).data:joined;
+  ok(!!original && !!throwPCM && !!lockPCM && original.subarray(0,11025*2).equals(throwPCM) && original.subarray(11025*2).equals(lockPCM),
+     '切分点精确落在原录音第11025样本，前缀用于出手、后缀用于锁定');
+
+  console.log('[50] 丢丢声音路由与弱拖尾');
+  gekkoReset();
+  run(`var savedDizzyAudio={playFile,tone,noise,sound:cfg.sound,buf:{...sfxBuf}};
+    var dizzyAudioEvents=[];cfg.sound=true;
+    for(const k of Object.keys(sfxBuf)) delete sfxBuf[k];
+    playFile=function(name){if(!sfxBuf[name]) return false;dizzyAudioEvents.push([name,T]);return true;};
+    tone=function(){dizzyAudioEvents.push(['tone',T]);};noise=function(){dizzyAudioEvents.push(['noise',T]);};
+    sfxBuf.gekko_throw={};sfxBuf.gekko_lock={};sfxBuf.gekko_pop={};`);
+  try{
+    run('T=g.t0;updateFlashes();updateFlashes();');
+    ok(run('JSON.stringify(dizzyAudioEvents.map(e=>e[0]))===JSON.stringify(["gekko_throw"])'),'出手帧仅播一次前0.25s录音');
+    run('T=g.lockAt-0.001;updateFlashes();');
+    ok(run('dizzyAudioEvents.length===1'),'锁定前不提前播后段录音');
+    run('T=g.lockAt;updateFlashes();updateFlashes();');
+    ok(run('dizzyAudioEvents.length===2 && dizzyAudioEvents[1][0]==="gekko_lock" && Math.abs(dizzyAudioEvents[1][1]-g.t0-0.25)<1e-8'),
+       '锁定边界0.25s仅播一次后段录音');
+    run('T=g.fireAt;updateFlashes();updateFlashes();');
+    ok(run('dizzyAudioEvents.length===2'),'锁定录音已含发射声，不叠播发射合成音');
+    run('T=g.popAt;updateFlashes();updateFlashes();');
+    ok(run('JSON.stringify(dizzyAudioEvents.map(e=>e[0]))===JSON.stringify(["gekko_throw","gekko_lock","gekko_pop"])'),'命中仅播一次原始pop录音，全程无合成音混入');
+    run('delete sfxBuf.gekko_lock;dizzyAudioEvents=[];sfx.dizzyLock();sfx.dizzyFire();');
+    ok(run('dizzyAudioEvents.filter(e=>e[0]==="tone").length===3 && dizzyAudioEvents.filter(e=>e[0]==="noise").length===1'),
+       '锁定素材缺失时，锁定/发射合成音各自兜底');
+    run('sfxBuf.gekko_fire={};dizzyAudioEvents=[];sfx.dizzyFire();');
+    ok(run('dizzyAudioEvents.length===1 && dizzyAudioEvents[0][0]==="gekko_fire"'),'没有锁定素材时仍支持独立发射文件');
+  }finally{
+    run('playFile=savedDizzyAudio.playFile;tone=savedDizzyAudio.tone;noise=savedDizzyAudio.noise;cfg.sound=savedDizzyAudio.sound;for(const k of Object.keys(sfxBuf)) delete sfxBuf[k];Object.assign(sfxBuf,savedDizzyAudio.buf);');
+  }
+  gekkoReset();run('T=g.t0+0.2;updateFlashes();');aim('g.pos');
+  const oldTrailArc=ctxStub.arc, trailArcs=[];
+  run('var savedTrailDizzy=drawDizzy;drawDizzy=function(){};g.trail=[0,0.09,0.181].map(age=>({...g.pos,t:T-age}));');
+  ctxStub.arc=(x,y,r)=>trailArcs.push({r,alpha:ctxStub.globalAlpha});
+  try{
+    run('drawFlashes();');
+    ok(trailArcs.length===2,'丢丢拖尾寿命0.18s，超过0.18s的点不再绘制');
+    ok(trailArcs.length===2 && Math.abs(trailArcs[0].alpha-0.5*0.16)<1e-10 && Math.abs(trailArcs[1].alpha-0.5*0.25*0.16)<1e-10,
+       '丢丢拖尾强度乘0.16，半寿命按平方衰减');
+    const rr=run('Math.max(2.5,F*0.13/toCam(g.pos).z)');
+    ok(trailArcs.length===2 && Math.abs(trailArcs[0].r-rr*0.62*0.16)<1e-10 && Math.abs(trailArcs[1].r-rr*0.36*0.16)<1e-10,
+       '丢丢拖尾半径也乘0.16，避免留下一串大亮点');
+  }finally{ctxStub.arc=oldTrailArc;run('drawDizzy=savedTrailDizzy;');}
+  run('match.active=false;DAILY.active=false;cfg.auto=false;resetStats(true);playing=false;');
+
+  console.log('[51] 丢丢录音句柄：真实播放链路、按本体清理与独立命中');
+  gekkoReset();
+  /* 只替换 WebAudio 边界，不替换 playFile/snd/sfx 或游戏逻辑。
+     stop 不同步触发 ended（浏览器异步派发）；自然结束由测试显式派发。 */
+  run(`var savedOwnedAudio={audio,bus,sound:cfg.sound,buf:{...sfxBuf}};
+    var ownedSources=[], ownedGains=[];
+    audio=function(){return {
+      createBufferSource(){
+        const src={buffer:null,onended:null,starts:0,stops:0,disconnects:0,
+          connect(dest){this.dest=dest;},
+          start(){this.starts++;this.startedAt=T;},
+          stop(){this.stops++;if(this.stops>1) throw new Error('重复 stop');},
+          disconnect(){this.disconnects++;},
+          end(){if(this.onended) this.onended();}
+        };
+        ownedSources.push(src);return src;
+      },
+      createGain(){const gain={gain:{value:0},connect(dest){this.dest=dest;}};
+        ownedGains.push(gain);return gain;}
+    };};
+    cfg.sound=true;
+    for(const k of Object.keys(sfxBuf)) delete sfxBuf[k];
+    for(const k of SFX_NAMES) sfxBuf[k]={name:k};
+    var ownedNamed=name=>ownedSources.filter(s=>s.buffer.name===name);
+    var ownedStopped=s=>s.stops===1 && s.disconnects===1 && s.onended===null;
+  `);
+  try{
+    run('var startedHandles=[];var playResult=playFile("gekko_lock",0.7,src=>startedHandles.push(src));');
+    ok(run('playResult===true && startedHandles.length===1 && startedHandles[0]===ownedSources[0] && startedHandles[0].starts===1'),
+       'playFile 保留 boolean true，回调只收到一次已启动的真实句柄');
+    ok(run('ownedSources[0].buffer===sfxBuf.gekko_lock && ownedSources[0].dest.gain.value===0.7'),
+       '句柄使用预解码缓存并保留音量路由');
+    ok(run('playFile("gekko_throw",0.9)===true'),'不传回调的旧 playFile 调用仍返回 true');
+    ok(run('playFile("missing-owned-test",1,src=>startedHandles.push(src))===false && startedHandles.length===1'),
+       '缺素材返回 false，不回调或伪造句柄');
+    run('var ownedAudioImpl=audio;audio=()=>null;');
+    ok(run('playFile("gekko_lock",1,src=>startedHandles.push(src))===false && startedHandles.length===1'),
+       '无 AudioContext 返回 false，不回调');
+    run('audio=ownedAudioImpl;var genericHandles=[];snd("missing-owned-test","throw",0.4,()=>{throw new Error("不应合成");},"flash",src=>genericHandles.push(src));');
+    ok(run('genericHandles.length===1 && genericHandles[0].buffer===sfxBuf.throw && genericHandles[0].starts===1'),
+       'snd 通用文件回退也转发 onStart');
+    run('cfg.sound=false;sfx.dizzyLock(src=>startedHandles.push(src));cfg.sound=true;');
+    ok(run('startedHandles.length===1'),'静音不调用句柄回调');
+
+    gekkoReset();run('ownedSources=[];T=g.lockAt;updateFlashes();updateFlashes();var preHandles=g.audioSources.slice();');
+    ok(run('g.locked && !g.fired && preHandles.length===2 && preHandles[0].buffer.name==="gekko_throw" && preHandles[1].buffer.name==="gekko_lock" && preHandles.every(s=>s.starts===1)'),
+       '真实出手/锁定链路登记两只句柄，重复帧不重播');
+    /* 第二只本体保留自己的录音；排期可把它推到未来，不依赖随机重叠。 */
+    run('var otherBody=spawnFlash("gekko",true,T+5);sfx.dizzyLock(src=>trackDizzySound(otherBody,src));var otherHandle=otherBody.audioSources[0];');
+    aim('g.pos');run('shoot();');
+    ok(run('g.dead && !g.fired && g.audioSources.length===0 && preHandles.every(ownedStopped)'),
+       '锁定前摇击毁停止并断开该本体全部录音，清空所有权');
+    ok(run('otherBody.audioSources.length===1 && otherBody.audioSources[0]===otherHandle && otherHandle.stops===0 && otherHandle.disconnects===0'),
+       '击毁一只不停止另一只本体的录音');
+    run('T=g.popAt+0.1;updateFlashes();updateFlashes();stopDizzySounds(g);stopDizzySounds(g);');
+    ok(run('dizzyPlasmas.length===0 && st.blinds===0 && dizzyBlindAmount()===0 && ownedNamed("gekko_pop").length===0'),
+       '前摇击毁越过原命中时刻，无电浆、蓝屏或命中录音');
+    ok(run('preHandles.every(ownedStopped) && otherHandle.stops===0'),
+       '击毁后的重复清理安全，不重复 stop/disconnect 或波及别的本体');
+
+    gekkoReset();run('ownedSources=[];T=g.fireAt+0.01;updateFlashes();var postHandles=g.audioSources.slice();var livePlasma=dizzyPlasmas[0];');
+    ok(run('g.fired && !g.dead && postHandles.length===2 && postHandles.every(s=>s.stops===0) && dizzyPlasmas.length===1'),
+       '发射后、命中前锁定录音仍在播放，电浆已独立存在');
+    aim('g.pos');run('shoot();');
+    /* 用户的规则：只要电浆已经射出，就必须有声音。录音后段本身就含发射声，
+       所以发射后击毁**不能**掐掉它（旧断言写反了，实测被报「打慢一步就没声音」）。 */
+    ok(run('g.dead && g.fired && postHandles.every(s=>s.stops===0) && g.audioSources.length===2'),
+       '发射后击毁不切断本体录音：电浆已射出就必须听得见');
+    ok(run('dizzyPlasmas.length===1 && dizzyPlasmas[0]===livePlasma && st.dodges===0 && score===0'),
+       '停止声音不撤销已发射电浆，也不送躲闪分');
+    run('T=g.popAt-0.001;updateFlashes();');
+    ok(run('st.blinds===0 && ownedNamed("gekko_pop").length===0 && dizzyPlasmas.length===1'),
+       '击毁后独立电浆不提前命中或播命中音');
+    run('T=g.popAt;updateFlashes();var postBlindEnd=dizzyBlindUntil;');
+    ok(run('st.blinds===1 && dizzyBlindAmount()===1 && dizzyPlasmas.length===0 && ownedNamed("gekko_pop").length===1'),
+       '击毁后独立电浆准时结算一次，命中录音只启动一次');
+    /* 本体已被击毁 → updateDizzy 不会再跑，所以命中时也不会去切它的录音：
+       那段录音就让它自然播完（含发射声），这正是用户要的。 */
+    run('updateFlashes();T+=0.1;updateFlashes();');
+    ok(run('st.blinds===1 && dizzyBlindUntil===postBlindEnd && ownedNamed("gekko_pop").length===1 && ownedNamed("gekko_pop")[0].stops===0 && postHandles.every(s=>s.stops===0)'),
+       '重复更新不重复命中、不延长蓝屏；已击毁本体的录音也不被命中流程切断');
+    run('for(const s of g.audioSources.slice()) s.end();');
+    ok(run('g.audioSources.length===0 && postHandles.every(s=>s.stops===0 && s.disconnects===0)'),
+       '录音自然播完即自行摘除句柄，不需要额外强制停止');
+
+    gekkoReset();run('ownedSources=[];T=g.lockAt;updateFlashes();var impactHandles=g.audioSources.slice();T=g.popAt-0.001;updateFlashes();');
+    ok(run('impactHandles.length===2 && impactHandles.every(s=>s.stops===0)'),
+       '未击毁本体的录音在真实命中前不会被提前切断');
+    run('T=g.popAt;updateFlashes();updateFlashes();');
+    /* 用户规则：电浆射出后音频必须播完。这段录音后半就是发射声，
+       命中时刻只叠加一次独立命中音，不去切断它（旧断言要求「命中即切断」，写反了）。 */
+    ok(run('!g.dead && st.blinds===1 && impactHandles.every(s=>s.stops===0) && g.audioSources.length===2'),
+       '真实命中不禁音：发射声自然播完，只叠加一次独立命中音');
+    ok(run('ownedNamed("gekko_pop").length===1 && ownedNamed("gekko_pop")[0].stops===0'),
+       '自然命中只播一次独立 pop，不被本体清理误停');
+    run('resetStats(true);');
+    ok(run('impactHandles.every(s=>s.stops===1 && s.disconnects===1)'),
+       '重开训练统一收掉仍在播的录音，且每只只停一次');
+
+    gekkoReset();run('ownedSources=[];T=g.lockAt;updateFlashes();var endedThrow=g.audioSources[0], survivingLock=g.audioSources[1];endedThrow.end();');
+    ok(run('g.audioSources.length===1 && g.audioSources[0]===survivingLock && endedThrow.stops===0 && survivingLock.stops===0'),
+       '自然 onended 只移除已结束句柄，保留同本体其他录音');
+    run('endedThrow.end();');
+    ok(run('g.audioSources.length===1 && g.audioSources[0]===survivingLock'),
+       '重复 ended 不误删仍在播放的锁定录音');
+    run('survivingLock.end();stopDizzySounds(g);stopDizzySounds(g);');
+    ok(run('g.audioSources.length===0 && endedThrow.stops===0 && survivingLock.stops===0'),
+       '全部自然结束后清理安全，不再 stop 已移除的句柄');
+
+    /* 发射后击毁的真 bug：本体已从 flashes 移除、updateDizzy 不再跑，
+       录音句柄只挂在它身上 → 重开训练时原来收不到，会跨局继续响。
+       现在重开要顺着「还在飞的电浆」把它的本体录音一并收掉。 */
+    gekkoReset();
+    run('ownedSources=[];T=g.fireAt+0.01;updateFlashes();var killedBodyHandles=g.audioSources.slice();');
+    aim('g.pos');run('shoot();T+=0.02;updateFlashes();');
+    ok(run('g.dead && flashes.every(f=>f!==g) && killedBodyHandles.length===2 && killedBodyHandles.every(s=>s.stops===0) && dizzyPlasmas.length===1'),
+       '发射后击毁：本体已退场，但录音仍在播、电浆仍在飞');
+    run('resetStats(true);resetStats(true);');
+    ok(run('killedBodyHandles.every(s=>s.stops===1 && s.disconnects===1)'),
+       '重开训练顺着飞行中的电浆收掉已击毁本体的录音（否则跨局继续响）');
+
+    for(const phase of ['lock','plasma']){
+      gekkoReset();run(`ownedSources=[];T=${phase==='lock'?'g.lockAt':'g.fireAt+0.01'};updateFlashes();var resetHandles=g.audioSources.slice();`);
+      ok(run('!g.dead && resetHandles.length===2 && resetHandles.every(s=>s.stops===0)'),phase+' 重开前确有存活本体与录音');
+      run('resetStats(true);resetStats(true);stopDizzySounds(g);T+=5;updateFlashes();');
+      ok(run('resetHandles.every(ownedStopped) && g.audioSources.length===0 && flashes.length===0'),
+         phase+' 重置停止并断开存活本体录音，重复重置安全');
+      ok(run('dizzyPlasmas.length===0 && st.blinds===0 && ownedNamed("gekko_pop").length===0'),
+         phase+' 重置后不会跨局生成电浆或命中音');
+    }
+  }finally{
+    run('resetStats(true);audio=savedOwnedAudio.audio;bus=savedOwnedAudio.bus;cfg.sound=savedOwnedAudio.sound;for(const k of Object.keys(sfxBuf)) delete sfxBuf[k];Object.assign(sfxBuf,savedOwnedAudio.buf);');
+  }
+
+  console.log('[52] 丢丢蓝幕：缓存复用与暂停绘制时钟');
+  const oldBlindDrawImage=ctxStub.drawImage, blindDrawCalls=[];
+  run('var savedBlindArtTest={art:dizzyBlindArt,T,paused,pauseT,W,H};dizzyBlindArt=null;paused=false;T=100;');
+  ctxStub.drawImage=(...args)=>blindDrawCalls.push(args);
+  try{
+    run('drawDizzyBlind(1);var firstBlindArt=dizzyBlindArt;');
+    ok(run('!!firstBlindArt && firstBlindArt.w===W && firstBlindArt.h===H') && blindDrawCalls.length===1,
+       '首次蓝幕绘制生成并使用缓存画布');
+    run('T+=0.1;drawDizzyBlind(1);');
+    ok(run('dizzyBlindArt===firstBlindArt') && blindDrawCalls[0][0]===blindDrawCalls[1][0],
+       '连续流纹逐帧复用同一缓存画布，不每帧重烘');
+    ok(JSON.stringify(blindDrawCalls[0].slice(1))!==JSON.stringify(blindDrawCalls[1].slice(1)),
+       '未暂停时蓝幕绘制随游戏时钟变化');
+    run('paused=true;pauseT=T;drawDizzyBlind(1);T+=2;drawDizzyBlind(1);');
+    ok(JSON.stringify(blindDrawCalls[2].slice(1))===JSON.stringify(blindDrawCalls[3].slice(1)),
+       '暂停时即使帧时钟前进，蓝幕实际 drawImage 坐标保持冻结');
+    run('W+=1;drawDizzyBlind(1);');
+    ok(run('dizzyBlindArt!==firstBlindArt && dizzyBlindArt.w===W') && blindDrawCalls[4][0]!==blindDrawCalls[0][0],
+       '视口尺寸改变才重建蓝幕缓存');
+  }finally{
+    ctxStub.drawImage=oldBlindDrawImage;
+    run('dizzyBlindArt=savedBlindArtTest.art;T=savedBlindArtTest.T;paused=savedBlindArtTest.paused;pauseT=savedBlindArtTest.pauseT;W=savedBlindArtTest.W;H=savedBlindArtTest.H;');
+  }
+  run('match.active=false;DAILY.active=false;cfg.auto=false;resetStats(true);playing=false;');
+
+  console.log('\n'+(fails?('有 '+fails+' 项失败'):'全部通过')+'（'+assertions+' 条断言）');
   process.exit(fails?1:0);
   })().catch(e=>{ console.log('运行时异常: '+e.message); console.log(e.stack.split('\n').slice(0,6).join('\n')); process.exit(1); });
 }catch(e){

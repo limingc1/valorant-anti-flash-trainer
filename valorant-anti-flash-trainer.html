@@ -593,7 +593,7 @@
                   <input type="range" id="rInt" min="0.3" max="1" step="0.1" value="1"></div>
               </div>
               <div class="sec" data-lockfair>
-                <h3>闪光类型 · 点击开关（后 4 种默认关闭）</h3>
+                <h3>闪光类型 · 点击开关（后 5 种默认关闭）</h3>
                 <div class="ags" id="agBox"></div>
               </div>
               <div class="sec">
@@ -790,7 +790,7 @@ const cfg={
   crossKind:0, crossColor:0, crossLen:4, crossThick:2, crossGap:2, crossDot:false,
   sound:true, blur:true, gain:0.8, flashGain:1.0, audioLead:0.25,
   musicVol:0.4, musicDuck:1, musicWhen:2,      /* 音乐盒：音量/出手声压低/播放范围(0关1仅菜单2菜单+训练) */
-  agents:{phoenix:true,skye:true,breach:true,kayo:false,yoru:false,reyna:false,vyse:false}
+  agents:{phoenix:true,skye:true,breach:true,kayo:false,yoru:false,reyna:false,vyse:false,gekko:false}
 };
 const DIFF=[
   {n:'普通',speed:1.35,tr:1.45,tele:1.55,gap:[2.3,3.8]},
@@ -813,7 +813,8 @@ const SCORE={
   dodgeStep:0.03,
   eyeHit:8,         /* 打裂蕾娜之眼 */
   eyeKill:25,       /* 摧毁蕾娜之眼 */
-  roseKill:20       /* 击毁维斯玫瑰（打断爆闪） */
+  roseKill:20,      /* 击毁维斯玫瑰（打断爆闪） */
+  dizzyKill:25      /* 发射前击毁丢丢 */
 };
 function comboMult(){ return 1+Math.min(combo,SCORE.comboCap)*SCORE.comboStep; }
 
@@ -855,14 +856,19 @@ const AGENTS={
   vyse:{zh:'维斯',en:'弧玫瑰 Arc Rose',color:'#c9a6ff',rgb:'205,170,255',
     shape:'rose',travel:1.2,popFrac:1.0,coneHalf:55,dur:[0.35,2.20],arc:0.3,vf:0.0,
     noPath:true, delay:[2.5,6.0], bloomDur:0.55, destructible:true, hp:1,
-    note:'液态金属贴墙凝成花蕊蓄势，随机延迟后突然绽放爆闪；蓄势或绽放期都能打掉它'}
+    note:'液态金属贴墙凝成花蕊蓄势，随机延迟后突然绽放爆闪；蓄势或绽放期都能打掉它'},
+  gekko:{zh:'盖克',en:'丢丢 Dizzy',color:'#57ceff',rgb:'43,183,255',
+    shape:'dizzy',travel:0.55,popFrac:1,coneHalf:180,dur:[1.8,1.8],arc:0,vf:1,
+    scan:0.25,windup:0.35,plasmaTravel:0.28,destructible:true,hp:1,
+    note:'蓝紫果冻丢丢飞到空中扫描，红膜亮起后发射电浆；无法背闪，发射前一枪击毁才能阻止致盲'}
 };
 for(const k in AGENTS) AGENTS[k].key=k;   /* 便于回查音效来源 */
 
 /* ---------- 运行状态 ---------- */
 let T=0;
 let playing=false, paused=false, pauseT=0;
-let flashes=[], pops=[];
+let flashes=[], pops=[], dizzyPlasmas=[];
+let dizzyBlindUntil=0, dizzyBlindStart=0;
 let targets=[], nextAutoAt=0, flashSeq=0, autoN=0;
 let blindUntil=0, blindDur=0, blindSrc=0, blindStart=0, blindPeak=1;
 let score=0, combo=0, shownScore=0;
@@ -1167,7 +1173,8 @@ const SFX_NAMES=[
   'breach_throw','breach_pop','breach_charge',
   'kayo_throw','kayo_pop','kayo_beep',
   'yoru_throw','yoru_pop',
-  'reyna_throw','reyna_pop'
+  'reyna_throw','reyna_pop',
+  'gekko_throw','gekko_lock','gekko_fire','gekko_pop'
 ];
 const sfxBuf={};                 /* 名称 -> 已解码的 AudioBuffer（解码一次，之后从内存零延迟播放） */
 let sfxTried=false;
@@ -1209,30 +1216,32 @@ function loadSfxFiles(){
   }
   setTimeout(sfxTag,1500);
 }
-function playFile(name,vol){
+function playFile(name,vol,onStart){
   const buf=sfxBuf[name]; if(!buf) return false;
   const a=audio(); if(!a) return false;
   const src=a.createBufferSource(); src.buffer=buf;
   const g=a.createGain(); g.gain.value=clamp(vol===undefined?1:vol,0,1);
   src.connect(g); g.connect(bus||master);
   src.start();
+  if(onStart) onStart(src);
   return true;
 }
 /* 先找特工专属音（如 phoenix_pop），再找通用音（pop），都没有才合成。
    cat='flash' 走 busFlash（受闪光音量控制），其余走 master（只受全局音量控制）。
    文件音与合成音共用同一套总线，音量滑杆对两者一视同仁。 */
-function snd(specific,generic,vol,synth,cat){
+function snd(specific,generic,vol,synth,cat,onStart){
   if(!cfg.sound) return;
   const ac=audio();
   bus = ac ? (cat==='flash' ? busFlash : master) : null;
-  if(specific && playFile(specific,vol)){ bus=null; return; }
-  if(generic  && playFile(generic,vol)){  bus=null; return; }
+  if(specific && playFile(specific,vol,onStart)){ bus=null; return; }
+  if(generic  && playFile(generic,vol,onStart)){  bus=null; return; }
   synth();
   bus = null;
 }
 
 /* 每种闪光的引爆音色（合成回退用，尽量贴近各技能的手感） */
 const POP_SYNTH={
+  gekko(){ noise(0.26,0.28,3200,300); tone(210,0.30,'sine',0.09,75); tone(880,0.12,'triangle',0.04,270); },
   phoenix(){ noise(0.50,0.55,7000,260); tone(170,0.45,'sine',0.09,62); },
   skye(){    noise(0.26,0.40,9000,1500); tone(2300,0.16,'triangle',0.06,900); tone(3600,0.09,'sine',0.03,1800); },
   breach(){  noise(0.58,0.62,2600,95);  tone(72,0.60,'sine',0.15,42); tone(250,0.22,'square',0.04,84); },
@@ -1242,6 +1251,7 @@ const POP_SYNTH={
   vyse(){    noise(0.50,0.40,9000,700); tone(2400,0.30,'sine',0.08,300); tone(120,0.42,'sine',0.14,50); }
 };
 const THROW_SYNTH={
+  gekko(){ tone(340,0.22,'sine',0.06,820); tone(680,0.16,'triangle',0.035,1200); noise(0.12,0.08,1200,2600); },
   phoenix(){ noise(0.16,0.22,500,1800); tone(320,0.10,'triangle',0.05,180); },
   skye(){    noise(0.13,0.15,900,2600); tone(780,0.09,'triangle',0.05,1250); },
   breach(){  tone(185,0.15,'sawtooth',0.05,92); noise(0.10,0.12,900,300); },
@@ -1256,7 +1266,9 @@ const THROW_SYNTH={
 };
 
 const sfx={
-  throw(k){ snd(k?k+'_throw':null,'throw',0.95,()=>(THROW_SYNTH[k]||THROW_SYNTH.phoenix)(),'flash'); },
+  dizzyLock(onStart){ snd('gekko_lock',null,0.85,()=>{ tone(640,0.16,'sine',0.06,1100); tone(1280,0.22,'triangle',0.035,1650); },'flash',onStart); },
+  dizzyFire(){ if(sfxBuf.gekko_lock) return; snd('gekko_fire',null,0.95,()=>{ noise(0.16,0.20,3000,650); tone(780,0.20,'sine',0.08,180); },'flash'); },
+  throw(k,onStart){ snd(k?k+'_throw':null,'throw',0.95,()=>(THROW_SYNTH[k]||THROW_SYNTH.phoenix)(),'flash',onStart); },
   beep(k){  snd(k?k+'_beep':null,'beep',0.85,()=>tone(1250,0.045,'square',0.07),'flash'); },
   pop(k){   snd(k?k+'_pop':null,'pop',1,()=>(POP_SYNTH[k]||POP_SYNTH.phoenix)(),'flash'); },
   hit(){    snd(null,'hit',0.9,()=>tone(880,0.07,'square',0.10,1400)); },
@@ -1867,6 +1879,7 @@ function catmull(p0,p1,p2,p3,t){
 }
 function pathAt(f,u){
   const p=f.pts, uu=clamp(u,0,1);
+  if(f.a.shape==='dizzy') return {x:lerp(p[1].x,f.home.x,uu),y:lerp(p[1].y,f.home.y,uu),z:lerp(p[1].z,f.home.z,uu)};
   const seg=uu*(p.length-3);
   const i=Math.min(Math.floor(seg),p.length-4), t=seg-i;
   return{
@@ -1908,7 +1921,7 @@ function flashImpactAt(f){ return f.a.nearsight?f.openAt:f.popAt; }
 function shiftFlashPlan(f,dt){
   /* launchAt 是「计划出手时刻」这个锚点本身，不能跟着平移 ——
      否则蕾娜的 openAt−launchAt（睁眼延迟）会被越拉越长。 */
-  for(const k of ['t0','arriveAt','popAt','openAt','dieAt','turnAt','bloomAt'])
+  for(const k of ['t0','arriveAt','popAt','openAt','dieAt','turnAt','bloomAt','lockAt','fireAt'])
     if(k==='t0'||f[k]) f[k]+=dt;
 }
 function reserveFlash(f){
@@ -2028,10 +2041,14 @@ function spawnFlash(key,scheduled=false,at_){
   if(a.noPath) E=P(side*grand(0.15,0.95), grand(0.3,1.5), 6.15);   /* 凭空出现，没有飞行段 */
   /* 维斯：贴墙放置 —— x 落在拱门两侧的实墙面上（|x|>拱门半宽），z 紧贴墙面朝玩家一侧 */
   if(a.shape==='rose') E=P(side*grand(1.95,3.35), grand(0.25,1.75), ROOM.zW-0.05);
+  if(a.shape==='dizzy'){
+    E=P(-side*grand(0.25,1.10),grand(0.35,1.45),4.5);
+    S=P(side*1.25,0.05,ROOM.zW-0.15);
+  }
 
   /* 曲球：先朝拐角「外侧」抛出去，x 越过最外点后反向绕回门洞 —— 真正的回头弧。
      普通闪光仍是斜穿门洞的单向弧。控制点等距排布，拐点落在 u=0.5 上。 */
-  let pts=[S,S,A,B,E,E], turnPos=null;
+  let pts=a.shape==='dizzy'?[S,S,P(side*0.7,0.7,5.9),P(0,1.2,5.1),E,E]:[S,S,A,B,E,E], turnPos=null;
   if(a.hook){
     /* 8 点 = 5 段，曲线依次穿过 u = 0/.2/.4/.6/.8/1。
        两条硬约束：
@@ -2061,6 +2078,13 @@ function spawnFlash(key,scheduled=false,at_){
     hp: a.hp||1, hitAt:0,
     turnPos, turnAt: turnPos?T+travel*0.5:0
   };
+  if(a.shape==='dizzy'){
+    const pace=d.speed/1.35;
+    f.lockAt=f.t0+a.scan;
+    f.fireAt=f.lockAt+a.windup*pace;
+    f.popAt=f.fireAt+a.plasmaTravel;
+    f.locked=false; f.fired=false;
+  }
   /* 维斯蓄势：放置后先藏成半透明花蕊，随机延迟后才突然绽放 → 引爆。
      延迟走 hash01（不消耗内容流），难度越高蓄势越短。 */
   if(a.delay){
@@ -2086,7 +2110,7 @@ function spawnFlash(key,scheduled=false,at_){
      audOff = 从 t0 起到该出声的秒数 = 球可见时刻 - 提前量。
      存相对 t0 的偏移而非绝对时刻，shiftTime(暂停补时) 挪 t0 时自动跟着走，天然免疫暂停。
      breach/reyna t=0 就有画面，audOff=0（不提前，也没有可提前）；提前量只对飞行型生效。 */
-  if(a.noPath || a.throughWall){
+  if(a.noPath || a.throughWall || a.shape==='dizzy'){
     f.audOff=0; f.audioPlayed=false;
   }else{
     const visMul=[1.45,0.70,0][cfg.vis];
@@ -2117,6 +2141,7 @@ function reflickStart(now){
   let t=now;
   if(blindUntil>t) t=Math.max(t, blindUntil-0.35*blindDur);   // amount 降到 0.35 的时刻
   if(nearUntil>t)  t=Math.max(t, nearUntil-0.07);             // 近视退潮最后 ~0.45s×0.15
+  if(dizzyBlindUntil>t) t=Math.max(t,dizzyBlindUntil-0.35*0.45);
   return t;
 }
 function popFlash(f){
@@ -2177,6 +2202,71 @@ function popFlash(f){
   }
   updateStats();
 }
+/* 丢丢的录音句柄双重登记：
+   ① 挂在它自己的 audioSources 上 —— 发射前击毁时只静音这一只；
+   ② 同时进全局 dizzyAudios —— 重开训练时统一收尾。
+   只有 ① 会漏：本体被击毁后从 flashes 移除、电浆命中后也从 dizzyPlasmas 出队，
+   而录音最长约 2s，那之后重开就没人认领它，会跨局继续响（实测踩过）。 */
+let dizzyAudios=[];
+function trackDizzySound(f,src){
+  if(!f.audioSources) f.audioSources=[];
+  f.audioSources.push(src);
+  dizzyAudios.push(src);
+  src.onended=()=>{
+    f.audioSources=f.audioSources.filter(s=>s!==src);
+    dizzyAudios=dizzyAudios.filter(s=>s!==src);
+  };
+}
+function stopDizzySounds(f){
+  const sources=f.audioSources||[];
+  f.audioSources=[];
+  for(const src of sources) stopDizzySource(src);
+}
+function stopDizzySource(src){
+  dizzyAudios=dizzyAudios.filter(s=>s!==src);
+  src.onended=null;
+  try{ src.stop(); src.disconnect(); }catch(e){}
+}
+function stopAllDizzySounds(){
+  /* 先按本体清（顺带把各自的 audioSources 数组清空），再兜底清全局表 ——
+     后者负责那些本体已被击毁、已经没人指着的句柄。 */
+  for(const f of flashes) if(f.a.shape==='dizzy') stopDizzySounds(f);
+  for(const src of dizzyAudios.slice()) stopDizzySource(src);
+  dizzyAudios=[];
+}
+function updateDizzy(f){
+  if(!f.locked && T>=f.lockAt){
+    f.locked=true; sfx.dizzyLock(src=>trackDizzySound(f,src));
+  }
+  if(!f.fired && T>=f.fireAt){
+    f.fired=true;
+    /* 电浆独立于本体存活，发射后击毁不能撤销命中。 */
+    dizzyPlasmas.push({from:pathAt(f,(f.fireAt-f.t0)/f.travel),fireAt:f.fireAt,hitAt:f.popAt,dur:f.a.dur[1]});
+    sfx.dizzyFire();
+  }
+  if(T>=f.popAt+0.45){ f.popped=true; f.dead=true; f.deadAt=T; }
+}
+function updateDizzyPlasmas(){
+  for(const p of dizzyPlasmas){
+    if(p.hit || T<p.hitAt) continue;
+    p.hit=true;
+    dizzyBlindStart=p.hitAt;
+    dizzyBlindUntil=Math.max(dizzyBlindUntil,p.hitAt+p.dur);
+    st.blinds++; combo=0;
+    reflickBase=reflickStart(T);
+    /* 这里的录音**故意不掐断**：用户要求「电浆发射了就必须有音频」。
+       后段录音（锁定→发射）本身就是发射声，命中时刻只叠加一次命中音，
+       让发射声自然播完 —— 早期版本在命中处切断，实测被报「打慢一步就没声音」。 */
+    sfx.pop('gekko');
+    log('丢丢电浆命中 · 无法背闪，需在发射前击毁','b');
+    updateStats();
+  }
+  dizzyPlasmas=dizzyPlasmas.filter(p=>!p.hit);
+}
+function dizzyBlindAmount(){
+  const now=paused?pauseT:T;
+  return clamp((dizzyBlindUntil-now)/0.45,0,1);
+}
 function updateFlashes(){
   for(const f of flashes){
     if(T<f.t0) continue;
@@ -2199,9 +2289,13 @@ function updateFlashes(){
          掉帧时画面和这个判定同一套时钟一起慢，不会各走各的。 */
       if(!f.audioPlayed && T-f.t0>=f.audOff){
         f.audioPlayed=true;
-        sfx.throw(f.a.key);
+        sfx.throw(f.a.key,f.a.shape==='dizzy'?src=>trackDizzySound(f,src):undefined);
       }
 
+      if(f.a.shape==='dizzy'){
+        updateDizzy(f);
+        continue;
+      }
       /* 蓄势期只是一枚半透明花蕊、还不算「看得见」：反应与躲闪计时都从绽放开算，
          否则玩家在蓄势期间随手转个身，就会把「转身反应」统计成 0ms。 */
       const armed = !f.bloomAt || T>=f.bloomAt;
@@ -2218,6 +2312,7 @@ function updateFlashes(){
     }
     if(f.popped && T>f.deadAt+1.2) f.dead=true;
   }
+  updateDizzyPlasmas();
   flashes=flashes.filter(f=>!f.dead);
   pops=pops.filter(p=>T-p.t<p.dur);
 }
@@ -2328,12 +2423,17 @@ function replaceTarget(i){        /* 只补这一个，其余靶点保持原位�
 function shoot(){
   if(!playing||paused||roundOver) return;
   st.shots++;
-  const blind=blindAmount();
+  const blind=Math.max(blindAmount(),dizzyBlindAmount());
 
   /* 可击毁目标：蕾娜之眼（两下）/ 维斯玫瑰（一下）。
      玫瑰在蓄势期和绽放期都能打：打掉即终止生成，绝不再爆闪。 */
   for(const f of flashes){
     if(T>=f.t0 && f.a.destructible && !f.popped && f.opened){   /* 眼睛睁开后才可以打 */
+      if(f.a.shape==='dizzy'){
+        f.pos=pathAt(f,clamp((T-f.t0)/f.travel,0,1));
+        updateDizzy(f);                    /* 点击可能发生在下一帧前，按发射时间裁决 */
+        if(f.dead || blind>0.35 || !flashVisible(f.pos)) continue;
+      }
       const d=len3(f.pos);
       if(angleTo(f.pos) <= Math.atan(0.26/d)*DEG+0.3){
         f.hp--; f.hitAt=T;
@@ -2346,6 +2446,19 @@ function shoot(){
         pops.push({x:f.pos.x,y:f.pos.y,z:f.pos.z,t:T,rgb:f.a.rgb,dur:0.5});
         sfx.breakEye();
         st.hits++;                    /* 击毁算有效命中，不再拉低命中率 */
+        if(f.a.shape==='dizzy'){
+          /* 只有「发射前」击毁才静音：录音后段本身就是发射/命中声，
+             发射后再打掉本体必须让它继续响（玩家听得见电浆已经出来了）。 */
+          if(!f.fired){
+            stopDizzySounds(f);
+            addScore(SCORE.dizzyKill); st.dodges++;
+            const db=st.by.gekko||(st.by.gekko={n:0,dg:0}); db.dg++;
+            combo++; if(combo>st.best) st.best=combo;
+            reflickBase=reflickStart(T);
+            log('发射前击毁丢丢 · 电浆已打断   +'+SCORE.dizzyKill,'c');
+          }else log('击毁丢丢 · 电浆已射出，仍会命中','y');
+          updateStats(); return;
+        }
         if(f.a.shape==='rose'){
           /* 打断爆闪：用枪解决掉，算一次成功的应对（躲闪率分母已经记过这发闪光） */
           addScore(SCORE.roseKill);
@@ -2990,6 +3103,259 @@ function drawWallCharges(f){
 function chargeTime(){ return 0.62*DIFF[cfg.diff].tele; }
 
 const TRAIL_LIFE=0.80;               /* 拖尾时长（秒） */
+function dizzyRenderTime(){ return paused ? pauseT : T; }
+
+function drawDizzy(sx,sy,r,f){
+  if(!(r>0) || !Number.isFinite(r)) return;
+  f=f||{};
+  const now=dizzyRenderTime();
+  const lockAt=Number.isFinite(f.lockAt)?f.lockAt:Infinity;
+  const fireAt=Number.isFinite(f.fireAt)?f.fireAt:Infinity;
+  const locked=now>=lockAt && !f.fired;
+  const charge=locked && Number.isFinite(fireAt)
+    ?clamp((now-lockAt)/Math.max(0.001,fireAt-lockAt),0,1):0;
+  const pulse=locked ? 0.5+0.5*Math.sin((now-lockAt)*19) : 0;
+  const scan=locked || f.fired ? 0 : Math.sin(now*1.9)*0.10;
+  const alpha=ctx.globalAlpha;
+  ctx.save();
+  try{
+    ctx.translate(sx,sy);
+    const R=r, fin=Math.sin(now*3.1)*R*0.055;
+    ctx.lineCap='round'; ctx.lineJoin='round';
+    const shell=R*1.18;
+    glowDot(0,0,shell*1.3,'255,62,99',alpha*(locked?0.10+0.035*pulse:0.045));
+    const back=ctx.createRadialGradient(-shell*0.32,-shell*0.38,shell*0.05,0,0,shell);
+    back.addColorStop(0,'rgba(174,170,230,0.20)');
+    back.addColorStop(0.52,'rgba(84,65,143,0.32)');
+    back.addColorStop(0.84,'rgba(159,32,72,0.48)');
+    back.addColorStop(1,'rgba(255,87,111,0.84)');
+    ctx.beginPath(); ctx.arc(0,0,shell,0,Math.PI*2);
+    ctx.fillStyle=back; ctx.fill();
+    ctx.save(); ctx.clip();
+    ctx.translate(R*0.02,R*0.03);
+    ctx.scale(0.70+0.022*Math.sin(now*1.4),0.72);
+
+    /* 小兽：圆润一团 + 两只小圆耳 + 短尾鳍 + 小圆手，整体走"萌"的轮廓。
+       眼睛是参考图里的黄虹膜红瞳单眼，锁定后瞳孔收窄、嘴巴聚起青色电浆。 */
+    const wob=1+0.035*Math.sin(now*2.6);                 /* 轻微呼吸感 */
+    const body=ctx.createRadialGradient(-R*0.30,-R*0.44,R*0.06,0,R*0.05,R*1.02);
+    body.addColorStop(0,'#dff2ff');
+    body.addColorStop(0.22,'#7cc4fb');
+    body.addColorStop(0.52,'#3f8bee');
+    body.addColorStop(0.80,'#2b4fc8');
+    body.addColorStop(1,'#4a35b4');
+    /* 尾巴与耳：先画轮廓底层，再压身体，交界处自然融合 */
+    ctx.fillStyle='#5f6fe0';
+    ctx.strokeStyle='rgba(180,222,255,0.60)'; ctx.lineWidth=R*0.03;
+    ctx.beginPath();
+    ctx.moveTo(R*0.60,R*0.46);
+    ctx.bezierCurveTo(R*0.90,R*0.70,R*1.02,R*0.28,R*0.94,-R*0.10+fin*0.5);
+    ctx.bezierCurveTo(R*1.16,R*0.14,R*1.00,R*0.82,R*0.54,R*0.78);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    for(const ex0 of [-R*0.40,R*0.36]){
+      ctx.beginPath();
+      ctx.ellipse(ex0,-R*0.74,R*0.20,R*0.30,ex0<0?-0.24:0.24,0,Math.PI*2);
+      ctx.fillStyle='#7fb6f2'; ctx.fill(); ctx.stroke();
+    }
+    /* 身体：近圆的胖团，底边略宽 */
+    ctx.beginPath();
+    ctx.moveTo(-R*0.90,-R*0.10);
+    ctx.bezierCurveTo(-R*0.94,-R*0.86,-R*0.30,-R*1.06,R*0.22-wob*R*0.02,-R*0.84);
+    ctx.bezierCurveTo(R*0.86,-R*0.62,R*0.94,-R*0.02,R*0.78,R*0.42);
+    ctx.bezierCurveTo(R*0.62,R*0.88,R*0.02,R*1.00,-R*0.36,R*0.84);
+    ctx.bezierCurveTo(-R*0.80,R*0.66,-R*0.88,R*0.30,-R*0.90,-R*0.10);
+    ctx.closePath();
+    ctx.fillStyle=body; ctx.fill();
+    ctx.strokeStyle='rgba(196,236,255,0.88)'; ctx.lineWidth=R*0.05; ctx.stroke();
+    /* 小圆手，贴在身体两侧 */
+    ctx.fillStyle='#6cb0f0';
+    for(const [hx,hy] of [[-R*0.80,R*0.30],[R*0.74,R*0.24]]){
+      ctx.beginPath(); ctx.ellipse(hx,hy,R*0.17,R*0.13,hy>R*0.28?-0.3:0.3,0,Math.PI*2);
+      ctx.fill(); ctx.stroke();
+    }
+    /* 顶部高光 + 底部反光：让这团看起来是软弹的胶质 */
+    ctx.beginPath();
+    ctx.ellipse(-R*0.30,-R*0.50,R*0.34,R*0.15,-0.42,0,Math.PI*2);
+    ctx.fillStyle='rgba(235,250,255,0.34)'; ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(R*0.16,R*0.60,R*0.46,R*0.16,0.10,0,Math.PI*2);
+    ctx.fillStyle='rgba(150,120,255,0.28)'; ctx.fill();
+    /* 大眼：深色眶 + 黄虹膜 + 红瞳 + 双高光 */
+    const ex=R*(-0.17+scan), ey=-R*0.20, eR=R*0.40;
+    ctx.beginPath(); ctx.arc(ex,ey,eR*1.10,0,Math.PI*2);
+    ctx.fillStyle='#2f2a6b'; ctx.fill();
+    const iris=ctx.createRadialGradient(ex-eR*0.24,ey-eR*0.30,eR*0.06,ex,ey,eR);
+    iris.addColorStop(0,'#fffbcf'); iris.addColorStop(0.52,'#ffd23f');
+    iris.addColorStop(0.88,'#f5a623'); iris.addColorStop(1,'#d9821a');
+    ctx.beginPath(); ctx.arc(ex,ey,eR,0,Math.PI*2);
+    ctx.fillStyle=iris; ctx.fill();
+    ctx.strokeStyle='rgba(255,246,190,0.80)'; ctx.lineWidth=R*0.03; ctx.stroke();
+    const pupilR=eR*(locked?0.40:0.44);
+    ctx.beginPath(); ctx.arc(ex+eR*0.06,ey+eR*0.04,pupilR,0,Math.PI*2);
+    ctx.fillStyle=locked?'#ff3b52':'#e0314d'; ctx.fill();
+    ctx.beginPath(); ctx.arc(ex-eR*0.26,ey-eR*0.34,eR*0.24,0,Math.PI*2);
+    ctx.fillStyle='rgba(255,255,255,0.96)'; ctx.fill();
+    ctx.beginPath(); ctx.arc(ex+eR*0.30,ey+eR*0.34,eR*0.11,0,Math.PI*2);
+    ctx.fillStyle='rgba(255,255,255,0.62)'; ctx.fill();
+    /* 腮红 + 小嘴（锁定后张开聚能） */
+    ctx.beginPath(); ctx.ellipse(-R*0.60,R*0.22,R*0.15,R*0.09,-0.2,0,Math.PI*2);
+    ctx.fillStyle='rgba(255,124,178,0.36)'; ctx.fill();
+    const mx=R*0.34, my=R*0.50, mo=locked?0.14+charge*0.09:0.10;
+    ctx.beginPath(); ctx.ellipse(mx,my,R*0.16,R*mo,-0.12,0,Math.PI*2);
+    ctx.fillStyle='rgba(46,42,110,0.92)'; ctx.fill();
+    ctx.strokeStyle='rgba(150,232,255,0.55)'; ctx.lineWidth=R*0.028; ctx.stroke();
+    if(locked){
+      const cr=R*(0.06+charge*0.13);
+      glowDot(mx,my,cr*3.0,'58,239,255',alpha*(0.28+charge*0.50));
+      ctx.beginPath(); ctx.arc(mx,my,cr,0,Math.PI*2);
+      ctx.fillStyle='#57ecff'; ctx.fill();
+      ctx.beginPath(); ctx.arc(mx-cr*0.24,my-cr*0.24,cr*0.46,0,Math.PI*2);
+      ctx.fillStyle='#e8ffff'; ctx.fill();
+    }
+    ctx.restore();
+    /* 背面、小兽、前膜分层；偏心高光和球缘消光形成球体体积。 */
+    const front=ctx.createRadialGradient(-shell*0.28,-shell*0.32,shell*0.10,0,0,shell);
+    front.addColorStop(0,'rgba(230,230,255,0.035)');
+    front.addColorStop(0.62,'rgba(139,103,197,0.04)');
+    front.addColorStop(0.88,'rgba(106,18,59,0.28)');
+    front.addColorStop(1,'rgba(255,88,112,0.67)');
+    ctx.beginPath(); ctx.arc(0,0,shell,0,Math.PI*2);
+    ctx.fillStyle=front; ctx.fill();
+    ctx.strokeStyle=locked?'rgba(255,123,144,0.95)':'rgba(255,102,135,0.75)';
+    ctx.lineWidth=Math.max(0.7,R*0.028); ctx.stroke();
+    const shine=ctx.createRadialGradient(-shell*0.35,-shell*0.42,0,-shell*0.35,-shell*0.42,shell*0.48);
+    shine.addColorStop(0,'rgba(255,241,250,0.58)');
+    shine.addColorStop(0.36,'rgba(255,218,239,0.24)');
+    shine.addColorStop(1,'rgba(255,200,223,0)');
+    ctx.fillStyle=shine; ctx.beginPath(); ctx.arc(0,0,shell,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(0,0,shell*0.93,3.65,4.65);
+    ctx.strokeStyle='rgba(255,223,239,0.80)'; ctx.lineWidth=R*0.045; ctx.stroke();
+    ctx.beginPath(); ctx.arc(0,0,shell*0.94,0.40,1.26);
+    ctx.strokeStyle='rgba(128,176,255,0.50)'; ctx.lineWidth=R*0.023; ctx.stroke();
+  }finally{ ctx.restore(); }
+}
+
+function drawDizzyPlasma(p){
+  if(!p || !p.from || !Number.isFinite(p.fireAt) || !Number.isFinite(p.hitAt)) return;
+  const now=dizzyRenderTime(), duration=p.hitAt-p.fireAt;
+  if(duration<=0 || now<p.fireAt || now>=p.hitAt) return;
+  const u=clamp((now-p.fireAt)/duration,0,1);
+  const origin=toCam(p.from);
+  const at=t=>({x:lerp(origin.x,0,t),y:lerp(origin.y,0,t),z:lerp(origin.z,0,t)});
+  const tip=at(u);
+  if(!(tip.z>NEAR)) return;
+  const s=proj(tip), R=Math.min(F*0.065/tip.z,Math.max(W,H)*0.38);
+  if(!Number.isFinite(s.x+s.y+R) || !(R>0)) return;
+  const alpha=ctx.globalAlpha;
+  ctx.save();
+  try{
+    for(let i=5;i>=1;i--){
+      const t=Math.max(0,u-i*0.025/Math.max(duration,0.001));
+      if(t===u) continue;
+      const c=at(t); if(c.z<=NEAR) continue;
+      const q=proj(c), rr=Math.min(R,F*0.05/c.z)*(1-i*0.10);
+      glowDot(q.x,q.y,rr*2.0,'53,188,255',alpha*(0.22-i*0.027));
+    }
+    ctx.translate(s.x,s.y);
+    glowDot(0,0,R*2.6,'45,219,255',alpha*0.58);
+    ctx.beginPath(); ctx.ellipse(0,0,R,R*0.86,now*3,0,Math.PI*2);
+    const gel=ctx.createRadialGradient(-R*0.23,-R*0.24,0,0,0,R);
+    gel.addColorStop(0,'#edffff'); gel.addColorStop(0.28,'#94ffff');
+    gel.addColorStop(0.64,'#31d7f4'); gel.addColorStop(1,'rgba(64,96,242,0.66)');
+    ctx.fillStyle=gel; ctx.fill();
+    ctx.strokeStyle='rgba(165,255,255,0.92)'; ctx.lineWidth=Math.max(0.7,R*0.07); ctx.stroke();
+  }finally{ ctx.restore(); }
+}
+
+let dizzyBlindArt=null;
+function dizzyMakeBlindArt(){
+  const scale=Math.min(1,1400/Math.max(W,H));
+  const cv=document.createElement('canvas');
+  cv.width=Math.max(1,Math.round(W*scale)); cv.height=Math.max(1,Math.round(H*scale));
+  const g=cv.getContext('2d');
+  if(!g) return null;
+  const w=cv.width,h=cv.height,m=Math.min(w,h),tau=Math.PI*2;
+  function contour(k,phase){
+    g.beginPath();
+    for(let i=0;i<=256;i++){
+      const a=i/256*tau, c=Math.cos(a),s=Math.sin(a);
+      const lobe=0.958+0.024*Math.sin(7*a+0.6)+0.016*Math.sin(11*a-0.8);
+      const twist=(1-k)*1.85;
+      const warp=k*(1-k)*(0.039*Math.sin(3*a+phase)+0.021*Math.cos(5*a-phase));
+      const x=w*(0.5+0.475*(k*lobe*Math.sign(c)*Math.pow(Math.abs(c),0.57)+warp*Math.cos(a+twist)))
+        +w*0.045*(1-k)*Math.sin(twist);
+      const y=h*(0.5+0.472*(k*lobe*Math.sign(s)*Math.pow(Math.abs(s),0.60)+warp*Math.sin(a+twist)))
+        -h*0.040*(1-k)*Math.cos(twist);
+      if(i===0) g.moveTo(x,y); else g.lineTo(x,y);
+    }
+    g.closePath();
+  }
+  g.save();
+  try{
+    contour(1,0);
+    const base=g.createRadialGradient(w*0.44,h*0.42,m*0.04,w*0.52,h*0.53,Math.max(w,h)*0.56);
+    base.addColorStop(0,'#1acbef'); base.addColorStop(0.38,'#12abea');
+    base.addColorStop(0.72,'#159bd3'); base.addColorStop(1,'#47eafa');
+    g.fillStyle=base; g.fill(); // Fully opaque interior at amt=1; no central holes.
+    g.save();
+    g.clip();
+    const wash=g.createRadialGradient(w*0.30,h*0.25,0,w*0.30,h*0.25,m*0.65);
+    wash.addColorStop(0,'rgba(95,252,255,0.37)'); wash.addColorStop(1,'rgba(41,86,193,0)');
+    g.fillStyle=wash; g.fillRect(0,0,w,h);
+    for(let patch=0;patch<20;patch++){
+      const px=w*((patch%5+0.5)/5+0.035*Math.sin(patch*2.3));
+      const py=h*((Math.floor(patch/5)+0.5)/4+0.045*Math.cos(patch*1.7));
+      g.save(); g.translate(px,py); g.rotate(patch*1.9);
+      for(let ring=9;ring>=1;ring--){
+        const rad=m*(0.014+ring*0.018);
+        g.beginPath();
+        for(let j=0;j<=100;j++){
+          const a=j/100*tau;
+          const ripple=1+0.18*Math.sin(3*a+patch)+0.10*Math.cos(5*a-ring*0.19);
+          const x=Math.cos(a)*rad*ripple*(1.0+0.4*Math.sin(patch));
+          const y=Math.sin(a)*rad*ripple*0.66;
+          if(!j) g.moveTo(x,y); else g.lineTo(x,y);
+        }
+        g.closePath();
+        g.strokeStyle=ring%2?'rgba(0,103,224,0.32)':'rgba(43,231,250,0.43)';
+        g.lineWidth=m*0.009; g.stroke();
+      }
+      g.restore();
+    }
+    contour(0.995,0); g.strokeStyle='rgba(101,255,255,0.92)';
+    g.lineWidth=Math.max(2,m*0.006); g.stroke();
+    contour(0.978,0); g.strokeStyle='rgba(182,255,255,0.45)';
+    g.lineWidth=Math.max(0.8,m*0.0018); g.stroke();
+    for(let i=0;i<22;i++){
+      const a=i*tau/22+0.08*Math.sin(i*2.7),c=Math.cos(a),s=Math.sin(a);
+      const x=w*(0.5+0.484*Math.sign(c)*Math.pow(Math.abs(c),0.57));
+      const y=h*(0.5+0.483*Math.sign(s)*Math.pow(Math.abs(s),0.60));
+      const rr=m*(0.0035+0.005*(0.5+0.5*Math.sin(i*5.3)));
+      g.beginPath(); g.ellipse(x,y,rr,rr*(1.1+0.3*Math.sin(i)),a,0,tau);
+      g.fillStyle='rgba(37,190,227,0.85)'; g.fill();
+      g.strokeStyle='rgba(143,255,255,0.86)'; g.lineWidth=Math.max(0.7,m*0.0012); g.stroke();
+      g.beginPath(); g.arc(x-rr*0.25,y-rr*0.3,rr*0.24,0,tau);
+      g.fillStyle='rgba(224,255,255,0.9)'; g.fill();
+    }
+  }finally{ g.restore(); }
+  return {w:W,h:H,canvas:cv};
+}
+
+function drawDizzyBlind(amt){
+  if(!Number.isFinite(amt) || amt<=0 || !(W>0 && H>0)) return;
+  amt=clamp(amt,0,1);
+  if(!dizzyBlindArt || dizzyBlindArt.w!==W || dizzyBlindArt.h!==H)
+    dizzyBlindArt=dizzyMakeBlindArt();
+  if(!dizzyBlindArt) return;
+  const now=dizzyRenderTime();
+  const scale=0.985+0.015*amt+0.002*Math.sin(now*2.2);
+  ctx.save();
+  try{
+    ctx.globalAlpha*=amt;
+    ctx.globalCompositeOperation='source-over';
+    ctx.drawImage(dizzyBlindArt.canvas,(W-W*scale)/2,(H-H*scale)/2,W*scale,H*scale);
+  }finally{ ctx.restore(); }
+}
 function drawFlashes(){
   const visMul=[1.45,0.70,0][cfg.vis];
   for(const f of flashes){
@@ -3015,7 +3381,7 @@ function drawFlashes(){
       }
     }
 
-    if(!f.a.noPath){                       /* 凭空出现型（蕾娜）没有飞行段，也就没有轨迹可藏 */
+    if(!f.a.noPath && f.a.shape!=='dizzy'){ /* 凭空出现型（蕾娜）没有飞行段，也就没有轨迹可藏 */
       const fromU=f.popFrac-(f.a.vf||0.25)*visMul;
       if(u<fromU) continue;
     }
@@ -3034,10 +3400,11 @@ function drawFlashes(){
        KO 压到 30%（用户对照游戏模型：罐体本身不发光，轨迹不该那么显眼）。
        注意 trail 仍然照常记录，velAngle() 要靠它算束的方向。 */
     if(!f.a.noPath && kind!=='curve'){
-      const tMul=kind==='cassette'?0.30:1;
+      const tMul=kind==='dizzy'?0.16:kind==='cassette'?0.30:1;
+      const trailLife=kind==='dizzy'?0.18:TRAIL_LIFE;
       for(let i=0;i<f.trail.length;i++){
         const tp=f.trail[i];
-        const age=(T-tp.t)/TRAIL_LIFE;
+        const age=(T-tp.t)/trailLife;
         if(age>1) continue;
         const w=1-age;
         const tc=toCam(tp); if(tc.z<NEAR) continue;
@@ -3049,7 +3416,9 @@ function drawFlashes(){
     }
     ctx.globalAlpha=1;
 
-    if(kind==='orb'){
+    if(kind==='dizzy'){
+      drawDizzy(s.x,s.y,rr*2,f);
+    }else if(kind==='orb'){
       const R2=rr*3.2;
       ctx.drawImage(orbSprite(f.a.rgb), s.x-R2, s.y-R2, R2*2, R2*2);
       ctx.fillStyle='#fff';
@@ -3081,6 +3450,8 @@ function drawFlashes(){
     }
     ctx.restore();
   }
+
+  for(const p of dizzyPlasmas) drawDizzyPlasma(p);
 
   /* 引爆爆闪 */
   for(const p of pops){
@@ -3159,7 +3530,7 @@ function drawCrosshair(){
   const col=(CROSS_COLORS[cfg.crossColor]||CROSS_COLORS[0]).c;
   const len=cfg.crossLen, th=cfg.crossThick, gap=cfg.crossGap;
   ctx.save();
-  ctx.globalAlpha = blindAmount()>0.05 ? 0.18 : 1;   /* 致盲时压暗，跟原来一致 */
+  ctx.globalAlpha = Math.max(blindAmount(),dizzyBlindAmount())>0.05 ? 0.18 : 1;   /* 致盲时压暗，跟原来一致 */
   ctx.lineCap='butt';
 
   /* 收集要画的线段：[起点偏移方向, 终点偏移方向] */
@@ -3203,6 +3574,7 @@ function render(){
   drawTarget();
   drawNearsight();
   drawBlind();
+  drawDizzyBlind(dizzyBlindAmount());
   drawCrosshair();                 /* 准星画在最后，永远在最上层 */
 
   /* 白屏用 CSS 模糊。值没变化就不写 style —— 每帧无条件赋值会强制样式重算，
@@ -3594,7 +3966,7 @@ function refreshRecords(){
 }
 /* ---------- 每日挑战 ----------
    种子 = 日期字符串哈希：同一天全网同一串闪光，纯拼操作。
-   固定配置 60s × 困难加强（频率 1.3×、全 6 特工、靶 7）—— 比普通困难更狠，
+   固定配置 60s × 困难加强（频率 1.3×、全 8 特工、靶 7）—— 比普通困难更狠，
    也因此不与常规纪录互比（recordRound 里直接走独立榜单）。
    KV 写账：每人每天最多 1 写（只有刷新自己当日纪录才提交）。 */
 const DAILY = { active:false, seed:0, date:'', snap:null, mod:null, applied:null, lastRows:null,
@@ -3607,14 +3979,33 @@ function dailySeedOf(date){ let h=2166136261, s='aft-daily-'+date;
   return (h&0xFFFFF)||1; }
 /* 修饰规则池：只动公平配置项（频率/靶数/靶径/特工池/时长），全网当天抽到同一条 */
 const DAILY_BASE={ rate:1.3, targetN:7, diff:1, mode:0, vis:0, roundIdx:1, targetR:0.1,
-  agents:{phoenix:true,skye:true,breach:true,kayo:true,yoru:true,reyna:true} };
+  agents:{phoenix:true,skye:true,breach:true,kayo:true,yoru:true,reyna:true,vyse:true,gekko:true} };
+/* 「限定特工」规则必须写全 8 个键：合并是 Object.assign(基础表, 规则表)，
+   漏掉的键会保留基础表的 true，于是本该被排除的特工会漏进来（踩过）。
+   这个助手把「只留这几只」翻译成完整表，避免每加一个特工就要回来补 5 处。 */
+function dailyOnlyAgents(list){
+  const on={};
+  for(const k in AGENTS) on[k]=list.indexOf(k)>=0;
+  return on;
+}
 const DAILY_MODS=[
   {n:'全力冲刺', d:'60s · 频率1.3× · 靶7 · 全特工', cfg:{}},
   {n:'针尖艺术', d:'60s · 靶球减半 · 频率1.1× · 全特工', cfg:{targetR:0.05, rate:1.1}},
   {n:'弹幕地狱', d:'60s · 频率1.6× · 靶9 · 全特工', cfg:{rate:1.6, targetN:9}},
   {n:'闪击战',   d:'30s · 频率1.4× · 靶7 · 全特工', cfg:{roundIdx:0, rate:1.4}},
-  {n:'五只眼',   d:'60s · 只有蕾娜之眼与斯凯 · 频率1.2×', cfg:{rate:1.2, agents:{phoenix:false,skye:true,breach:false,kayo:false,yoru:false,reyna:true}}},
-  {n:'铁幕试炼', d:'60s · 只有布雷奇与KO · 频率1.2×', cfg:{rate:1.2, agents:{phoenix:false,skye:false,breach:true,kayo:true,yoru:false,reyna:false}}},
+  {n:'五只眼',   d:'60s · 只有蕾娜之眼与斯凯 · 频率1.2×', cfg:{rate:1.2, agents:dailyOnlyAgents(['skye','reyna'])}},
+  {n:'铁幕试炼', d:'60s · 只有布雷奇与KO · 频率1.2×', cfg:{rate:1.2, agents:dailyOnlyAgents(['breach','kayo'])}},
+  /* --- 特殊特工专场：这几位都不是「转身躲得掉」的题型，考的是打法本身 --- */
+  {n:'丢丢疯潮', d:'60s · 只有盖克丢丢 · 频率1.4× · 靶9',
+   cfg:{rate:1.4, targetN:9, agents:dailyOnlyAgents(['gekko'])}},
+  {n:'荆棘玫瑰', d:'60s · 只有维斯金属玫瑰 · 频率1.5×',
+   cfg:{rate:1.5, agents:dailyOnlyAgents(['vyse'])}},
+  {n:'群鸟乱舞', d:'60s · 只有斯凯飞鸟 · 频率1.3× · 靶9',
+   cfg:{rate:1.3, targetN:9, agents:dailyOnlyAgents(['skye'])}},
+  {n:'一枪一个', d:'60s · 只有盖克与维斯（都能打掉） · 频率1.3× · 靶9',
+   cfg:{rate:1.3, targetN:9, agents:dailyOnlyAgents(['gekko','vyse'])}},
+  {n:'三色闪光', d:'60s · 盖克 + 维斯 + 斯凯 · 频率1.3×',
+   cfg:{rate:1.3, agents:dailyOnlyAgents(['gekko','vyse','skye'])}},
 ];
 function dailyModOf(date){ return DAILY_MODS[dailySeedOf(date+'-mod')%DAILY_MODS.length]; }
 function dailyApplyCfg(){
@@ -3966,9 +4357,13 @@ function start(){
    恢复时把这段时间统一补回去，否则飞行中的闪光会瞬间引爆、靶点立刻超时。 */
 function shiftTime(dt){
   if(!(dt>0)) return;
-  for(const slot of impactSlots){ slot.begin+=dt; slot.end+=dt; }
+  for(const slot of impactSlots){ slot.t+=dt; slot.clear+=dt; }
+  for(const p of dizzyPlasmas){ p.fireAt+=dt; p.hitAt+=dt; }
+  if(dizzyBlindUntil){ dizzyBlindUntil+=dt; dizzyBlindStart+=dt; }
   for(const f of flashes){
     f.t0+=dt; f.arriveAt+=dt; f.popAt+=dt;
+    if(f.lockAt) f.lockAt+=dt;
+    if(f.fireAt) f.fireAt+=dt;
     if(f.bloomAt) f.bloomAt+=dt;              /* 蓄势结束时刻：不平移的话暂停恢复会立刻绽放 */
     if(f.deadAt) f.deadAt+=dt;
     if(f.visAt) f.visAt+=dt;
@@ -4019,10 +4414,14 @@ function selectTab(name){
 }
 function toggleMini(){ $('miniStats').classList.toggle('hide'); }
 function resetStats(silent){
+  /* 丢丢录音统一收尾（见 dizzyAudios 的注释：本体被击毁 + 电浆已出队时，
+     只按本体找会漏掉仍在播的那只）。 */
+  stopAllDizzySounds();
   score=0; combo=0; shownScore=0;
   st.trials=st.dodges=st.blinds=st.graze=st.hits=st.shots=st.best=0;
   st.by={};
   st.rtSum=st.rtN=st.rfSum=st.rfN=0;
+  dizzyPlasmas=[]; dizzyBlindUntil=0; dizzyBlindStart=0;
   flashes=[]; pops=[]; blindUntil=0; blindDur=0; blindSrc=0; blindStart=0; reflickBase=T;
   nearUntil=0; nearSrc=0; nearStart=0; fogNear=0;
   cam.yaw=0; cam.pitch=0; mdx=0; mdy=0;
@@ -4083,7 +4482,7 @@ function buildAgents(){
     d.className='ag'+(cfg.agents[k]?' act on':' off');
     d.style.color=a.color;
     d.innerHTML='<span class="dot" style="background:'+a.color+'"></span>'+
-                '<span class="nm">'+a.zh+' · '+a.en+'</span>'+
+                '<span class="nm">'+a.zh+' · '+a.en+(k==='gekko'?' · 发射前击毁':'')+'</span>'+
                 '<span class="sw">'+(cfg.agents[k]?'已启用':'已关闭')+'</span>'+
                 '<span class="du">'+a.dur[1].toFixed(1)+'s</span>';
     d.title=a.note;
@@ -4693,7 +5092,7 @@ renderDaily();           /* 开屏挑战条（单人训练页）要日期/最佳
 if(urlRoom()) { /* 带 ?r= 房码进来，initMatchUI 已尝试进房，菜单直接定位到对战页 */ selectTab('battle'); }
 log('点击「开始训练」进入 · 按 Esc 打开菜单','c');
 log('拱门内同时出现多颗靶球，打掉一颗就地补一颗','y');
-log('提示：KO / 夜露 / 蕾娜 / 维斯 默认关闭，可在设置里开启','y');
+log('提示：KO / 夜露 / 蕾娜 / 维斯 / 盖克 默认关闭，可在设置里开启','y');
 requestAnimationFrame(frame);
 </script>
 </body>
