@@ -81,7 +81,7 @@ function newPlayer(name, ready) {
 function view(room) {
   return {
     cfg: room.cfg, host: room.host, players: room.players,
-    startAt: room.startAt || 0, round: room.round || 1, now: Date.now()
+    startAt: room.startAt || 0, round: room.round || 1, revision: room.revision || 0, now: Date.now()
   };
 }
 async function readRoom(env, code) {
@@ -94,6 +94,8 @@ async function readRoom(env, code) {
   } catch (e) { return null; }
 }
 async function writeRoom(env, code, room) {
+  // 随已有写入携带版本，不增加 KV 写。只能挡客户端旧快照回滚，不能让 KV 变强一致。
+  room.revision = (room.revision || 0) + 1;
   await env.ROOMS.put(keyOf(code), JSON.stringify(room), { expirationTtl: TtlSec });
 }
 

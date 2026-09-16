@@ -20,3 +20,7 @@ jobs:
         run: node .workbuddy/smoke-test.js
       - name: Run API tests
         run: node .workbuddy/api-test.mjs
+      - name: Run music loading tests
+        run: node .workbuddy/music-loading-test.js
+      - name: Run two-client match start tests
+        run: node .workbuddy/match-start-test.js

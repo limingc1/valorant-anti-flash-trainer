@@ -2026,6 +2026,28 @@ try{
     ctxStub.drawImage=oldBlindDrawImage;
     run('dizzyBlindArt=savedBlindArtTest.art;T=savedBlindArtTest.T;paused=savedBlindArtTest.paused;pauseT=savedBlindArtTest.pauseT;W=savedBlindArtTest.W;H=savedBlindArtTest.H;');
   }
+  console.log('[53] 维斯旋转绽放起点播放录音');
+  run('var rosePopOriginal=sfx.pop,roseSoundEvents=[];sfx.pop=k=>roseSoundEvents.push([k,T]);');
+  const resetRose=()=>run('match.active=false;DAILY.active=false;cfg.auto=false;cfg.diff=0;playing=true;paused=false;roundOver=false;roundEndAt=0;T=100;resetStats(true);roseSoundEvents=[];var roseAudio=spawnFlash("vyse");');
+  try{
+    resetRose();run('T=roseAudio.bloomAt-0.001;updateFlashes();');
+    ok(run('roseSoundEvents.length===0'),'维斯蓄势阶段不提前播放绽放录音');
+    run('T=roseAudio.bloomAt;updateFlashes();');
+    ok(run('roseSoundEvents.length===1 && roseSoundEvents[0][0]==="vyse" && roseSoundEvents[0][1]===roseAudio.bloomAt'),'花开始旋转绽放的同一帧播放录音');
+    ok(run('!roseAudio.popped && blindAmount()===0'),'音效提前不提前引爆或致盲');
+    run('updateFlashes();T=roseAudio.popAt;updateFlashes();updateFlashes();');
+    ok(run('roseAudio.popped && roseSoundEvents.length===1'),'引爆时不重复播放已经开始的维斯录音');
+    resetRose();run('T=roseAudio.bloomAt-0.1;var bloomDelay=roseAudio.bloomAt-T;shiftTime(3);T+=3;updateFlashes();');
+    ok(run('roseSoundEvents.length===0 && Math.abs(roseAudio.bloomAt-T-bloomDelay)<1e-8'),'暂停平移后仍按剩余绽放时间等待声音');
+    run('T=roseAudio.bloomAt;updateFlashes();');
+    ok(run('roseSoundEvents.length===1'),'恢复后到新的绽放时刻只播一次');
+    resetRose();run('T=roseAudio.popAt+0.1;updateFlashes();');
+    ok(run('roseAudio.popped && roseSoundEvents.length===1'),'掉帧跨过绽放和引爆时刻也只播放一次');
+    resetRose();aim('roseAudio.pos');run('shoot();T=roseAudio.popAt+1;updateFlashes();');
+    ok(run('roseAudio.dead && roseSoundEvents.length===0'),'蓄势期击毁不再播放后续绽放音效');
+    resetRose();run('roseAudio=spawnFlash("phoenix");T=roseAudio.popAt;popFlash(roseAudio);');
+    ok(run('roseSoundEvents.length===1 && roseSoundEvents[0][0]==="phoenix"'),'普通闪光仍在引爆时播放音效');
+  }finally{run('sfx.pop=rosePopOriginal;');}
   run('match.active=false;DAILY.active=false;cfg.auto=false;resetStats(true);playing=false;');
 
   console.log('\n'+(fails?('有 '+fails+' 项失败'):'全部通过')+'（'+assertions+' 条断言）');

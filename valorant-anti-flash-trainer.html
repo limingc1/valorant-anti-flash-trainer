@@ -1304,6 +1304,68 @@ let mcur=-1, mActive=false, mLoop='list';        /* mLoop: list|one|shuffle */
 let mbuf=null, mbufId=null, msrc=null, mbus=null;
 let mduck=1, mPending=false, mGen=0, mFolder;
 let mPlayT0=0, mPlayOff=0, mDur=0, musicPanelOpen=false;   /* 进度条：起播时刻/偏移/总长 + 面板开关 */
+let mLoad=null, mWarm=null, mLoadText='', mError='', mRefreshGen=0, mListText='';
+let mDecodeTail=Promise.resolve();
+const MUSIC_FETCH_MS=90000, MUSIC_META_MS=10000, MUSIC_DECODE_MS=30000;
+/* 网络超时不是游戏排期；仅下一首保留原始压缩数据（≤25MB），绝不预解码整张歌单。 */
+function musicDeadline(p,ms){
+  return new Promise((resolve,reject)=>{
+    const timer=setTimeout(()=>reject(new Error('timeout')),ms);
+    Promise.resolve(p).then(v=>{ clearTimeout(timer); resolve(v); },e=>{ clearTimeout(timer); reject(e); });
+  });
+}
+function musicRequest(url,manifest,onProgress){
+  const ctl=typeof AbortController==='function'?new AbortController():null;
+  const task={cancel:null,promise:null};
+  task.promise=new Promise((resolve,reject)=>{
+    let done=false;
+    const finish=(err,value)=>{ if(done) return; done=true; clearTimeout(timer); err?reject(err):resolve(value); };
+    task.cancel=()=>{ finish(new Error('cancelled')); if(ctl) ctl.abort(); };
+    const timer=setTimeout(()=>{ finish(new Error('timeout')); if(ctl) ctl.abort(); },manifest?MUSIC_META_MS:MUSIC_FETCH_MS);
+    Promise.resolve().then(()=>fetch(url,ctl?{signal:ctl.signal}:{})).then(async r=>{
+      if(done) return;
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      if(manifest){ finish(null,await r.json()); return; }
+      const max=MUSIC_MAX_MB*1024*1024, total=Number(r.headers&&r.headers.get('Content-Length'))||0;
+      if(total>max){ if(ctl) ctl.abort(); throw new Error('too large'); }
+      let ab;
+      if(r.body&&typeof r.body.getReader==='function'){
+        const reader=r.body.getReader(), chunks=[]; let size=0;
+        try{
+          while(!done){
+            const part=await reader.read(); if(part.done) break;
+            size+=part.value.byteLength;
+            if(size>max) throw new Error('too large');
+            chunks.push(part.value);
+            if(onProgress) onProgress(size,total);
+          }
+          if(done){ await reader.cancel(); return; }
+          const bytes=new Uint8Array(size); let off=0;
+          for(const chunk of chunks){ bytes.set(chunk,off); off+=chunk.byteLength; }
+          ab=bytes.buffer;
+        }catch(e){ try{ await reader.cancel(); }catch(_){} throw e; }
+        finally{ reader.releaseLock(); }
+      }else ab=await r.arrayBuffer();
+      if(ab.byteLength>max) throw new Error('too large');
+      finish(null,ab);
+    }).catch(e=>finish(e));
+  });
+  return task;
+}
+function musicCancelWarm(){ if(mWarm){ mWarm.cancel(); mWarm=null; } }
+function musicPrefetch(){
+  /* 先让当前歌曲出声，再下载列表下一首；省流量/慢网不抢带宽，随机模式不猜下一首。 */
+  musicCancelWarm();
+  if(!msrc||mLoop!=='list'||mlist.length<2) return;
+  const net=typeof navigator!=='undefined'&&navigator.connection;
+  if(net&&(net.saveData||/^(slow-)?2g$/.test(net.effectiveType||''))) return;
+  const tr=mlist[(mcur+1)%mlist.length];
+  if(!tr||tr.src!=='dir'||tr.size>MUSIC_MAX_MB*1024*1024) return;
+  const task=musicRequest(MUSIC_DIR+encodeURIComponent(tr.file),false,(n,total)=>{ task.loaded=n; task.total=total; if(task.onProgress) task.onProgress(n,total); });
+  task.id=tr.id; mWarm=task;
+  task.promise.catch(()=>{ if(mWarm===task) mWarm=null; });
+}
+function musicStatus(){ return mLoadText||mError; }
 function musicCleanName(s){
   s=String(s||'').replace(/[<>]/g,'').replace(/^.*[\\/]/,'').trim();
   return s.slice(0,60)||'未命名';
@@ -1358,25 +1420,39 @@ const idbPutData=(id,ab)=>idbGo('data','readwrite',s=>s.put(ab,id));
 const idbDelOne=id=>Promise.all([
   idbGo('meta','readwrite',s=>s.delete(id)), idbGo('data','readwrite',s=>s.delete(id))]);
 const idbGetData=id=>idbGo('data','readonly',s=>s.get(id));
-/* 扫 music/manifest.json。没 fetch 环境（vm 桩会 reject→catch）或没建 manifest
-   都返回空表 —— 这是「没配文件夹曲目」，不是错误，静默。 */
+/* 清单只列名字/可选元数据：不为显示时长下载歌曲。旧版字符串清单仍可直接用。 */
 function musicScanDir(fresh){
-  if(typeof fetch!=='function') return [];
+  if(typeof fetch!=='function') return Promise.resolve([]);
   const url=MUSIC_DIR+'manifest.json'+(fresh?'?t='+Date.now():'');
-  return fetch(url).then(r=>{ if(!r.ok) throw new Error('no manifest'); return r.json(); })
-    .then(j=>(Array.isArray(j)?j:[]).filter(x=>typeof x==='string'&&x.trim())
-      .map(f=>({id:'d_'+f,name:musicCleanName(f),dur:0,src:'dir',file:f})))
-    .catch(()=>[]);
+  return musicRequest(url,true).promise.then(j=>{
+    const seen=new Set();
+    return (Array.isArray(j)?j:[]).map(x=>typeof x==='string'?{file:x}:x)
+      .filter(x=>x&&typeof x.file==='string'&&x.file.trim()&&!/[\\/]/.test(x.file)&&!seen.has(x.file)&&seen.add(x.file))
+      .slice(0,MUSIC_MAX_TRACKS)
+      .map(x=>({id:'d_'+x.file,name:musicCleanName(x.name||x.file),dur:Number.isFinite(x.dur)&&x.dur>0?x.dur:0,
+        size:Number.isFinite(x.size)&&x.size>0?x.size:0,src:'dir',file:x.file}));
+  }).catch(()=>[]);
 }
 function musicRefresh(fresh){
+  const gen=++mRefreshGen;
+  mListText='正在读取曲目清单…'; musicRender();
+  const apply=rows=>{
+    if(gen!==mRefreshGen) return;
+    const keep=mlist[mcur]?mlist[mcur].id:null;
+    const old=new Map(mlist.map(t=>[t.id,t]));
+    mlist=(mFolder||[]).concat(rows).map(t=>Object.assign({},t,{dur:t.dur||(old.get(t.id)||{}).dur||0}));
+    mcur=mlist.findIndex(t=>t.id===keep);
+    if(keep&&mcur<0){ musicStop(); mbuf=null; mbufId=null; }
+    if(mcur<0&&mlist.length) mcur=0;
+    musicRender();
+  };
+  const local=musicDeadline(idbList(),MUSIC_META_MS).catch(()=>[]);
   return Promise.resolve(mFolder===undefined||fresh?musicScanDir(fresh):mFolder)
-    .then(dir=>{ mFolder=dir; return idbList().catch(()=>[]); })
-    .then(rows=>{
-      const keep=mlist[mcur]?mlist[mcur].id:null;
-      mlist=mFolder.concat((rows||[]).map(m=>({id:m.id,name:m.name,dur:m.dur||0,src:'idb'})));
-      mcur=mlist.findIndex(t=>t.id===keep);      /* 刷新后仍指向原来那首 */
-      if(mcur<0&&mlist.length) mcur=0;           /* 没选中过：预选第一首，悬浮条/▶ 立刻可用 */
-      musicRender();
+    .then(dir=>{
+      if(gen!==mRefreshGen) return;
+      mFolder=dir; mListText=dir.length?'':'未找到文件夹曲目（清单不可用或为空）；可重扫或导入本机歌曲。';
+      apply(mlist.filter(t=>t.src==='idb'));       /* 不等 IndexedDB：远端清单到达即可点播 */
+      return local.then(rows=>apply((rows||[]).map(m=>({id:m.id,name:m.name,dur:m.dur||0,src:'idb'}))));
     });
 }
 function musicRender(){
@@ -1387,7 +1463,7 @@ function musicRender(){
     row.className='recRow musicRow'+(i===mcur?' act':'');
     const sp=document.createElement('span'); sp.className='mn'; sp.textContent=t.name;
     const ss=document.createElement('span'); ss.className='md';
-    ss.textContent=(t.src==='dir'?'📁 ':'')+fmtDur(t.dur);
+    ss.textContent=(t.src==='dir'?'📁 ':'')+(t.dur?fmtDur(t.dur):'待播放');
     const del=document.createElement('button'); del.className='mdel'; del.textContent='✕';
     if(t.src!=='idb') del.style.display='none';   /* 文件夹曲目不在这里删，删文件+改 manifest */
     del.onclick=e=>{ e.stopPropagation(); musicDelete(i); };
@@ -1397,7 +1473,7 @@ function musicRender(){
   });
   if(!mlist.length){
     const tip=document.createElement('div'); tip.className='tip';
-    tip.textContent='还没有曲目：点「＋ 添加歌曲」导入，或把音频放进 music/ 文件夹（见下方说明）。';
+    tip.textContent='还没有曲目：'+(mListText||'点「＋ 添加歌曲」导入，或把音频放进 music/ 文件夹（见下方说明）。');
     box.appendChild(tip);
   }
   musicUI();
@@ -1408,24 +1484,24 @@ const MUSIC_LOOP_N={list:'列表循环',one:'单曲循环',shuffle:'随机'};
 function musicUI(){
   const t=mlist[mcur]||null;
   const now=$('musicNow');
-  if(now) now.textContent = msrc
+  if(now) now.textContent = musicStatus()?musicStatus()+' · '+((t&&musicPrettyName(t.name))||''):msrc
     ? '♪ '+((t&&musicPrettyName(t.name))||'')+' · '+MUSIC_LOOP_N[mLoop]
     : (t? '已选：'+musicPrettyName(t.name) : '未在播放');
-  const pb=$('musicPlay'); if(pb) pb.textContent = msrc? '⏸ 暂停' : '▶ 播放';
+  const pb=$('musicPlay'); if(pb) pb.textContent = mPending?'取消加载':msrc? '⏸ 暂停' : '▶ 播放';
   /* 悬浮条 */
   const ball=$('musicBall');
   if(ball){
     ball.classList.toggle('hide', !mlist.length);
     $('musicBallTitle').textContent = t? musicPrettyName(t.name) : '未在播放';
-    $('musicBallSub').textContent = t? musicSrcLabel(t)+' · '+MUSIC_LOOP_N[mLoop] : '音乐盒';
-    $('musicBallPlay').textContent = msrc? '⏸' : '▶';
+    $('musicBallSub').textContent = musicStatus()||(t? musicSrcLabel(t)+' · '+MUSIC_LOOP_N[mLoop] : '音乐盒');
+    $('musicBallPlay').textContent = mPending? '取消' : msrc? '⏸' : '▶';
   }
   /* 面板开着就整块重渲染（行数≤50，不做差量）；关着也把迷你条文字同步掉 */
   if(musicPanelOpen) musicRenderP();
   else{
     $('musicPTitle').textContent = t? musicPrettyName(t.name) : '—';
-    $('musicPSub').textContent = musicSrcLabel(t);
-    $('musicPPlay').textContent = msrc? '⏸' : '▶';
+    $('musicPSub').textContent = musicStatus()||musicSrcLabel(t);
+    $('musicPPlay').textContent = mPending? '取消' : msrc? '⏸' : '▶';
     $('musicPLoop').textContent = MUSIC_LOOP_N[mLoop];
     if(!msrc){
       const p=Math.min(mPlayOff, mDur||mPlayOff||0);
@@ -1468,15 +1544,15 @@ function musicRenderP(){
     info.appendChild(tt); info.appendChild(ss);
     const go=document.createElement('button'); go.className='go';
     go.textContent=(i===mcur&&msrc)?'⏸':'▶';
-    go.onclick=e=>{ e.stopPropagation(); musicToggle(); };
+    go.onclick=e=>{ e.stopPropagation(); if(i===mcur) musicToggle(); else{ mcur=i; mActive=true; musicStart(); musicUI(); } };
     row.appendChild(info); row.appendChild(go);
     row.onclick=()=>{ mActive=true; if(mcur!==i){ mcur=i; musicStart(); } else if(!msrc) musicStart(); musicUI(); };
     box.appendChild(row);
   });
   const t=mlist[mcur];
   $('musicPTitle').textContent = t? musicPrettyName(t.name) : '—';
-  $('musicPSub').textContent = musicSrcLabel(t);
-  $('musicPPlay').textContent = msrc? '⏸' : '▶';
+  $('musicPSub').textContent = musicStatus()||musicSrcLabel(t);
+  $('musicPPlay').textContent = mPending? '取消' : msrc? '⏸' : '▶';
   $('musicPLoop').textContent = MUSIC_LOOP_N[mLoop];
 }
 function musicPanelToggle(force){
@@ -1502,48 +1578,73 @@ function musicCycleLoop(){
   mLoop = mLoop==='list'?'one':mLoop==='one'?'shuffle':'list';
   const lb=$('musicLoop'); if(lb) lb.textContent=({list:'列表循环',one:'单曲循环',shuffle:'随机播放'})[mLoop];
   if(msrc) msrc.loop=(mLoop==='one');            /* 直接改在播源的 loop 标志：切模式立刻生效 */
+  musicPrefetch();
   musicUI();
 }
 function musicStop(){
-  mGen++;
+  mGen++; mPending=false; mLoadText='';
+  if(mLoad){ mLoad.cancel(); mLoad=null; }
+  musicCancelWarm();
   const s=msrc; msrc=null;
-  if(s){ try{ s.stop(); }catch(e){} }
+  if(s){ try{ s.stop(); s.disconnect(); }catch(e){} s.buffer=null; }
 }
 function musicStart(off){
   const ac=audio(); if(!ac) return;               /* 未解锁：首次手势后 musicKick 会再拉起 */
-  if(mcur<0&&mlist.length) mcur=0;                /* 兜底：没选中过就从头一首放 */
-  const tr=mlist[mcur]; if(!tr||mPending) return;
-  mPlayOff=Math.max(0,off||0);
-  if(!mbus){ mbus=ac.createGain(); mbus.connect(master); }
+  if(mcur<0&&mlist.length) mcur=0;
+  const tr=mlist[mcur]; if(!tr) return;
+  /* 下一首已在下载时提升为前台任务，绝不重复请求；其他旧请求立即取消。 */
+  const warm=mWarm&&mWarm.id===tr.id?mWarm:null;
+  if(warm) mWarm=null;
   musicStop();
-  mPending=true;
-  const my=mcur, gen=mGen;
+  if(mbufId!==tr.id){ mbuf=null; mbufId=null; }
+  mPlayOff=Math.max(0,off||0); mDur=tr.dur||0;
+  if(!mbus){ mbus=ac.createGain(); mbus.connect(master); }
+  mPending=true; mError=''; mLoadText='正在加载…';
+  const gen=mGen, valid=()=>gen===mGen&&mlist[mcur]&&mlist[mcur].id===tr.id;
+  const progress=(n,total)=>{
+    if(!valid()) return;
+    const text='正在下载 '+(total?Math.min(100,Math.floor(n/total*100))+'%':(n/1048576).toFixed(1)+' MB');
+    if(text!==mLoadText){ mLoadText=text; musicUI(); }
+  };
+  const fail=e=>{
+    if(!valid()) return;
+    mLoad=null; mPending=false; mLoadText=''; mActive=false; /* 不让帧循环不断重试坏文件 */
+    mError=(e&&e.message==='timeout'?'加载超时':e&&e.message==='too large'?'歌曲超过 '+MUSIC_MAX_MB+'MB':'音乐加载或解码失败')+'，点播放重试';
+    log(mError+'：'+tr.name,'r'); musicUI();
+  };
   const kick=buf=>{
-    mPending=false;
-    if(!buf||my!==mcur||gen!==mGen) return;       /* 等待期间换曲/停止了：丢弃 */
+    if(!valid()||!buf) return;
+    mPending=false; mLoad=null; mLoadText='';
     mbuf=buf; mbufId=tr.id;
     const src=ac.createBufferSource(); src.buffer=buf; src.loop=(mLoop==='one');
     src.connect(mbus);
     src.onended=()=>{ if(msrc===src&&gen===mGen){ msrc=null; musicEnded(); } };
     msrc=src;
     mPlayT0=ac.currentTime; mDur=buf.duration;
-    if(!tr.dur){ tr.dur=buf.duration; musicRender(); }   /* 文件夹曲目首次播放：把真实时长补进列表 */
-    try{ src.start(0, mPlayOff>0&&mPlayOff<buf.duration?mPlayOff:0); }catch(e){}
-    musicUI();
+    tr.dur=buf.duration;
+    mPlayOff=mPlayOff>0&&mPlayOff<buf.duration?mPlayOff:0;
+    try{ src.start(0,mPlayOff); }catch(e){ msrc=null; fail(e); return; }
+    musicRender(); musicPrefetch();
   };
-  const grab=ab=>ac.decodeAudioData(ab).then(kick)
-    .catch(()=>{ mPending=false; log('音乐解码失败：'+tr.name,'r'); });
+  const grab=ab=>{
+    if(!valid()) return;
+    mLoad=null; mLoadText='正在解码…'; musicUI();
+    /* 浏览器解码不能 abort：串行等待旧解码结束，过期任务不解码、不写缓存。 */
+    const decoding=mDecodeTail.then(()=>valid()?ac.decodeAudioData(ab):null);
+    mDecodeTail=decoding.then(()=>{},()=>{});
+    return musicDeadline(decoding,MUSIC_DECODE_MS).then(kick);
+  };
+  musicUI();
   if(mbufId===tr.id&&mbuf){ kick(mbuf); return; }
   if(tr.src==='dir'){
-    if(typeof fetch!=='function'){ mPending=false; return; }
-    fetch(MUSIC_DIR+encodeURIComponent(tr.file))
-      .then(r=>{ if(!r.ok) throw new Error('404'); return r.arrayBuffer(); })
-      .then(grab)
-      .catch(()=>{ mPending=false; log('音乐加载失败：'+tr.name,'r'); });
+    const task=warm||musicRequest(MUSIC_DIR+encodeURIComponent(tr.file),false,progress);
+    mLoad=task;
+    if(warm){ warm.onProgress=progress; progress(warm.loaded||0,warm.total||0); }
+    task.promise.then(grab).catch(fail);
   }else{
-    idbGetData(tr.id)
-      .then(rec=>{ if(!rec) throw new Error('gone'); grab(rec.data.slice(0)); })
-      .catch(()=>{ mPending=false; log('音乐读取失败：'+tr.name,'r'); });
+    musicDeadline(idbGetData(tr.id),MUSIC_META_MS)
+      .then(rec=>{ if(!rec) throw new Error('gone'); return grab((rec.data||rec).slice(0)); })
+      .catch(fail);
   }
 }
 function musicEnded(){
@@ -1564,7 +1665,7 @@ function musicTick(dt){
   if(mbus) mbus.gain.value=cfg.musicVol*mduck;
   const want=musicShouldPlay();
   if(want&&!msrc&&!mPending) musicStart();
-  if(!want&&msrc) musicStop();
+  if(!want&&(msrc||mPending)){ musicStop(); musicUI(); }
   if(musicPanelOpen&&msrc&&mDur>0){               /* 面板开着：每帧推进进度条 */
     const p=musicCalcPos(), fr=clamp(p/mDur,0,1);
     $('musicPFill').style.width=(fr*100).toFixed(1)+'%';
@@ -1593,15 +1694,11 @@ function musicImport(fileList){
       count++;
       const ab0=f.arrayBuffer?f.arrayBuffer():Promise.reject(new Error('no FileReader'));
       return Promise.resolve(ab0).then(ab=>{
-        const ac=audio();
-        if(!ac) throw new Error('no audio ctx');
-        return ac.decodeAudioData(ab.slice(0)).then(buf=>{      /* slice：别让解码 detachment 掉原始数据 */
-          const id='u_'+Date.now()+'_'+Math.floor(Math.random()*1e6);
-          return Promise.all([idbPutMeta({id,name:musicCleanName(f.name),dur:buf.duration}),
-                              idbPutData(id,ab)])
-            .then(()=>log('已导入：'+musicCleanName(f.name),'g'));
-        });
-      }).catch(()=>log('导入失败（格式不支持？）：'+musicCleanName(f.name),'r'));
+        /* 导入只存原始文件，不为时长同时解码整批歌曲；首次点播再补时长。 */
+        const id='u_'+Date.now()+'_'+Math.floor(Math.random()*1e6);
+        return Promise.all([idbPutMeta({id,name:musicCleanName(f.name),dur:0}),idbPutData(id,ab)])
+          .then(()=>log('已导入：'+musicCleanName(f.name),'g'));
+      }).catch(()=>log('导入失败（存储不可用？）：'+musicCleanName(f.name),'r'));
     }));
   }).then(()=>musicRefresh());
 }
@@ -2144,10 +2241,16 @@ function reflickStart(now){
   if(dizzyBlindUntil>t) t=Math.max(t,dizzyBlindUntil-0.35*0.45);
   return t;
 }
+function playRoseBloom(f){
+  if(f.bloomAudioPlayed || f.dead || f.popped) return;
+  f.bloomAudioPlayed=true;
+  sfx.pop('vyse');
+}
 function popFlash(f){
+  if(f.a.shape==='rose') playRoseBloom(f);
   f.popped=true; f.deadAt=T; f.popPos={...f.pos};
   pops.push({x:f.popPos.x,y:f.popPos.y,z:f.popPos.z,t:T,rgb:f.a.rgb,dur:0.8,rose:f.a.shape==='rose'});
-  sfx.pop(f.a.key);
+  if(f.a.shape!=='rose') sfx.pop(f.a.key);
 
   const ang=Math.acos(clamp(dot3(norm3(f.popPos),fwdVec()),-1,1))*DEG;
   const dist=len3(f.popPos), a=f.a;
@@ -2299,6 +2402,7 @@ function updateFlashes(){
       /* 蓄势期只是一枚半透明花蕊、还不算「看得见」：反应与躲闪计时都从绽放开算，
          否则玩家在蓄势期间随手转个身，就会把「转身反应」统计成 0ms。 */
       const armed = !f.bloomAt || T>=f.bloomAt;
+      if(f.a.shape==='rose' && armed) playRoseBloom(f);
       if(armed && flashVisible(f.pos) && !f.visAt){
         f.visAt=T;
         f.lookedAtVis = angleTo(f.pos)<=f.a.coneHalf;
@@ -4659,14 +4763,28 @@ function applySync(s){
   $('rInt').value=cfg.rate; $('vInt').textContent=cfg.rate.toFixed(1)+'×';
   $('rTn').value=cfg.targetN; $('vTn').textContent=cfg.targetN;
 }
+/* HTTP no-store 不会绕过 KV 的跨地区缓存。超时后继续读，不自动重发写。 */
+const ROOM_TIMEOUT=8000;
+function matchNow(){ return typeof performance!=='undefined'?performance.now():Date.now(); }
+async function roomFetch(url,options){
+  const controller=typeof AbortController==='function'?new AbortController():null;
+  let timer;
+  try{
+    return await Promise.race([
+      (async()=>{
+        const r=await fetch(url,Object.assign({cache:'no-store'},options,controller?{signal:controller.signal}:{}));
+        if(r.status===429){ cloudGaveUp('云端请求过于频繁（429）'); return null; }
+        if(!r.ok) return null;
+        return await r.json();
+      })(),
+      new Promise(resolve=>{ timer=setTimeout(()=>{ if(controller) controller.abort(); resolve(null); },ROOM_TIMEOUT); })
+    ]);
+  }catch(e){ return null; }
+  finally{ clearTimeout(timer); }
+}
 async function cloudGet(code){
   if(typeof fetch!=='function') return null;
-  try{
-    const r=await fetch(ROOM_API+'?code='+encodeURIComponent(code),{cache:'no-store'});
-    if(r.status===429){ cloudGaveUp('云端请求过于频繁（429）'); return null; }
-    if(!r.ok) return null;
-    return await r.json();
-  }catch(e){ return null; }
+  return roomFetch(ROOM_API+'?code='+encodeURIComponent(code));
 }
 /* 写预算闸门（兜底）：KV 免费额度只有 1000 写/天，而一次「每帧都写」的 bug
    十几秒就能烧穿。正常一整局只需 3~4 次写，所以给个宽松上限；一旦越界就
@@ -4686,13 +4804,7 @@ async function cloudPost(body){
     cloudGaveUp('本地写预算超限（'+POST_MAX+' 次/'+(POST_WINDOW/1000)+'s，疑似有 bug 在刷接口）');
     return null;
   }
-  try{
-    const r=await fetch(ROOM_API,{method:'POST',headers:{'content-type':'application/json'},
-      body:JSON.stringify(body)});
-    if(r.status===429){ cloudGaveUp('云端请求过于频繁（429）'); return null; }
-    if(!r.ok) return null;
-    return await r.json();
-  }catch(e){ return null; }
+  return roomFetch(ROOM_API,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});
 }
 /* 进入一个对局：只做本地状态，不联网。seed/时长来自房码。 */
 function enterMatch(code){
@@ -4715,6 +4827,7 @@ function leaveMatch(silent){
   }
   match.active=false; match.cloud=false; match.code=''; match.seed=0; match.round=1;
   match.players=[]; match.startAt=0; match.phase='idle';
+  match.revision=0; match.readyBusy=false; match.readySince=0; match.syncNote=''; match.startedRound=0; match.entry=(match.entry||0)+1;
   match.foe=''; match.foeScore=null; match.iReady=false; match.quiet=0; match.sent=false;
   contentRnd=Math.random;
   lobbyClose(); setMatchChrome(false);
@@ -4734,6 +4847,7 @@ function setMatchChrome(on){
 }
 function updateMTag(){
   const el=$('mTag'); if(!el) return;
+  el.onclick=null; el.style.pointerEvents=''; el.style.cursor='';
   if(!match.active){ el.style.display='none'; return; }
   el.style.display='';
   const foe=match.players.filter(p=>p.name!==match.you)[0];
@@ -4746,7 +4860,10 @@ function updateMTag(){
 }
 /* ---------- 大厅：房码 + 玩家列表 + 双方准备 + 3s 倒计时 ---------- */
 function lobbyOpen(){
+  if(match.phase==='playing' && !roundOver){ resume(); return; }
+  if(match.phase==='countdown') return;
   match.phase='lobby';
+  if(playing&&!paused){ paused=true; pauseT=T; mdx=0; mdy=0; }
   $('lobby').style.display='flex';
   $('lbUrl').value=shareLink(match.code);
   if(document.exitPointerLock) document.exitPointerLock();
@@ -4780,39 +4897,76 @@ function renderLobby(){
   }else{
     tip.textContent='双方就绪，即将开始…';
   }
+  if(match.cloud && match.syncNote) tip.textContent=match.syncNote;
+  const waiting=match.cloud && match.readySince && matchNow()-match.readySince>15000 && match.phase==='lobby';
+  if(waiting) tip.textContent='开局状态仍未同步（可能是跨地区缓存）。会继续查询；可点下方改为同房码离线开局，双方口头核对。';
   const rb=$('lbReady');
-  rb.textContent=match.iReady?'取消准备':'我准备好了';
+  rb.textContent=waiting?'改为离线开局':(match.readyBusy?'正在同步准备…':(match.iReady?'取消准备':'我准备好了'));
   rb.classList.toggle('pri',!match.iReady);
-  rb.disabled=!match.cloud&&false;
+  rb.disabled=!!match.readyBusy || match.phase==='countdown';
 }
-let cdTimer=0;
-function stopCountdown(){ if(cdTimer){ clearTimeout(cdTimer); cdTimer=0; } $('lbCount').style.display='none'; }
-/* 倒计时用「服务端 startAt - 服务端 now」算剩余毫秒，绕开两机时钟偏差 */
+let cdTimer=0, cdGeneration=0;
+function stopCountdown(){ cdGeneration++; if(cdTimer){ clearTimeout(cdTimer); cdTimer=0; } $('lbCount').style.display='none'; }
+/* 服务端时间差决定初始剩余，之后用单调时钟，不怕系统校时。 */
 function beginCountdown(ms){
   if(match.phase==='countdown') return;
+  stopCountdown();
+  const generation=cdGeneration;
   match.phase='countdown';
   const el=$('lbCount'); el.style.display='';
+  const t0=matchNow();
   const tick=()=>{
-    const left=ms-(Date.now()-t0);
-    if(left<=0){ el.textContent='GO'; stopPoll(); cdTimer=setTimeout(startMatchRound,220); return; }
+    if(generation!==cdGeneration || !match.active) return;
+    const left=ms-(matchNow()-t0);
+    if(left<=0){
+      el.textContent='GO'; stopPoll();
+      /* 等前台帧再启动，避免后台 rAF 停住时拿旧 T 开局、回来直接结算。 */
+      requestAnimationFrame(ts=>{
+        if(generation!==cdGeneration || !match.active) return;
+        T=ts/1000; startMatchRound();
+      });
+      return;
+    }
     el.textContent=String(Math.ceil(left/1000));
     cdTimer=setTimeout(tick,120);
   };
-  const t0=Date.now();
   renderLobby(); tick();
 }
 function startMatchRound(){
-  stopCountdown(); lobbyClose();
-  match.phase='playing'; match.iReady=false;
+  if(!match.active || match.startedRound===match.round) return;
+  match.startedRound=match.round;
+  stopPoll(); stopCountdown(); lobbyClose(); closeMenu();
+  $('result').style.display='none';
+  match.phase='playing'; match.iReady=false; match.readySince=0; match.syncNote='';
   if(!playing){ start(); }              /* start() 内部会 startRound() 播种 */
-  else { paused=false; startRound(); relock(); }
+  else { paused=false; mdx=0; mdy=0; $('bStart').textContent='暂停'; startRound(); relock(); }
   log('对战开始 · 房码 '+match.code+' · 第 '+match.round+' 轮','c');
   updateMTag();
+  const entry=match.entry, round=match.round;
+  setTimeout(()=>{
+    if(!match.active || match.entry!==entry || match.round!==round || match.phase!=='playing' || document.pointerLockElement===stage) return;
+    const tag=$('mTag');
+    tag.style.pointerEvents='auto'; tag.style.cursor='pointer';
+    tag.textContent+=' · 鼠标未锁定，点此锁定（也可在画面内移动射击）';
+    tag.onclick=e=>{ e.stopPropagation(); if(match.phase==='playing'){ resume(); updateMTag(); } };
+    log('浏览器未自动锁定鼠标：点对战提示重试，或在画面内移动射击','y');
+  },300);
 }
 /* ---------- 云端状态同步 ---------- */
 function applyState(s){
   if(!s) return;
+  const incomingRound=Number.isInteger(s.round)?s.round:match.round;
+  const revision=Number.isInteger(s.revision)?s.revision:0;
+  if(incomingRound<match.round || (incomingRound===match.round && revision<(match.revision||0))){
+    if(lobbyIsOpen()) renderLobby();
+    return;
+  }
+  /* 同版本可能是跨地区并发写分叉；已收到开局凭据时，不接受同版本未开局快照。 */
+  if(incomingRound===match.round && revision<=(match.revision||0) && match.startAt && !s.startAt && revision) return;
   const prevRound=match.round;
+  match.revision=revision;
+  if(incomingRound>prevRound){ stopCountdown(); match.readySince=0; }
+  if(s.cfg && match.phase!=='playing') applySync(s.cfg);
   const before=JSON.stringify([match.players,match.startAt,match.round]);
   if(Array.isArray(s.players)) match.players=s.players;
   if(Number.isInteger(s.round)) match.round=s.round;
@@ -4823,6 +4977,7 @@ function applyState(s){
   /* 双方都交了卷 → 计一次战绩（recordMatchResult 自己按 房码+轮 去重） */
   if(me&&me.score!=null&&foe&&foe.score!=null) recordMatchResult(me.score,foe.score);
   match.startAt=s.startAt||0;
+  if(match.phase==='countdown' && !match.startAt){ stopCountdown(); match.phase='lobby'; }
   if(s.now) clockOff=s.now-Date.now();          /* 服务端时钟偏移，重连超时判定用 */
   if(before===JSON.stringify([match.players,match.startAt,match.round])) match.quiet++;
   else match.quiet=0;
@@ -4847,26 +5002,33 @@ function applyState(s){
   if(lobbyIsOpen()){
     renderLobby();
     /* 服务端已定开局时刻 → 双方一起倒计时 */
-    if(match.startAt && s.now && match.phase==='lobby'){
+    if(match.startAt && s.now && match.phase==='lobby' && !resumePending && match.startedRound!==match.round && me && me.score==null){
       const left=match.startAt-s.now;
-      if(left>-1500) beginCountdown(Math.max(0,left));
+      if(left < -1500){
+        match.syncNote='开局通知迟到 '+Math.ceil(-left/1000)+' 秒（网络/跨地区缓存），3 秒后补开完整一局；不是同时开局。';
+        log(match.syncNote,'y');
+      }
+      beginCountdown(left < -1500 ? 3000 : Math.max(0,left));
     }
   }
   if(roundOver && match.players.some(p=>p.score!=null)) paintCompare(match.players,true);
   matchStateSave();
 }
 /* 轮询：只在「有事等」的阶段跑，页面隐藏就停，长期没变化就自动歇 —— KV 免费额度很省 */
-let pollTimer=0;
+let pollTimer=0, pollGeneration=0;
 function pollDelay(){
+  if(match.phase==='playing' || match.phase==='countdown') return 0;
   if(match.phase==='lobby')  return 2500;      /* 大厅有人在盯着，要灵敏 */
   if(roundOver)              return 3000;      /* 等对手交卷 */
   return 0;                                    /* 对战中不轮询：省额度，也没什么可等 */
 }
-function stopPoll(){ if(pollTimer){ clearTimeout(pollTimer); pollTimer=0; } }
+function stopPoll(){ pollGeneration++; if(pollTimer){ clearTimeout(pollTimer); pollTimer=0; } }
 function startPoll(){
   stopPoll();
-  if(!match.active||!match.cloud) return;
+  if(!match.active||!match.cloud||!pollDelay()) return;
+  const generation=pollGeneration, code=match.code;
   const step=async()=>{
+    if(generation!==pollGeneration) return;
     pollTimer=0;
     if(!match.active||!match.cloud) return;
     const d=pollDelay();
@@ -4877,10 +5039,12 @@ function startPoll(){
     if(typeof document!=='undefined' && document.hidden){    /* 后台标签页不烧配额 */
       pollTimer=setTimeout(step,4000); return;
     }
-    const s=await cloudGet(match.code);
-    if(s) applyState(s);
+    const s=await cloudGet(code);
+    if(generation!==pollGeneration || !match.active || !match.cloud || match.code!==code) return;
+    if(s){ match.syncNote=''; applyState(s); }
+    else { match.syncNote='暂时拉不到房间状态，正在重试。若朋友已开局，请等待缓存同步或改为同房码离线开局。'; if(lobbyIsOpen()) renderLobby(); }
     const nd=pollDelay();
-    if(nd) pollTimer=setTimeout(step,nd);
+    if(nd && generation===pollGeneration) pollTimer=setTimeout(step,nd);
   };
   pollTimer=setTimeout(step,pollDelay()||2500);
 }
@@ -4926,13 +5090,21 @@ async function joinMatch(code){
   if(match.cloud) startPoll();
 }
 async function toggleReady(){
+  if(match.readyBusy || match.phase==='countdown') return;
+  if(match.cloud && match.readySince && matchNow()-match.readySince>15000){
+    cloudGaveUp('玩家选择同房码离线补开');
+  }
   if(!match.cloud){                        /* 离线：本地直接开局，不等对方 */
     match.iReady=true; renderLobby(); startMatchRound(); return;
   }
-  const want=!match.iReady;
-  match.iReady=want; renderLobby();        /* 先本地反馈，别等网络 */
+  const want=!match.iReady, entry=match.entry;
+  match.readyBusy=true; match.iReady=want; match.readySince=want?matchNow():0;
+  stopPoll(); renderLobby();              /* 不让请求中的旧 GET 覆盖这次准备 */
   const res=await cloudPost({code:match.code, who:'ready', name:match.you, ready:want});
-  if(res&&res.ok) applyState(res); else cloudGaveUp('准备状态没送达');
+  if(!match.active || match.entry!==entry) return;
+  match.readyBusy=false;
+  if(res&&res.ok) applyState(res);
+  else { match.syncNote='准备请求未确认，正在查询（不会自动重复写入）；若久等可改为离线开局。'; renderLobby(); }
   startPoll();
 }
 /* ---------- 断线重连 ---------- */
