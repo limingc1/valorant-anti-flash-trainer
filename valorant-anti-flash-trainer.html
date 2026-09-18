@@ -488,7 +488,7 @@
               <li><b>闪光</b>从拱门左右随机飞出，轨迹藏在墙后</li>
               <li><b>躲闪</b>引爆瞬间闪光在视野锥内 → 白屏致盲</li>
               <li><b>得分</b>躲开后立刻回靶打掉小球，越快分越高</li>
-              <li><b>注意</b>致盲中看不见靶点，命中无效</li>
+              <li><b>注意</b>白屏致盲可用闪光防护顶替；<b>蕾娜之眼是近视</b>，仍是紫雾与藏靶</li>
             </ul>
             <div class="keys">
               <b>鼠标</b> 转视角 &nbsp;·&nbsp; <b>左键 / 空格</b> 射击 &nbsp;·&nbsp; <b>F</b> 手动闪光<br>
@@ -626,6 +626,12 @@
               </div>
               <div class="sec">
                 <h3>辅助</h3>
+                <div class="row"><label>闪光防护</label><div class="seg" id="segFlashGuard" role="group" aria-label="闪光防护"></div></div>
+                <div class="tip" style="margin:-2px 0 10px">
+                  回放式效果（<b>默认开启</b>）：普通闪光与丢丢电浆致盲时，画面保持可见，以<b>淡白滤镜 + 准星上方的白色恢复圆环</b>提示。<br>
+                  仅改变显示，致盲时长、靶点命中限制与计分不变；只保存于本机。想要原版白屏可关掉它。<br>
+                  <b>蕾娜之眼是近视，不做护眼</b>，仍是原来的紫雾与藏靶。
+                </div>
                 <div class="chk" id="chkBox">
                   <button data-k="sound" class="act">音效</button>
                   <button data-k="blur" class="act">动态模糊</button>
@@ -788,7 +794,7 @@ const cfg={
   sens:0.8, fov:103, invertY:false, targetR:0.1, targetN:5, quality:1,
   diff:0, mode:0, vis:0, auto:true, rate:1, roundIdx:1,
   crossKind:0, crossColor:0, crossLen:4, crossThick:2, crossGap:2, crossDot:false,
-  sound:true, blur:true, gain:0.8, flashGain:1.0, audioLead:0.25,
+  sound:true, blur:true, flashGuard:true, gain:0.8, flashGain:1.0, audioLead:0.25,
   musicVol:0.4, musicDuck:1, musicWhen:2,      /* 音乐盒：音量/出手声压低/播放范围(0关1仅菜单2菜单+训练) */
   agents:{phoenix:true,skye:true,breach:true,kayo:false,yoru:false,reyna:false,vyse:false,gekko:false}
 };
@@ -1009,6 +1015,8 @@ const WALL_T=(()=>{
   for(let i=0;i<=N;i++){const x=ARCH.r-(2*ARCH.r*i/N);pts.push(P(x,archTopAt(x),ROOM.zW));}
   return pts;
 })();
+/* 共用外轮廓，避免三段墙的内部边缘被抗锯齿描成亮缝。 */
+const WALL_FRONT=[WALL_L[0],WALL_L[3],WALL_R[2],WALL_R[1],WALL_R[0],...WALL_T.slice(2),WALL_L[1]];
 const CRATES=[
   {b:[-3.4,ROOM.yF,10.6,-1.6,-0.05,12.4],c:'#8d7f78'},
   {b:[2.4,ROOM.yF,12.8,4.6,1.15,14.6],c:'#7d7370'},
@@ -1038,27 +1046,40 @@ const JAMB_L=[P(-ARCH.r,ROOM.yF,AZ0),P(-ARCH.r,ARCH.ys,AZ0),P(-ARCH.r,ARCH.ys,AZ
 const JAMB_R=[P(ARCH.r,ARCH.ys,AZ0),P(ARCH.r,ROOM.yF,AZ0),P(ARCH.r,ROOM.yF,AZ1),P(ARCH.r,ARCH.ys,AZ1)];
 /* 门槛石板 */
 const SILL=[P(-ARCH.r,ROOM.yF,AZ0),P(ARCH.r,ROOM.yF,AZ0),P(ARCH.r,ROOM.yF,AZ1),P(-ARCH.r,ROOM.yF,AZ1)];
-/* 楔形拱石 voussoir：沿拱外圈排布，交替深浅 */
+/* 拱圈与门柱共用截面和面深度，起拱点复用同一条边。 */
+const ARCH_FRAME={inner:ARCH.r+0.04,outer:ARCH.r+0.42,z:AZ0-0.10,bevel:0.018,joint:0.014};
+function frameArcPoint(r,a){
+  if(a===Math.PI) return P(-r,ARCH.ys,ARCH_FRAME.z);
+  if(a===0) return P(r,ARCH.ys,ARCH_FRAME.z);
+  return P(r*Math.cos(a),ARCH.ys+r*Math.sin(a),ARCH_FRAME.z);
+}
 const VOUS=(()=>{
-  const out=[],N=11,R0=ARCH.r+0.04,R1=ARCH.r+0.42,gap=0.014;
+  const out=[],N=11,steps=4,gap=ARCH_FRAME.joint/(ARCH_FRAME.inner+ARCH_FRAME.outer);
   for(let i=0;i<N;i++){
-    const a0=Math.PI*(1-i/N)+gap, a1=Math.PI*(1-(i+1)/N)-gap;
-    out.push([
-      P(R0*Math.cos(a0), ARCH.ys+R0*Math.sin(a0), AZ0-0.07),
-      P(R0*Math.cos(a1), ARCH.ys+R0*Math.sin(a1), AZ0-0.07),
-      P(R1*Math.cos(a1), ARCH.ys+R1*Math.sin(a1), AZ0-0.14),
-      P(R1*Math.cos(a0), ARCH.ys+R1*Math.sin(a0), AZ0-0.14)
-    ]);
+    const a0=i===0?Math.PI:Math.PI*(1-i/N)-gap;
+    const a1=i===N-1?0:Math.PI*(1-(i+1)/N)+gap;
+    const q=[];
+    for(let j=0;j<=steps;j++) q.push(frameArcPoint(ARCH_FRAME.inner,lerp(a0,a1,j/steps)));
+    for(let j=steps;j>=0;j--) q.push(frameArcPoint(ARCH_FRAME.outer,lerp(a0,a1,j/steps)));
+    out.push(q);
   }
   return out;
 })();
-/* 门框立柱 */
-const JAMB_COL=[
-  [P(-ARCH.r-0.32,ROOM.yF,AZ0-0.10),P(-ARCH.r-0.03,ROOM.yF,AZ0-0.10),
-   P(-ARCH.r-0.03,ARCH.ys,AZ0-0.10),P(-ARCH.r-0.32,ARCH.ys,AZ0-0.10)],
-  [P(ARCH.r+0.03,ROOM.yF,AZ0-0.10),P(ARCH.r+0.32,ROOM.yF,AZ0-0.10),
-   P(ARCH.r+0.32,ARCH.ys,AZ0-0.10),P(ARCH.r+0.03,ARCH.ys,AZ0-0.10)]
-];
+const JAMB_COL=(()=>{
+  const left=VOUS[0],right=VOUS[VOUS.length-1],n=right.length/2;
+  return [
+    [P(-ARCH_FRAME.inner,ROOM.yF,ARCH_FRAME.z),left[0],left[left.length-1],P(-ARCH_FRAME.outer,ROOM.yF,ARCH_FRAME.z)],
+    [P(ARCH_FRAME.inner,ROOM.yF,ARCH_FRAME.z),right[n-1],right[n],P(ARCH_FRAME.outer,ROOM.yF,ARCH_FRAME.z)]
+  ];
+})();
+const JAMB_JOINTS=(()=>{
+  const out=[],height=(ARCH.ys-ROOM.yF)/5,half=ARCH_FRAME.joint/2;
+  for(const sg of [-1,1]) for(let i=1;i<=5;i++){
+    const y=ROOM.yF+i*height,x0=sg*(ARCH_FRAME.inner+ARCH_FRAME.bevel),x1=sg*(ARCH_FRAME.outer-ARCH_FRAME.bevel),z=ARCH_FRAME.z;
+    out.push([P(x0,y-half,z),P(x1,y-half,z),P(x1,y+half,z),P(x0,y+half,z)]);
+  }
+  return out;
+})();
 /* 壁柱 pilaster：左右墙各 4 根，凸出 0.14 */
 const PILASTERS=(()=>{
   const out=[];
@@ -1088,8 +1109,8 @@ const BASEBOARDS=(()=>{
     const x0=sg*(ROOM.x-d);
     out.push([P(x0,ROOM.yF,ROOM.zB),P(x0,ROOM.yF,ROOM.zW),P(x0,ROOM.yF+h,ROOM.zW),P(x0,ROOM.yF+h,ROOM.zB)]);
   }
-  out.push([P(-ROOM.x,ROOM.yF,AZ0-d),P(-ARCH.r,ROOM.yF,AZ0-d),P(-ARCH.r,ROOM.yF+h,AZ0-d),P(-ROOM.x,ROOM.yF+h,AZ0-d)]);
-  out.push([P(ARCH.r,ROOM.yF,AZ0-d),P(ROOM.x,ROOM.yF,AZ0-d),P(ROOM.x,ROOM.yF+h,AZ0-d),P(ARCH.r,ROOM.yF+h,AZ0-d)]);
+  out.push([P(-ROOM.x,ROOM.yF,AZ0-d),P(-ARCH_FRAME.outer,ROOM.yF,AZ0-d),P(-ARCH_FRAME.outer,ROOM.yF+h,AZ0-d),P(-ROOM.x,ROOM.yF+h,AZ0-d)]);
+  out.push([P(ARCH_FRAME.outer,ROOM.yF,AZ0-d),P(ROOM.x,ROOM.yF,AZ0-d),P(ROOM.x,ROOM.yF+h,AZ0-d),P(ARCH_FRAME.outer,ROOM.yF+h,AZ0-d)]);
   out.push([P(-ROOM.x,ROOM.yF,ROOM.zB+d),P(ROOM.x,ROOM.yF,ROOM.zB+d),P(ROOM.x,ROOM.yF+h,ROOM.zB+d),P(-ROOM.x,ROOM.yF+h,ROOM.zB+d)]);
   return out;
 })();
@@ -1100,11 +1121,12 @@ const RAILS=(()=>{
     const x0=sg*(ROOM.x-d);
     out.push([P(x0,y0,ROOM.zB),P(x0,y0,ROOM.zW),P(x0,y0+h,ROOM.zW),P(x0,y0+h,ROOM.zB)]);
   }
-  out.push([P(-ROOM.x,y0,AZ0-d),P(-ARCH.r,y0,AZ0-d),P(-ARCH.r,y0+h,AZ0-d),P(-ROOM.x,y0+h,AZ0-d)]);
-  out.push([P(ARCH.r,y0,AZ0-d),P(ROOM.x,y0,AZ0-d),P(ROOM.x,y0+h,AZ0-d),P(ARCH.r,y0+h,AZ0-d)]);
+  out.push([P(-ROOM.x,y0,AZ0-d),P(-ARCH_FRAME.outer,y0,AZ0-d),P(-ARCH_FRAME.outer,y0+h,AZ0-d),P(-ROOM.x,y0+h,AZ0-d)]);
+  out.push([P(ARCH_FRAME.outer,y0,AZ0-d),P(ROOM.x,y0,AZ0-d),P(ROOM.x,y0+h,AZ0-d),P(ARCH_FRAME.outer,y0+h,AZ0-d)]);
   out.push([P(-ROOM.x,y0,ROOM.zB+d),P(ROOM.x,y0,ROOM.zB+d),P(ROOM.x,y0+h,ROOM.zB+d),P(-ROOM.x,y0+h,ROOM.zB+d)]);
   return out;
 })();
+const FRONT_RAILS=RAILS.slice(2,4), FRONT_BASEBOARDS=BASEBOARDS.slice(2,4);
 /* 走廊立柱 */
 const COLUMNS=(()=>{
   const out=[];
@@ -1764,11 +1786,289 @@ function surf(pts,hex,o){
   const d=Math.hypot(cx-cam.x,cy-cam.y,cz-cam.z);
   let fs=o.fs!==undefined?o.fs:8, fe=o.fe!==undefined?o.fe:30;
   let fog=o.noFog?0:clamp((d-fs)/(fe-fs),0,1);
-  if(fogNear>0){                 /* 近视：雾线拉近压浓，近处还看得清，远处直接被吞掉 */
+  /* 近视（蕾娜之眼）走正常表现，不受闪光防护影响：用户明确要求眼睛不做护眼。 */
+  if(fogNear>0){
     fs*=1-0.38*fogNear; fe*=1-0.57*fogNear;
     fog=clamp((d-fs)/Math.max(0.6,fe-fs),0,1);
   }
-  return fillPoly(pts, shadeFog(hex, o.lit===undefined?1:o.lit, fog, fogNear>0?FOG_NEAR:o.fc));
+  const lit=o.lit===undefined?1:o.lit, fc=fogNear>0?FOG_NEAR:o.fc;
+  const sp=fillPoly(pts, shadeFog(hex,lit,fog,fc));
+  if(sp && o.material) drawWallMaterial(pts,sp,o.material,lit,fog,fc||FOG_IN);
+  return sp;
+}
+
+/* 门洞附近留空，装饰只烘在两侧实墙上，不增加逐帧图元或训练随机数。 */
+function paintFacadeDetails(g,w,h){
+  const sx=w/(2*ROOM.x), sy=h/(ROOM.yC-ROOM.yF);
+  const u=x=>(x+ROOM.x)*sx, v=y=>(ROOM.yC-y)*sy;
+  const rect=(x,y,rw,rh,color)=>{g.fillStyle=color;g.fillRect(u(x),v(y+rh),rw*sx,rh*sy);};
+  const path=pts=>{
+    g.beginPath();g.moveTo(u(pts[0][0]),v(pts[0][1]));
+    for(let i=1;i<pts.length;i++) g.lineTo(u(pts[i][0]),v(pts[i][1]));
+    g.closePath();
+  };
+  const poly=(pts,color)=>{path(pts);g.fillStyle=color;g.fill();};
+  const line=(pts,color,width)=>{
+    g.beginPath();g.moveTo(u(pts[0][0]),v(pts[0][1]));
+    for(let i=1;i<pts.length;i++) g.lineTo(u(pts[i][0]),v(pts[i][1]));
+    g.strokeStyle=color;g.lineWidth=width*sx;g.stroke();
+  };
+  const exposed=(pts,x,y,seed)=>{
+    poly(pts,'#c1aa8d');
+    g.save();path(pts);g.clip();
+    rect(x,y,2.4,1.3,'#9f907b');
+    for(let row=0;row<6;row++) for(let col=-1;col<5;col++){
+      const bx=x+(col+(row%2)*0.5)*0.52, by=y+row*0.22;
+      rect(bx+0.018,by+0.018,0.485,0.18,mixHex('#94775e','#ad8a69',hash01(seed+row*13+col)));
+      rect(bx+0.028,by+0.178,0.46,0.018,'rgba(222,190,146,0.22)');
+    }
+    g.restore();
+    line(pts.concat([pts[0]]),'rgba(218,199,168,0.50)',0.025);
+  };
+  g.save();
+  g.beginPath();
+  g.rect(0,0,u(-3.3),h);g.rect(u(3.3),0,w-u(3.3),h);g.clip();
+
+  /* 左侧旧百叶窗：凹槽、两扇木叶和石质窗台。 */
+  rect(-5.93,1.12,2.36,1.64,'rgba(53,47,38,0.18)');
+  rect(-5.99,1.21,2.27,1.56,'#b8a58a');
+  rect(-5.86,1.32,2.02,1.32,'#625f50');
+  rect(-5.81,1.35,1.93,1.24,'#4e5851');
+  for(const x of [-5.75,-4.80]){
+    rect(x,1.41,0.86,1.12,'#697466');
+    for(let row=0;row<8;row++){
+      const y=1.46+row*0.131;
+      rect(x+0.05,y,0.76,0.105,row%3===0?'#73806e':'#647161');
+      rect(x+0.05,y,0.76,0.023,'#48564b');
+      rect(x+0.05,y+0.09,0.76,0.015,'#89917b');
+    }
+    rect(x,1.4,0.045,1.14,'#818775');
+    rect(x+0.83,1.4,0.035,1.14,'#435247');
+    for(const y of [1.64,2.28]) rect(x+0.07,y,0.15,0.055,'#485349');
+  }
+  rect(-4.89,1.36,0.075,1.23,'#b3a082');
+  rect(-6.07,2.70,2.43,0.10,'#c8b596');
+  rect(-6.05,1.16,2.46,0.13,'#b5a184');
+  poly([[-6.05,1.29],[-3.59,1.29],[-3.68,1.35],[-5.94,1.35]],'#d0bd9d');
+  line([[-6.06,1.15],[-3.58,1.15]],'rgba(74,62,48,0.32)',0.03);
+
+  /* 右侧旧庭院铭牌，不使用箭头或发光色，避免被误认成技能提示。 */
+  rect(4.08,1.58,2.26,0.92,'rgba(51,46,39,0.17)');
+  rect(4.02,1.64,2.22,0.90,'#b9a88b');
+  rect(4.10,1.72,2.06,0.73,'#596b65');
+  rect(4.14,1.76,1.98,0.018,'#99a28b');
+  rect(4.14,2.39,1.98,0.018,'#99a28b');
+  g.textAlign='center';g.textBaseline='middle';g.fillStyle='#d7ccb3';
+  g.font='600 '+(0.15*sy)+'px sans-serif';g.fillText('COURTYARD',u(5.13),v(2.27));
+  g.font='600 '+(0.34*sy)+'px sans-serif';g.fillText('01',u(5.13),v(1.98));
+  for(const x of [4.21,6.02]) for(const y of [1.85,2.30]){
+    rect(x-0.015,y-0.015,0.03,0.03,'#bec0a5');
+  }
+
+  exposed([[-6.30,-1.31],[-6.31,-0.72],[-6.10,-0.70],[-6.10,-0.41],[-5.70,-0.44],[-5.58,-0.30],
+    [-5.15,-0.39],[-5.05,-0.65],[-4.84,-0.69],[-4.78,-1.31]],-6.4,-1.40,7421);
+  exposed([[4.83,-1.31],[4.79,-0.96],[5.03,-0.87],[5.20,-0.62],[5.57,-0.66],[5.65,-0.84],
+    [6.05,-0.91],[6.20,-1.31]],4.6,-1.42,8437);
+  for(const [x,y] of [[-3.82,-0.12],[3.85,-0.28]]){
+    rect(x+0.03,y-0.025,0.32,0.40,'rgba(50,43,35,0.18)');
+    rect(x,y,0.32,0.40,'#a89f8a');rect(x+0.025,y+0.025,0.27,0.35,'#c1b49a');
+    rect(x+0.13,y+0.17,0.065,0.025,'#837b67');
+  }
+  for(const pts of [
+    [[-6.60,2.93],[-6.48,2.52],[-6.60,2.23],[-6.49,1.93]],
+    [[-6.48,2.52],[-6.25,2.39]],
+    [[-4.22,1.04],[-4.30,0.63],[-4.12,0.41],[-4.18,0.17]],
+    [[5.83,1.39],[5.69,1.18],[5.80,0.87],[5.75,0.58]],
+    [[5.80,0.87],[6.06,0.76]]
+  ]) line(pts,'rgba(74,65,52,0.27)',0.012);
+  line([[-6.73,-0.37],[-6.73,2.72],[-6.30,2.72]],'#8e8470',0.056);
+  line([[-6.76,-0.37],[-6.76,2.75],[-6.30,2.75]],'#baa88c',0.020);
+  for(const y of [0.02,1.06,2.32]) rect(-6.80,y,0.14,0.075,'#857e6b');
+  line([[6.57,3.10],[6.55,2.88],[6.43,2.70],[6.50,2.48],[6.36,2.30]],'#696c4d',0.021);
+  for(let i=0;i<10;i++){
+    const y=3.06-i*0.077,x=6.55-0.11*Math.sin(i*0.7),sg=i%2?1:-1;
+    poly([[x,y],[x+sg*0.19,y+0.08],[x+sg*0.23,y-0.005],[x+sg*0.05,y-0.08]],
+      i%3?'#7a815b':'#91916a');
+  }
+  for(let i=0;i<160;i++){
+    const sg=i%2?1:-1,x=sg*(3.45+hash01(86000+i)*3.25),y=-1.3+hash01(91000+i)*4.35;
+    rect(x,y,0.012+hash01(96000+i)*0.08,0.012,'rgba(219,202,171,0.13)');
+  }
+  g.restore();
+}
+
+/* 材质只烘一次，固定在世界坐标上；哈希不消耗训练的两条随机流。 */
+const wallTextureCache=Object.create(null);
+function wallTexture(kind){
+  if(wallTextureCache[kind]) return wallTextureCache[kind];
+  const cv=document.createElement('canvas'); cv.width=1024; cv.height=384;
+  const g=cv.getContext('2d'), w=cv.width, h=cv.height;
+  if(kind==='facade'){
+    g.drawImage(wallTexture('plaster'),0,0);
+    paintFacadeDetails(g,w,h);
+    wallTextureCache[kind]=cv;
+    return cv;
+  }
+  const seed=kind==='brick'?3181:kind==='stone'?7619:1949;
+  const rnd=i=>hash01(seed+i*271);
+  g.fillStyle=kind==='brick'?'#ac7855':kind==='stone'?'#dec8a7':'#bba58b';
+  g.fillRect(0,0,w,h);
+  if(kind==='brick'){
+    const bh=h/11, bw=w/17;
+    for(let row=0;row<11;row++) for(let col=-1;col<18;col++){
+      const x=(col+(row%2)*0.5)*bw, y=row*bh, n=row*41+col+1;
+      g.fillStyle=mixHex('#986444','#bd8961',rnd(n));
+      g.fillRect(x+1.2,y+1.1,bw-2.4,bh-2.2);
+      g.fillStyle='rgba(244,203,150,0.16)'; g.fillRect(x+2,y+1.2,bw-4,1);
+      g.fillStyle='rgba(66,42,30,0.19)'; g.fillRect(x+2,y+bh-2,bw-4,1);
+    }
+  }
+  for(let i=0;i<72;i++){
+    const x=rnd(i*7+900)*w, y=rnd(i*7+901)*h;
+    const rx=24+rnd(i*7+902)*105, ry=12+rnd(i*7+903)*44;
+    g.save(); g.translate(x,y); g.scale(rx,ry);
+    const cloud=g.createRadialGradient(0,0,0,0,0,1);
+    const light=i%3===0, rgb=light?'255,239,207':'65,58,49';
+    const alpha=(kind==='stone'?0.04:0.07)+rnd(i*7+904)*0.055;
+    cloud.addColorStop(0,'rgba('+rgb+','+alpha+')');
+    cloud.addColorStop(0.5,'rgba('+rgb+','+(alpha*0.45)+')');
+    cloud.addColorStop(1,'rgba('+rgb+',0)');
+    g.fillStyle=cloud; g.fillRect(-1,-1,2,2); g.restore();
+  }
+  for(let i=0;i<7600;i++){
+    const x=rnd(i*5+2000)*w, y=rnd(i*5+2001)*h;
+    g.fillStyle=i%3?'rgba(60,51,43,0.10)':'rgba(255,244,220,0.18)';
+    g.fillRect(x,y,0.45+rnd(i*5+2002)*1.15,0.4+rnd(i*5+2003)*0.9);
+  }
+  for(let i=0;i<90;i++){
+    const x=rnd(i*5+50000)*w, y=rnd(i*5+50001)*h;
+    const len=3+rnd(i*5+50002)*(kind==='stone'?24:13);
+    g.strokeStyle=i%2?'rgba(63,53,43,0.10)':'rgba(255,241,215,0.17)';
+    g.lineWidth=0.5; g.beginPath(); g.moveTo(x,y);
+    g.lineTo(x+len,y+(rnd(i*5+50003)-0.5)*3); g.stroke();
+  }
+  if(kind==='plaster'){
+    const light=g.createLinearGradient(0,0,w,0);
+    light.addColorStop(0,'rgba(23,30,34,0.24)');
+    light.addColorStop(0.42,'rgba(30,32,34,0.10)');
+    light.addColorStop(0.8,'rgba(255,223,175,0.025)');
+    light.addColorStop(1,'rgba(52,43,36,0.04)');
+    g.fillStyle=light; g.fillRect(0,0,w,h);
+    for(let i=0;i<28;i++){
+      const x=rnd(i*3+51000)*w, bh=8+rnd(i*3+51001)*34;
+      const stain=g.createLinearGradient(0,h-bh,0,h);
+      stain.addColorStop(0,'rgba(61,57,48,0)'); stain.addColorStop(1,'rgba(61,57,48,0.14)');
+      g.fillStyle=stain; g.fillRect(x,h-bh,2+rnd(i*3+51002)*9,bh);
+    }
+  }
+  const edge=g.createLinearGradient(0,0,0,h);
+  edge.addColorStop(0,'rgba(34,29,25,0.21)'); edge.addColorStop(0.16,'rgba(34,29,25,0)');
+  edge.addColorStop(0.73,'rgba(34,29,25,0)'); edge.addColorStop(1,'rgba(34,29,25,0.18)');
+  g.fillStyle=edge; g.fillRect(0,0,w,h);
+  wallTextureCache[kind]=cv;
+  return cv;
+}
+function wallSkin(kind,axis,at,u0,u1){
+  const skin={kind,axis,at,u0,u1,cells:[]}, v0=ROOM.yF, v1=ROOM.yC;
+  const point=(u,v)=>({p:axis==='x'?P(u,v,at):P(at,v,u),u:(u-u0)/(u1-u0),v:(v1-v)/(v1-v0)});
+  const cell=(a,b,c,d)=>({u0:a,u1:b,v0:c,v1:d,pts:[point(a,c),point(b,c),point(b,d),point(a,d)]});
+  skin.full=cell(u0,u1,v0,v1);
+  const step=kind==='brick'||kind==='facade'?1:1.4;
+  const nx=Math.ceil((u1-u0)/step), ny=Math.ceil((v1-v0)/step);
+  for(let y=0;y<ny;y++) for(let x=0;x<nx;x++){
+    skin.cells.push(cell(lerp(u0,u1,x/nx),lerp(u0,u1,(x+1)/nx),lerp(v0,v1,y/ny),lerp(v0,v1,(y+1)/ny)));
+  }
+  return skin;
+}
+const WALL_SKINS={
+  front:wallSkin('facade','x',ROOM.zW,-ROOM.x,ROOM.x),
+  left:wallSkin('plaster','z',-ROOM.x,ROOM.zB,ROOM.zW),
+  right:wallSkin('plaster','z',ROOM.x,ROOM.zB,ROOM.zW),
+  back:wallSkin('plaster','x',ROOM.zB,-ROOM.x,ROOM.x),
+  end:wallSkin('brick','x',ROOM.zE,-ROOM.x,ROOM.x),
+  outerLeft:wallSkin('brick','z',-ROOM.x,ROOM.zW,ROOM.zE),
+  outerRight:wallSkin('brick','z',ROOM.x,ROOM.zW,ROOM.zE),
+  stone:{kind:'stone'}
+};
+function clipWallPoly(pts){
+  const out=[];
+  for(let i=0;i<pts.length;i++){
+    const a=pts[i], b=pts[(i+1)%pts.length], ai=a.z>=NEAR, bi=b.z>=NEAR;
+    if(ai) out.push(a);
+    if(ai!==bi){
+      const t=(NEAR-a.z)/(b.z-a.z);
+      out.push({x:lerp(a.x,b.x,t),y:lerp(a.y,b.y,t),z:NEAR,u:lerp(a.u,b.u,t),v:lerp(a.v,b.v,t)});
+    }
+  }
+  return out;
+}
+function wallTriangle(tex,a,b,c){
+  const p=proj(a), q=proj(b), r=proj(c);
+  if(Math.max(p.x,q.x,r.x)<0 || Math.min(p.x,q.x,r.x)>W || Math.max(p.y,q.y,r.y)<0 || Math.min(p.y,q.y,r.y)>H) return;
+  const area=(q.x-p.x)*(r.y-p.y)-(q.y-p.y)*(r.x-p.x);
+  if(Math.abs(area)<0.05) return;
+  const au=a.u*tex.width, av=a.v*tex.height, bu=b.u*tex.width, bv=b.v*tex.height, cu=c.u*tex.width, cv=c.v*tex.height;
+  const det=(bu-au)*(cv-av)-(cu-au)*(bv-av);
+  if(Math.abs(det)<1e-8) return;
+  const xx=((q.x-p.x)*(cv-av)-(r.x-p.x)*(bv-av))/det;
+  const xy=((q.y-p.y)*(cv-av)-(r.y-p.y)*(bv-av))/det;
+  const yx=((r.x-p.x)*(bu-au)-(q.x-p.x)*(cu-au))/det;
+  const yy=((r.y-p.y)*(bu-au)-(q.y-p.y)*(cu-au))/det;
+  ctx.save(); ctx.beginPath();
+  const vertices=[p,q,r], sign=area>0?1:-1;
+  /* 沿边法线外扩，细长三角片也能封住抗锯齿缝；外层裁剪仍不越过墙面。 */
+  for(let i=0;i<3;i++){
+    const s=vertices[i], prev=vertices[(i+2)%3], next=vertices[(i+1)%3];
+    const ax=s.x-prev.x, ay=s.y-prev.y, bx=next.x-s.x, by=next.y-s.y;
+    const al=Math.hypot(ax,ay)||1, bl=Math.hypot(bx,by)||1;
+    const nx=sign*ay/al, ny=-sign*ax/al, mx=sign*by/bl, my=-sign*bx/bl;
+    const x=s.x+nx*0.8, y=s.y+ny*0.8;
+    if(i) ctx.lineTo(x,y); else ctx.moveTo(x,y);
+    ctx.lineTo(s.x+mx*0.8,s.y+my*0.8);
+  }
+  ctx.closePath(); ctx.clip();
+  ctx.transform(xx,xy,yx,yy,p.x-xx*au-yx*av,p.y-xy*au-yy*av);
+  ctx.drawImage(tex,0,0); ctx.restore();
+}
+function drawWallMaterial(world,screen,skin,lit,fog,fc){
+  if(fog>=0.995 || screen.every(p=>p.x<0) || screen.every(p=>p.x>W) || screen.every(p=>p.y<0) || screen.every(p=>p.y>H)) return;
+  const tex=wallTexture(skin.kind);
+  ctx.save(); pathFromScreen(screen); ctx.clip();
+  const paint=pts=>{
+    const cp=clipWallPoly(pts);
+    for(let i=1;i<cp.length-1;i++) wallTriangle(tex,cp[0],cp[i],cp[i+1]);
+  };
+  if(skin.kind==='stone'){
+    const cp=world.map(p=>Object.assign(toCam(p),{u:(p.x+ROOM.x)/(2*ROOM.x),v:(ROOM.yC-p.y)/(ROOM.yC-ROOM.yF)}));
+    const n=cp.length/2;
+    /* 拱石是弯曲条带，逐小段贴图；整块扇形三角化会跨过内弧侵入门洞。 */
+    for(let i=0;i<n-1;i++) paint([cp[i],cp[i+1],cp[cp.length-2-i],cp[cp.length-1-i]]);
+  }else{
+    const u0=Math.min(...world.map(p=>p[skin.axis])), u1=Math.max(...world.map(p=>p[skin.axis]));
+    const v0=Math.min(...world.map(p=>p.y)), v1=Math.max(...world.map(p=>p.y));
+    /* 始终使用同一世界网格；按视角切换整墙两片会让砖缝在阈值处突然跳位。 */
+    for(const cell of skin.cells){
+      if(cell.u1<u0 || cell.u0>u1 || cell.v1<v0 || cell.v0>v1) continue;
+      paint(cell.pts.map(v=>Object.assign(toCam(v.p),{u:v.u,v:v.v})));
+    }
+  }
+  pathFromScreen(screen);
+  if(lit<1){ ctx.globalAlpha=1-lit; ctx.fillStyle='#000000'; ctx.fill(); }
+  if(fog>0){ ctx.globalAlpha=fog; ctx.fillStyle='rgb('+fc.join(',')+')'; ctx.fill(); }
+  ctx.restore();
+}
+function stoneSurf(q,i,lit){
+  const k=lit*(0.965+hash01(702+i)*0.07), opt={lit:k,fs:4,fe:26,material:WALL_SKINS.stone};
+  surf(q,'#dec8a7',opt);
+  const n=q.length/2,t=ARCH_FRAME.bevel/(ARCH_FRAME.outer-ARCH_FRAME.inner),inner=[],outer=[];
+  /* 倒角沿内外长边保持固定宽度，不能按整根柱高缩进而画出厚亮柱头。 */
+  for(let j=0;j<n;j++){
+    const a=q[j],b=q[q.length-1-j];
+    inner.push(P(lerp(a.x,b.x,t),lerp(a.y,b.y,t),lerp(a.z,b.z,t)));
+    outer.push(P(lerp(b.x,a.x,t),lerp(b.y,a.y,t),lerp(b.z,a.z,t)));
+  }
+  surf(q.slice(0,n).concat(inner.reverse()),'#b8a17f',{lit:k*0.90,fs:4,fe:26});
+  surf(outer.concat(q.slice(n)),'#e9d6b7',{lit:Math.min(1,k*1.04),fs:4,fe:26});
 }
 
 /* ---------- 场景渲染 ---------- */
@@ -1776,39 +2076,22 @@ function drawRoom(){
   const X=ROOM.x, yF=ROOM.yF, yC=ROOM.yC, zB=ROOM.zB, zW=ROOM.zW, zE=ROOM.zE;
   const OUT={fs:15,fe:30,fc:FOG_OUT};     /* 走廊：暖色远景雾 */
 
-  /* 1. 走廊尽头（室外天光） */
-  const endSp=fillPoly([P(-X,yF,zE),P(X,yF,zE),P(X,yC,zE),P(-X,yC,zE)],'#c9a878');
-  if(endSp){
-    let mn=1e9,mx=-1e9;
-    for(const p of endSp){mn=Math.min(mn,p.y);mx=Math.max(mx,p.y);}
-    const g=ctx.createLinearGradient(0,mn,0,mx);
-    g.addColorStop(0,'#9d7350'); g.addColorStop(0.5,'#b5764f'); g.addColorStop(1,'#8a5540');
-    ctx.save();
-    ctx.beginPath(); ctx.moveTo(endSp[0].x,endSp[0].y);
-    for(let i=1;i<endSp.length;i++) ctx.lineTo(endSp[i].x,endSp[i].y);
-    ctx.closePath(); ctx.fillStyle=g; ctx.fill(); ctx.restore();
-  }
-  /* 远端墙脚的浅色混凝土条（参考图里砖墙脚那一截浅灰） */
+  /* 1. 走廊尽头：错缝红砖与浅色墙脚 */
+  surf([P(-X,yF,zE),P(X,yF,zE),P(X,yC,zE),P(-X,yC,zE)],'#ad7855',
+       Object.assign({lit:0.98,material:WALL_SKINS.end},OUT));
   surf([P(-X,yF,zE-0.02),P(X,yF,zE-0.02),P(X,yF+0.95,zE-0.02),P(-X,yF+0.95,zE-0.02)],
        '#a89e93', Object.assign({lit:0.92},OUT));
-  /* 砖缝：让远端那面墙读得出是砖而不是一片渐变 */
-  for(let y=yF+0.42;y<yC;y+=0.44) drawLine(P(-X,y,zE-0.03),P(X,y,zE-0.03),'#6b3f2c',1,0.20);
-  for(let x=-X;x<=X;x+=0.72) drawLine(P(x,yF+0.02,zE-0.03),P(x,yF+1.9,zE-0.03),'#6b3f2c',1,0.10);
 
   /* 2. 拱门外走廊（远 → 近） */
   for(const [z0,z1] of [[14,zE],[9.5,14],[zW,9.5]]){
     /* 拱门后是砖砌廊道：陶土地面 + 红砖墙 + 暗木色顶 */
     surf([P(-X,yF,z0),P(X,yF,z0),P(X,yF,z1),P(-X,yF,z1)],'#a5764f',Object.assign({lit:0.96},OUT));
     surf([P(-X,yC,z0),P(X,yC,z0),P(X,yC,z1),P(-X,yC,z1)],'#6b5642',Object.assign({lit:0.74},OUT));
-    surf([P(-X,yF,z0),P(-X,yC,z0),P(-X,yC,z1),P(-X,yF,z1)],'#9d6a4c',Object.assign({lit:0.94},OUT));
-    surf([P(X,yF,z0),P(X,yC,z0),P(X,yC,z1),P(X,yF,z1)],'#8e6046',Object.assign({lit:0.78},OUT));
   }
+  surf([P(-X,yF,zW),P(-X,yC,zW),P(-X,yC,zE),P(-X,yF,zE)],'#9d6a4c',Object.assign({lit:0.94,material:WALL_SKINS.outerLeft},OUT));
+  surf([P(X,yF,zW),P(X,yC,zW),P(X,yC,zE),P(X,yF,zE)],'#8e6046',Object.assign({lit:0.78,material:WALL_SKINS.outerRight},OUT));
   for(let z=zW;z<=zE;z+=1.6) drawLine(P(-X,yF+.01,z),P(X,yF+.01,z),'#5c3a24',1,0.22);
   for(let x=-6;x<=6;x+=1.6) drawLine(P(x,yF+.01,zW),P(x,yF+.01,zE),'#5c3a24',1,0.18);
-  for(let y=yF+0.5;y<yC;y+=0.55){
-    drawLine(P(-X,y,zW+.02),P(-X,y,9.5),'#4a2f1c',1,0.10);
-    drawLine(P(X,y,zW+.02),P(X,y,9.5),'#4a2f1c',1,0.10);
-  }
 
   /* 3. 走廊立柱 + 掩体箱（统一按距离排序，远 → 近） */
   const solids=CRATES.map(c=>({b:c.b,c:c.c,
@@ -1839,40 +2122,12 @@ function drawRoom(){
           P(sg*0.94,BY0,BZ0+0.02),P(sg*0.60,BY0,BZ0+0.02)],'#8a5f34',{lit:0.84,fs:4,fe:24});
   }
 
-  /* 5. 前墙三段 */
-  /* 前墙：暖沙灰泥，底偏灰、顶偏暖 */
-  /* 墙面是连续的暖沙灰泥：左背光、右受光，拱肩略压暗。
-     不要画成上下两截异色 —— 参考图里那面墙是一整块。 */
-  surf(WALL_L,'#9a8672',{lit:0.56});
-  surf(WALL_R,'#a08a72',{lit:0.80});
-  surf(WALL_T,'#a89078',{lit:0.72});
-  /* 只用轻的石缝给大面结构，缝色跟墙同系 */
-  for(const q of [WALL_L,WALL_R]){
-    const x0=q[0].x, x1=q[1].x;
-    drawLine(P(x0,0.98,zW+.01),P(x1,0.98,zW+.01),'#7a6350',1,0.15);
-    drawLine(P(x0,-0.25,zW+.01),P(x1,-0.25,zW+.01),'#7a6350',1,0.12);
-  }
-  for(let x=-6;x<=-2.2;x+=1.9) drawLine(P(x,ROOM.yF,zW+.01),P(x,ROOM.yC,zW+.01),'#7a6350',1,0.12);
-  for(let x=2.2;x<=6;x+=1.9)   drawLine(P(x,ROOM.yF,zW+.01),P(x,ROOM.yC,zW+.01),'#7a6350',1,0.12);
-
-  /* 灰泥墙面的深浅水渍：不规则暖色斑块，参考图里那种涂抹感 */
-  const BLOTCH=[[-5.2,2.1,1.30],[-3.9,1.2,0.95],[-2.7,0.4,0.80],[-5.6,-0.7,1.05],
-                [2.8,1.9,1.15],[4.2,0.8,0.90],[5.6,2.2,0.85],[3.5,-0.6,1.00]];
-  for(const [bx,by,br] of BLOTCH){
-    const pts=[];
-    for(let i=0;i<9;i++){
-      const a=i/9*6.2832, rr=br*(0.42+0.28*((i*37)%7)/7);
-      pts.push(P(bx+Math.cos(a)*rr*1.25, by+Math.sin(a)*rr*0.85, ROOM.zW+0.012));
-    }
-    fillPoly(pts, by>0.9?'rgba(233,216,187,0.22)':'rgba(108,90,76,0.20)');
-  }
-
-  /* 墙上的白色检修片 */
-  const PLATES=[[-5.5,0.35],[-3.6,0.22],[2.9,0.28],[5.6,0.30],[4.2,-0.15]];
-  for(const [px,py] of PLATES){
-    surf([P(px-0.15,py,ROOM.zW+0.016),P(px+0.15,py,ROOM.zW+0.016),
-          P(px+0.15,py+0.21,ROOM.zW+0.016),P(px-0.15,py+0.21,ROOM.zW+0.016)],
-         '#ddd6c8',{lit:0.94,fs:5,fe:26});
+  /* 5. 连续暖沙灰泥，不在拱肩留下分色竖缝。 */
+  surf(WALL_FRONT,'#bba58b',{lit:0.83,material:WALL_SKINS.front});
+  /* 门框与灰泥接触处的窄阴影留在实墙上，不挤占门洞。 */
+  for(const sg of [-1,1]){
+    const x0=sg*ARCH_FRAME.outer, x1=sg*(ARCH_FRAME.outer+0.04);
+    surf([P(x0,yF,zW),P(x1,yF,zW),P(x1,ARCH.ys,zW),P(x0,ARCH.ys,zW)],'#756957',{lit:0.70});
   }
 
   /* 右墙壁灯：奶色外罩 + 亮内胆 */
@@ -1881,13 +2136,14 @@ function drawRoom(){
   surf([P(2.94,2.18,ROOM.zW+0.05),P(3.16,2.18,ROOM.zW+0.05),
         P(3.16,2.36,ROOM.zW+0.05),P(2.94,2.36,ROOM.zW+0.05)],'#f4e8ca',{lit:1.0,fs:5,fe:26});
 
-  /* 6. 楔形拱石 + 门框柱（凸出墙面） */
-  /* 楔形拱石：奶白主环 + 交替加深，靠外一圈偏灰做阴影 */
-  VOUS.forEach((q,i)=>{
-    const t=i/(VOUS.length-1);
-    surf(q, mixHex(i%2?'#d8c2a2':'#e6d3b4', '#c8b394', t*0.5), {lit:0.92,fs:4,fe:26});
-  });
-  for(const q of JAMB_COL) surf(q,'#e0cfb2',{lit:0.85,fs:4,fe:26});
+  /* 前墙饰条在门框之后的世界平面，先画再由门框收口。 */
+  for(const q of FRONT_RAILS) surf(q,'#c9b294',{lit:0.78,fs:5,fe:26});
+  for(const q of FRONT_BASEBOARDS) surf(q,'#a89e93',{lit:0.64,fs:5,fe:26});
+
+  /* 6. 楔形石块：细砂纹、柔和石色差与薄倒角 */
+  VOUS.forEach((q,i)=>stoneSurf(q,i,0.93));
+  JAMB_COL.forEach((q,i)=>stoneSurf(q,i?VOUS.length-1:0,0.93));
+  for(const q of JAMB_JOINTS) surf(q,'#b39e81',{lit:0.88,fs:4,fe:26});
   if(archScreen){
     ctx.save(); pathFromScreen(archScreen);
     ctx.strokeStyle='rgba(120,88,62,0.35)'; ctx.lineWidth=1.5; ctx.stroke(); ctx.restore();
@@ -1898,19 +2154,19 @@ function drawRoom(){
     /* 玩家侧同化成暖沙色，亮面接近日光色、暗面偏灰绿 */
     surf([P(-X,yF,z0),P(X,yF,z0),P(X,yF,z1),P(-X,yF,z1)],'#9d7c60',{lit:0.78});
     surf([P(-X,yC,z0),P(X,yC,z0),P(X,yC,z1),P(-X,yC,z1)],'#6b5648',{lit:0.46});
-    surf([P(-X,yF,z0),P(-X,yC,z0),P(-X,yC,z1),P(-X,yF,z1)],'#9d7c60',{lit:0.72});
-    surf([P(X,yF,z0),P(X,yC,z0),P(X,yC,z1),P(X,yF,z1)],'#9d7c60',{lit:0.52});
   }
+  surf([P(-X,yF,zB),P(-X,yC,zB),P(-X,yC,zW),P(-X,yF,zW)],'#9d7c60',{lit:0.67,material:WALL_SKINS.left});
+  surf([P(X,yF,zB),P(X,yC,zB),P(X,yC,zW),P(X,yF,zW)],'#9d7c60',{lit:0.53,material:WALL_SKINS.right});
   for(const q of BEAMS)      surf(q,'#584027',{lit:0.62,fs:6,fe:26});
   for(const q of PILASTERS)  surf(q,'#c9b294',{lit:0.74,fs:5,fe:26});
-  for(const q of RAILS)      surf(q,'#c9b294',{lit:0.78,fs:5,fe:26});
-  for(const q of BASEBOARDS) surf(q,'#a89e93',{lit:0.64,fs:5,fe:26});
+  for(const q of RAILS) if(!FRONT_RAILS.includes(q)) surf(q,'#c9b294',{lit:0.78,fs:5,fe:26});
+  for(const q of BASEBOARDS) if(!FRONT_BASEBOARDS.includes(q)) surf(q,'#a89e93',{lit:0.64,fs:5,fe:26});
   /* 地砖 */
   for(let z=zB;z<=zW;z+=1.4) drawLine(P(-X,yF+.01,z),P(X,yF+.01,z),'#7e573a',1,0.10);
   for(let x=-6;x<=6;x+=1.4) drawLine(P(x,yF+.01,zB),P(x,yF+.01,zW),'#7e573a',1,0.10);
 
   /* 8. 身后墙 */
-  surf([P(-X,yF,zB),P(X,yF,zB),P(X,yC,zB),P(-X,yC,zB)],'#8a6a4c',{lit:0.62});
+  surf([P(-X,yF,zB),P(X,yF,zB),P(X,yC,zB),P(-X,yC,zB)],'#8a6a4c',{lit:0.63,material:WALL_SKINS.back});
   for(let x=-6;x<=6;x+=1.9) drawLine(P(x,ROOM.yF,zB-.01),P(x,ROOM.yC,zB-.01),'#5c4230',1,0.14);
   drawLine(P(-X,0,zB-.01),P(X,0,zB-.01),'#5c4230',1,0.20);
 
@@ -3446,6 +3702,7 @@ function dizzyMakeBlindArt(){
 }
 
 function drawDizzyBlind(amt){
+  if(cfg.flashGuard) return;
   if(!Number.isFinite(amt) || amt<=0 || !(W>0 && H>0)) return;
   amt=clamp(amt,0,1);
   if(!dizzyBlindArt || dizzyBlindArt.w!==W || dizzyBlindArt.h!==H)
@@ -3558,8 +3815,9 @@ function drawFlashes(){
   for(const p of dizzyPlasmas) drawDizzyPlasma(p);
 
   /* 引爆爆闪 */
+  const fxNow=cfg.flashGuard&&paused?pauseT:T;
   for(const p of pops){
-    const age=(T-p.t)/p.dur; if(age<0||age>1) continue;
+    const age=(fxNow-p.t)/p.dur; if(age<0||age>1) continue;
     const c=toCam(p); if(c.z<NEAR) continue;
     const s=proj(c);
     const rad=F*(1.0+4.5*age)/c.z;
@@ -3567,18 +3825,25 @@ function drawFlashes(){
     ctx.save();
     if(p.z>ROOM.zW+0.02 && archScreen){ pathFromScreen(archScreen); ctx.clip(); }
     ctx.globalAlpha=clamp(al,0,1);
-    ctx.drawImage(orbSprite(p.rose?'165,65,255':p.rgb), s.x-rad, s.y-rad, rad*2, rad*2);
-    if(p.rose){
-      ctx.globalCompositeOperation='lighter';
-      ctx.strokeStyle='rgba(191,112,255,.95)'; ctx.lineWidth=Math.max(2,rad*0.12*(1-age));
-      ctx.beginPath(); ctx.arc(s.x,s.y,rad*(0.22+age*0.65),0,Math.PI*2); ctx.stroke();
-      glowDot(s.x,s.y,rad*0.38,'235,208,255',1,0.85);
+    if(cfg.flashGuard){
+      ctx.globalAlpha*=0.36;
+      ctx.strokeStyle='rgba('+(p.rose?'165,116,197':p.rgb)+',1)';
+      ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.arc(s.x,s.y,Math.min(46,rad*0.24),0,Math.PI*2); ctx.stroke();
+    }else{
+      ctx.drawImage(orbSprite(p.rose?'165,65,255':p.rgb), s.x-rad, s.y-rad, rad*2, rad*2);
+      if(p.rose){
+        ctx.globalCompositeOperation='lighter';
+        ctx.strokeStyle='rgba(191,112,255,.95)'; ctx.lineWidth=Math.max(2,rad*0.12*(1-age));
+        ctx.beginPath(); ctx.arc(s.x,s.y,rad*(0.22+age*0.65),0,Math.PI*2); ctx.stroke();
+        glowDot(s.x,s.y,rad*0.38,'235,208,255',1,0.85);
+      }
     }
     ctx.restore();
   }
 }
 function drawTarget(){
-  if(cfg.mode===1 || fogNear>0.15) return;   /* 近视期间靶球被浓雾吞掉，完全看不见 */
+  if(cfg.mode===1 || fogNear>0.15) return;   /* 近视期间靶球被浓雾吞掉，完全看不见（不受防护影响） */
   for(const tg of targets) drawOneTarget(tg);
 }
 function drawOneTarget(tg){
@@ -3605,7 +3870,7 @@ function nearGrad(){
   return g;
 }
 function drawNearsight(){
-  if(fogNear<=0.005) return;
+  if(fogNear<=0.005) return;   /* 蕾娜近视不受闪光防护影响，走原版紫雾 */
   ctx.save();
   ctx.globalAlpha=fogNear;
   ctx.fillStyle=nearGrad();
@@ -3613,6 +3878,7 @@ function drawNearsight(){
   ctx.restore();
 }
 function drawBlind(){
+  if(cfg.flashGuard) return;
   const amt=blindAmount();
   if(amt<=0) return;
   ctx.save();
@@ -3668,6 +3934,88 @@ function drawCrosshair(){
   }
   ctx.restore();
 }
+/* 防护显示单独读取计时，不把透明度或圆环进度回写到致盲/射击状态。
+   只覆盖「白屏」类的闪（普通闪光 / 丢丢电浆）；蕾娜之眼是近视，
+   用户要求它保持原版表现（紫雾 + 藏靶），所以这里不读 nearUntil。 */
+function flashGuardState(){
+  if(!cfg.flashGuard) return null;
+  const now=paused?pauseT:T, effects=[];
+  if(blindDur>0 && blindUntil>now){
+    const left=blindUntil-now;
+    effects.push({kind:'flash',left,total:blindDur,amount:clamp(blindPeak*left/blindDur,0,1)});
+  }
+  if(dizzyBlindUntil>now){
+    const left=dizzyBlindUntil-now;
+    effects.push({kind:'plasma',left,total:Math.max(0.001,dizzyBlindUntil-dizzyBlindStart),amount:clamp(left/0.45,0,1)});
+  }
+  if(!effects.length) return null;
+  const last=effects.reduce((a,b)=>b.left>a.left?b:a);
+  const blocked=effects.some(e=>e.amount>0.35);
+  return {left:last.left,progress:clamp(last.left/last.total,0,1),kind:last.kind,count:effects.length,
+    amount:Math.max(...effects.map(e=>e.amount)),blocked,recovering:!blocked};
+}
+let guardWashCache=null, guardWashKey='';
+function guardWash(){
+  const key=W+'x'+H;
+  if(guardWashCache && guardWashKey===key) return guardWashCache;
+  const g=ctx.createRadialGradient(CX,CY,Math.min(W,H)*0.16,CX,CY,Math.max(W,H)*0.66);
+  g.addColorStop(0,'rgba(243,246,248,0)');
+  g.addColorStop(1,'rgba(243,246,248,0.18)');
+  guardWashCache=g; guardWashKey=key;
+  return g;
+}
+/* 图标位置只由视口决定：固定在准星正上方，不随视角或鼠标移动。
+   偏移按比例缩放，小窗口下也不会压到准星上。 */
+const GUARD_ICON_LIFT=66;
+function flashGuardIconPos(){
+  const scale=clamp(Math.min(W,H)/720,0.82,1.15);
+  return {x:CX,y:CY-GUARD_ICON_LIFT*scale,scale};
+}
+function drawFlashGuardWash(state){
+  if(!state) return;
+  ctx.save();
+  ctx.globalCompositeOperation='source-over';
+  /* 多重致盲只画一层，以最强状态决定泛白，避免叠加成白屏。 */
+  ctx.globalAlpha=state.amount*0.32;
+  ctx.fillStyle='#f3f6f8'; ctx.fillRect(0,0,W,H);
+  ctx.globalAlpha=state.amount;
+  ctx.fillStyle=guardWash(); ctx.fillRect(0,0,W,H);
+  ctx.restore();
+}
+function drawFlashGuardIcon(state){
+  if(!state) return;
+  const pos=flashGuardIconPos();
+  ctx.save();
+  ctx.translate(pos.x,pos.y); ctx.scale(pos.scale,pos.scale);
+  ctx.globalAlpha=clamp(state.left/0.15,0,1);
+  /* 白色图标要压在白色滤镜上：深色半透明底盘先托出对比，否则会糊成一片。
+     底盘刻意压得比图标本身小一圈、也尽量淡，读起来仍是「白色图标」而不是深色胸章。 */
+  ctx.fillStyle='rgba(16,26,34,0.42)';
+  ctx.beginPath(); ctx.arc(0,0,19,0,Math.PI*2); ctx.fill();
+  ctx.strokeStyle='rgba(255,255,255,0.30)'; ctx.lineWidth=3;
+  ctx.beginPath(); ctx.arc(0,0,24,0,Math.PI*2); ctx.stroke();
+  ctx.strokeStyle='#ffffff'; ctx.lineCap='round'; ctx.lineWidth=2.5;
+  ctx.beginPath(); ctx.arc(0,0,24,-Math.PI/2,-Math.PI/2+Math.PI*2*state.progress); ctx.stroke();
+  ctx.lineWidth=1.8;
+  ctx.beginPath(); ctx.moveTo(-12,0);
+  ctx.bezierCurveTo(-5,-9,5,-9,12,0); ctx.bezierCurveTo(5,9,-5,9,-12,0); ctx.stroke();
+  ctx.beginPath(); ctx.arc(0,0,3,0,Math.PI*2); ctx.stroke();
+  ctx.strokeStyle='#ffffff'; ctx.lineWidth=3;
+  ctx.beginPath(); ctx.moveTo(-10,-10); ctx.lineTo(10,10); ctx.stroke();
+
+  const label=state.recovering?'恢复中':state.count>1?'多重致盲':state.kind==='plasma'?'电浆致盲':'致盲中';
+  rrectPath(-62,33,124,24,12); ctx.fillStyle='rgba(16,26,34,0.42)'; ctx.fill();
+  ctx.fillStyle='#ffffff'; ctx.font='12px "Microsoft YaHei",sans-serif';
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText(label+' · '+(Math.ceil(state.left*10-1e-7)/10).toFixed(1)+'s',0,45);
+  ctx.restore();
+}
+/* 白雾盖在准星下面（准星要保持清楚才好瞄），图标画在准星上面。 */
+function drawFlashGuard(){
+  const state=flashGuardState();
+  drawFlashGuardWash(state);
+  drawFlashGuardIcon(state);
+}
 let lastFilter='', lastNearOn=false;
 function render(){
   ctx.fillStyle='#05080b'; ctx.fillRect(0,0,W,H);
@@ -3679,12 +4027,16 @@ function render(){
   drawNearsight();
   drawBlind();
   drawDizzyBlind(dizzyBlindAmount());
-  drawCrosshair();                 /* 准星画在最后，永远在最上层 */
+  /* 白雾在准星之下（别糊住准星），图标在准星之上（别被准星穿过）。 */
+  const guardState=flashGuardState();
+  drawFlashGuardWash(guardState);
+  drawCrosshair();
+  drawFlashGuardIcon(guardState);
 
   /* 白屏用 CSS 模糊。值没变化就不写 style —— 每帧无条件赋值会强制样式重算，
      在全屏画布上是掉帧的主因之一 */
   const amt=blindAmount();
-  const f = (cfg.blur && amt>0.02)
+  const f = (!cfg.flashGuard && cfg.blur && amt>0.02)
     ? 'blur('+(amt*7).toFixed(1)+'px) brightness('+(1+amt*0.7).toFixed(2)+')'
     : 'none';
   if(f!==lastFilter){ lastFilter=f; cvs.style.filter=f; }
@@ -4577,6 +4929,7 @@ function syncSegs(){
   set($('segCross'),cfg.crossKind); set($('segCrossC'),cfg.crossColor);
   set($('segCrossDot'),cfg.crossDot?1:0);
   set($('segMusicWhen'),cfg.musicWhen); set($('segMusicDuck'),cfg.musicDuck?1:0);
+  set($('segFlashGuard'),cfg.flashGuard?1:0);
 }
 function buildAgents(){
   const box=$('agBox'); box.innerHTML='';
@@ -4609,6 +4962,7 @@ function bindUI(){
   buildSeg($('segMode'),MODES,v=>v,i=>{cfg.mode=i;relocateTarget();updateStats();saveCfg();});
   buildSeg($('segDiff'),DIFF,v=>v,i=>{cfg.diff=i;relocateTarget();updateStats();saveCfg();});
   buildSeg($('segVis'),[{n:'正常'},{n:'短暂'},{n:'无'}],v=>v,i=>{cfg.vis=i;saveCfg();});
+  buildSeg($('segFlashGuard'),[{n:'关闭'},{n:'开启'}],v=>cfg.flashGuard?1:0,i=>{cfg.flashGuard=!!i;saveCfg();});
   buildSeg($('segRound'),ROUNDS,v=>v,i=>{ cfg.roundIdx=i; if(playing) startRound(); else { roundOver=false; roundEndAt=0; } saveCfg(); });
 
   /* 菜单页签切换 */

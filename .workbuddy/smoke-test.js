@@ -2005,7 +2005,9 @@ try{
 
   console.log('[52] 丢丢蓝幕：缓存复用与暂停绘制时钟');
   const oldBlindDrawImage=ctxStub.drawImage, blindDrawCalls=[];
-  run('var savedBlindArtTest={art:dizzyBlindArt,T,paused,pauseT,W,H};dizzyBlindArt=null;paused=false;T=100;');
+  /* 闪光防护默认开启会整段跳过蓝幕绘制（那是防护的预期行为），
+     本组测的是原版蓝幕本身，所以先显式关掉防护。 */
+  run('var savedBlindArtTest={art:dizzyBlindArt,T,paused,pauseT,W,H,flashGuard:cfg.flashGuard};dizzyBlindArt=null;paused=false;T=100;cfg.flashGuard=false;');
   ctxStub.drawImage=(...args)=>blindDrawCalls.push(args);
   try{
     run('drawDizzyBlind(1);var firstBlindArt=dizzyBlindArt;');
@@ -2024,7 +2026,7 @@ try{
        '视口尺寸改变才重建蓝幕缓存');
   }finally{
     ctxStub.drawImage=oldBlindDrawImage;
-    run('dizzyBlindArt=savedBlindArtTest.art;T=savedBlindArtTest.T;paused=savedBlindArtTest.paused;pauseT=savedBlindArtTest.pauseT;W=savedBlindArtTest.W;H=savedBlindArtTest.H;');
+    run('dizzyBlindArt=savedBlindArtTest.art;T=savedBlindArtTest.T;paused=savedBlindArtTest.paused;pauseT=savedBlindArtTest.pauseT;W=savedBlindArtTest.W;H=savedBlindArtTest.H;cfg.flashGuard=savedBlindArtTest.flashGuard;');
   }
   console.log('[53] 维斯旋转绽放起点播放录音');
   run('var rosePopOriginal=sfx.pop,roseSoundEvents=[];sfx.pop=k=>roseSoundEvents.push([k,T]);');
@@ -2049,6 +2051,476 @@ try{
     ok(run('roseSoundEvents.length===1 && roseSoundEvents[0][0]==="phoenix"'),'普通闪光仍在引爆时播放音效');
   }finally{run('sfx.pop=rosePopOriginal;');}
   run('match.active=false;DAILY.active=false;cfg.auto=false;resetStats(true);playing=false;');
+
+  console.log('[54] 墙壁材质：确定性、缓存、透视裁剪与训练隔离');
+  const wallContextKeys=['save','restore','translate','scale','transform','drawImage','fillRect','fill','stroke','beginPath','moveTo','lineTo','closePath','clip'];
+  const savedWallContext={};
+  for(const k of wallContextKeys) savedWallContext[k]={own:Object.prototype.hasOwnProperty.call(ctxStub,k),value:ctxStub[k]};
+  run(`var savedWallTest={cam:{...cam},fogNear,T,W,H,DPR,contentRnd,random:Math.random,material:drawWallMaterial,
+    texture:wallTexture,skin:JSON.stringify(WALL_SKINS),geometry:JSON.stringify([ROOM,ARCH,ARCH_POLY,WALL_L,WALL_R,WALL_T,VOUS,JAMB_COL]),
+    game:JSON.stringify([targets,flashes,impactSlots,flashSeq,score,st,cfg]),cache:{...wallTextureCache}};
+    Object.assign(cam,{x:0,y:0,z:0,yaw:0,pitch:0});fogNear=0;
+    var wallRandomCalls=0; Math.random=()=>{wallRandomCalls++;return 0.5;};contentRnd=()=>{wallRandomCalls++;return 0.5;};
+    for(const k in wallTextureCache) delete wallTextureCache[k];`);
+  const wallOps=[], wallImages=[], wallTransforms=[], wallMoves=[];
+  let wallDepth=0, wallUnderflow=false, wallClipN=0;
+  ctxStub.save=()=>wallDepth++;
+  ctxStub.restore=()=>{ if(--wallDepth<0) wallUnderflow=true; };
+  ctxStub.translate=(...a)=>wallOps.push(['translate',...a]);
+  ctxStub.scale=(...a)=>wallOps.push(['scale',...a]);
+  ctxStub.transform=(...a)=>wallTransforms.push(a);
+  ctxStub.drawImage=(...a)=>wallImages.push(a);
+  ctxStub.fillRect=(...a)=>wallOps.push(['rect',ctxStub.fillStyle,...a]);
+  ctxStub.fill=()=>{};ctxStub.stroke=()=>{};ctxStub.beginPath=()=>{};ctxStub.closePath=()=>{};
+  ctxStub.moveTo=(...a)=>wallMoves.push(a);ctxStub.lineTo=(...a)=>wallMoves.push(a);ctxStub.clip=()=>wallClipN++;
+  try{
+    const textures=run('[wallTexture("plaster"),wallTexture("stone"),wallTexture("brick"),wallTexture("facade")]');
+    ok(textures.every(t=>t.width===1024&&t.height===384),'四种小尺寸材质独立缓存，单张 1024×384');
+    ok(new Set(textures).size===4 && textures.reduce((n,t)=>n+t.width*t.height*4,0)<7*1024*1024,'灰泥、砂岩、红砖与前墙装饰不串用，总原始位图小于 7MB');
+    const opCount=wallOps.length;
+    ok(run('wallTexture("plaster")===wallTextureCache.plaster && wallTexture("stone")===wallTextureCache.stone && wallTexture("brick")===wallTextureCache.brick && wallTexture("facade")===wallTextureCache.facade')&&wallOps.length===opCount,'重复索取材质不重新烘纹理或前墙装饰');
+    run('delete wallTextureCache.plaster;');wallOps.length=0;
+    run('wallTexture("plaster");');const firstBake=JSON.stringify(wallOps);wallOps.length=0;
+    run('delete wallTextureCache.plaster;T+=37;wallTexture("plaster");');
+    ok(firstBake===JSON.stringify(wallOps),'重建灰泥使用固定哈希，不随时间或游戏状态改变花纹');
+    ok(run('wallRandomCalls===0'),'全部材质生成不消耗真随机或内容随机流');
+    ok(wallDepth===0&&!wallUnderflow,'离屏烘图 save/restore 配对');
+
+    run(`var wallOutlineEquivalent=true;
+      for(let ix=-27;ix<=27;ix++) for(let iy=-6;iy<=12;iy++){
+        const x=ix*0.247+0.019,y=iy*0.247+0.011,p=q=>q.map(v=>({x:v.x,y:v.y}));
+        if(inPoly(x,y,p(WALL_FRONT))!==[WALL_L,WALL_R,WALL_T].some(q=>inPoly(x,y,p(q)))) wallOutlineEquivalent=false;
+      }`);
+    ok(run('wallOutlineEquivalent'),'连续前墙轮廓与原三段墙完全同区，不缩小拱门或遮住靶区');
+    ok(run('!inPoly(0,0,WALL_FRONT) && !inPoly(0,ARCH.ys+0.2,WALL_FRONT) && inPoly(3,0,WALL_FRONT)'),'材质实墙包含两侧但不封住门洞');
+    ok(run('WALL_SKINS.front.full.pts.every(v=>v.p.z===ROOM.zW) && WALL_SKINS.left.full.pts.every(v=>v.p.x===-ROOM.x) && WALL_SKINS.right.full.pts.every(v=>v.p.x===ROOM.x)'),'正墙及侧墙纹理锚在原世界平面');
+    ok(run('Object.values(WALL_SKINS).filter(s=>s.cells).every(s=>s.cells.length<=(s.kind==="brick"||s.kind==="facade"?70:40) && s.cells.every(c=>c.pts.every(v=>v.u>=0&&v.u<=1&&v.v>=0&&v.v<=1)))'),'砖墙与装饰墙最多70格、素灰泥最多40格，UV均在纹理范围内');
+
+    run(`var wallClipTest=clipWallPoly([
+      {x:-1,y:0,z:NEAR/2,u:0,v:0},{x:1,y:0,z:NEAR*1.5,u:1,v:0},{x:0,y:1,z:NEAR*1.5,u:1,v:1}]);`);
+    ok(run('wallClipTest.length===4 && wallClipTest.every(p=>p.z>=NEAR&&Object.values(p).every(Number.isFinite))'),'穿过近裁面时生成有限交点，不把负深度传给投影');
+    ok(run('wallClipTest.filter(p=>p.z===NEAR).length===2 && wallClipTest.filter(p=>p.z===NEAR).every(p=>Math.abs(p.u-0.5)<1e-9)'),'近裁面交点同时插值 UV，转身时纹理不跳到错误位置');
+    ok(run('clipWallPoly([{x:0,y:0,z:-1,u:0,v:0},{x:1,y:0,z:-1,u:1,v:0},{x:0,y:1,z:-1,u:0,v:1}]).length===0'),'镜头背后的材质片完全裁掉');
+
+    wallImages.length=0;wallTransforms.length=0;
+    run(`wallTriangle(wallTextureCache.plaster,
+      {x:-1,y:0,z:6,u:0.1,v:0.2},{x:1,y:0,z:6,u:0.3,v:0.2},{x:0,y:1,z:6,u:0.2,v:0.4});`);
+    const triangle=wallTransforms[0], tex=textures[0];
+    const worldTri=[[-1,0,0.1,0.2],[1,0,0.3,0.2],[0,1,0.2,0.4]];
+    ok(wallImages.length===1 && triangle&&worldTri.every(([x,y,u,v])=>{
+      const sx=triangle[0]*u*tex.width+triangle[2]*v*tex.height+triangle[4];
+      const sy=triangle[1]*u*tex.width+triangle[3]*v*tex.height+triangle[5];
+      return Math.abs(sx-run('CX')-x*run('F')/6)<1e-6 && Math.abs(sy-run('CY')+y*run('F')/6)<1e-6;
+    }),'仿射贴图的三个 UV 顶点精确落到对应投影坐标');
+    wallImages.length=0;
+    run('wallTriangle(wallTextureCache.plaster,{x:0,y:0,z:6,u:0,v:0},{x:1,y:0,z:6,u:0,v:0},{x:0,y:1,z:6,u:0,v:0});');
+    ok(wallImages.length===0,'退化 UV 不生成无限变换或错误贴图');
+    wallMoves.length=0;
+    run('wallTriangle(wallTextureCache.plaster,{x:-2,y:0,z:6,u:0,v:0},{x:2,y:0,z:6,u:1,v:0},{x:-1.7,y:0.16,z:6,u:0,v:1});');
+    const thinTri=run('[proj({x:-2,y:0,z:6}),proj({x:2,y:0,z:6}),proj({x:-1.7,y:0.16,z:6})]');
+    const paddedTri=wallMoves.slice();
+    const edgePadding=thinTri.map((a,i)=>{
+      const b=thinTri[(i+1)%3],p=paddedTri[i*2+1],q=paddedTri[((i+1)%3)*2];
+      const mx=(p[0]+q[0])/2,my=(p[1]+q[1])/2;
+      return Math.abs((b.x-a.x)*(my-a.y)-(b.y-a.y)*(mx-a.x))/Math.hypot(b.x-a.x,b.y-a.y);
+    });
+    ok(edgePadding.every(d=>d>=0.35),'细长三角片各边保持亚像素重叠，防止径向外扩漏出对角缝');
+
+    wallImages.length=0;
+    run('surf(WALL_FRONT,"#bba58b",{lit:0.83,material:WALL_SKINS.front});');
+    /* 旧“两片”期望会锁住视角阈值硬切换；必须所有视角共用固定网格才不跳砖缝。 */
+    ok(wallImages.length===run('WALL_SKINS.front.cells.length*2'),'正视也使用同一静态网格，前墙内部没有三段分割接缝');
+    const straightTransforms=JSON.stringify(wallTransforms.slice(-2));
+    run('T+=5;surf(WALL_FRONT,"#bba58b",{lit:0.83,material:WALL_SKINS.front});');
+    ok(JSON.stringify(wallTransforms.slice(-2))===straightTransforms,'镜头不动而时间前进时贴图坐标保持不动');
+    run('cam.yaw=0.55;surf(WALL_FRONT,"#bba58b",{lit:0.83,material:WALL_SKINS.front});');
+    ok(JSON.stringify(wallTransforms.slice(-2))!==straightTransforms,'转动镜头使用新的透视投影，不把纹理固定在屏幕上');
+
+    run(`var wallUvProbe=(key,yaw,pitch)=>{
+      const original=wallTriangle,skin=WALL_SKINS[key],points=[[0.513,0.467],[0.437,0.583],[0.564,0.361]],hits=points.map(()=>[]);
+      let triangles=0;
+      Object.assign(cam,{x:0,y:0,z:0,yaw,pitch});
+      wallTriangle=(tex,a,b,c)=>{
+        triangles++;
+        const det=(b.u-a.u)*(c.v-a.v)-(c.u-a.u)*(b.v-a.v);
+        if(Math.abs(det)<1e-10) return;
+        const pa=proj(a),pb=proj(b),pc=proj(c);
+        points.forEach(([u,v],i)=>{
+          const s=((u-a.u)*(c.v-a.v)-(c.u-a.u)*(v-a.v))/det;
+          const t=((b.u-a.u)*(v-a.v)-(u-a.u)*(b.v-a.v))/det;
+          if(s>=-1e-8&&t>=-1e-8&&s+t<=1+1e-8) hits[i].push({x:pa.x+s*(pb.x-pa.x)+t*(pc.x-pa.x),y:pa.y+s*(pb.y-pa.y)+t*(pc.y-pa.y)});
+        });
+      };
+      try{surf(skin.full.pts.map(v=>v.p),'#bba58b',{lit:1,noFog:true,material:skin});}
+      finally{wallTriangle=original;}
+      const expected=points.map(([u,v])=>{
+        const along=lerp(skin.u0,skin.u1,u),y=lerp(ROOM.yC,ROOM.yF,v);
+        return proj(toCam(skin.axis==='x'?P(along,y,skin.at):P(skin.at,y,along)));
+      });
+      return {hits,expected,triangles};
+    };`);
+    const oldBoundary=Math.atan((1.06-1)/(1.06+1)*18/7), epsilon=0.00002;
+    for(const key of ['end','front']){
+      const boundary=key==='end'?oldBoundary:Math.atan((1.06-1)/(1.06+1)*6.5/7);
+      for(const sign of [-1,1]){
+        const left=run(`wallUvProbe(${JSON.stringify(key)},${sign*boundary-epsilon},0)`);
+        const right=run(`wallUvProbe(${JSON.stringify(key)},${sign*boundary+epsilon},0)`);
+        ok(left.triangles===140&&right.triangles===140,key+' '+sign+'：跨原阈值始终使用140片，不在两片与网格间切换');
+        ok(left.hits.every(h=>h.length===1)&&right.hits.every(h=>h.length===1),key+' '+sign+'：每个UV内点仅属于一个固定三角片');
+        ok(left.hits.every((h,i)=>h.length===1&&right.hits[i].length===1&&Math.hypot(h[0].x-right.hits[i][0].x,h[0].y-right.hits[i][0].y)<0.08),
+           key+' '+sign+'：微转0.0023度时纹理内点连续移动，不产生砖缝跳位');
+      }
+    }
+    const tiltBoundary=Math.atan((1.06-1)*18/(3.10+1.06*1.65));
+    const tiltA=run(`wallUvProbe('end',0,${tiltBoundary-epsilon})`),tiltB=run(`wallUvProbe('end',0,${tiltBoundary+epsilon})`);
+    ok(tiltA.triangles===140&&tiltB.triangles===140&&tiltA.hits.every((h,i)=>h.length===1&&tiltB.hits[i].length===1&&Math.hypot(h[0].x-tiltB.hits[i][0].x,h[0].y-tiltB.hits[i][0].y)<0.08),
+       '上下微转跨原阈值同样连续，不能只修水平转身');
+    const oblique=run("wallUvProbe('end',0.55,0.16)");
+    ok(oblique.hits.every((h,i)=>h.length===1&&Math.hypot(h[0].x-oblique.expected[i].x,h[0].y-oblique.expected[i].y)<0.7),
+       '砖墙斜视的纹理内点贴近真实透视，不只检查三个顶点');
+
+    const facadeCalls=[];
+    const facadeContext=new Proxy({}, {
+      get(t,k){if(k in t)return t[k];return (...a)=>facadeCalls.push([k,...a]);},
+      set(t,k,v){t[k]=v;facadeCalls.push(['set',k,v]);return true;}
+    });
+    sandbox.facadeContext=facadeContext;
+    try{
+      run('paintFacadeDetails(facadeContext,1024,384);');
+      const clips=facadeCalls.filter(c=>c[0]==='rect');
+      const gapLeft=(7-3.3)/14*1024,gapRight=(7+3.3)/14*1024;
+      ok(clips.length===2&&clips[0][1]===0&&Math.abs(clips[0][3]-gapLeft)<1e-8&&Math.abs(clips[1][1]-gapRight)<1e-8,
+         '前墙装饰裁在两侧，门洞左右3.3米以内的技能观察区留白');
+      ok(facadeCalls.filter(c=>c[0]==='save').length===facadeCalls.filter(c=>c[0]==='restore').length,
+         '装饰烘图恢复所有嵌套裁剪，不污染基础灰泥');
+      ok(facadeCalls.some(c=>c[0]==='fillText'&&c[1]==='COURTYARD')&&facadeCalls.some(c=>c[0]==='fillText'&&c[1]==='01'),
+         '前墙专用纹理包含庭院铭牌，不把标识复制到侧墙背墙');
+      ok(facadeCalls.filter(c=>c[0]==='fillRect').length<500&&facadeCalls.every(c=>c.slice(1).every(v=>typeof v!=='number'||Number.isFinite(v))),
+         '装饰烘图复杂度有上界，所有绘制坐标有限');
+      const facadeFirst=JSON.stringify(facadeCalls);facadeCalls.length=0;
+      run('T+=17;cam.yaw=-1.2;paintFacadeDetails(facadeContext,1024,384);');
+      ok(JSON.stringify(facadeCalls)===facadeFirst&&run('wallRandomCalls===0'),
+         '百叶窗、露砖、裂纹与绿植固定，不随时间、视角或训练随机流改变');
+      ok(run('WALL_SKINS.front.kind==="facade" && WALL_SKINS.left.kind==="plaster" && WALL_SKINS.right.kind==="plaster" && WALL_SKINS.back.kind==="plaster"'),
+         '只修饰拱门两侧前墙，其它墙面仍复用普通灰泥');
+    }finally{delete sandbox.facadeContext;}
+
+    const cacheNow=run('Object.values(wallTextureCache)');
+    wallImages.length=0;wallTransforms.length=0;wallMoves.length=0;wallClipN=0;
+    run('for(const a of [-Math.PI,-2.2,-1.57,-0.6,0,0.6,1.57,2.2,Math.PI]){cam.yaw=a;for(const p of [-1.15,0,1.15]){cam.pitch=p;drawRoom();}}');
+    ok(wallImages.length>0&&wallTransforms.every(a=>a.every(Number.isFinite))&&wallMoves.every(a=>a.every(Number.isFinite)),'前后左右及俯仰极限均产生有限的材质投影');
+    ok(wallDepth===0&&!wallUnderflow&&wallClipN>wallImages.length,'所有材质先裁到墙面，三角裁剪及变换完成后恢复画布');
+    ok(run('Object.values(wallTextureCache)').every((t,i)=>t===cacheNow[i]),'全方向绘制复用四张纹理，不随视角扩张缓存');
+    ok(run('JSON.stringify(WALL_SKINS)===savedWallTest.skin'),'逐帧投影不修改静态世界坐标或 UV 网格');
+    ok(run('wallRandomCalls===0'),'重复房间绘制仍不消耗两条随机流');
+    ok(run('JSON.stringify([ROOM,ARCH,ARCH_POLY,WALL_L,WALL_R,WALL_T,VOUS,JAMB_COL])===savedWallTest.geometry'),'材质不更改场景尺寸、门洞与原有石块顶点');
+    ok(run('JSON.stringify([targets,flashes,impactSlots,flashSeq,score,st,cfg])===savedWallTest.game'),'材质不修改靶点、闪光账本、计分或游戏配置');
+
+    run('cam.yaw=0;cam.pitch=0;var wallFogSamples=[];var wallGuardSaved=cfg.flashGuard;cfg.flashGuard=false;drawWallMaterial=(world,sp,skin,lit,fog,fc)=>wallFogSamples.push({fog,fc});fogNear=0;surf(WALL_FRONT,"#bba58b",{material:WALL_SKINS.front});fogNear=1;surf(WALL_FRONT,"#bba58b",{material:WALL_SKINS.front});cfg.flashGuard=wallGuardSaved;');
+    /* 本组钉的是「原版」近视雾（防护默认开启后会整段压掉画面雾，那是防护的职责，见 [55]）。 */
+    ok(run('wallFogSamples[1].fog>wallFogSamples[0].fog && wallFogSamples[1].fc===FOG_NEAR'),'墙面纹理共用原近视距离雾，不能穿透紫眼近视');
+    run('drawWallMaterial=savedWallTest.material;fogNear=0;var wallTextureReads=0;wallTexture=k=>{wallTextureReads++;return savedWallTest.texture(k);};');
+    wallImages.length=0;
+    run('drawWallMaterial(WALL_FRONT,[{x:1,y:1},{x:2,y:1},{x:2,y:2}],WALL_SKINS.front,1,1,FOG_NEAR);');
+    ok(run('wallTextureReads===0')&&wallImages.length===0,'完全被雾遮住时不贴纹理，只保留原雾色底面');
+    run('drawWallMaterial(WALL_FRONT,[{x:-3,y:1},{x:-2,y:1},{x:-2,y:2}],WALL_SKINS.front,1,0,FOG_IN);');
+    ok(run('wallTextureReads===0')&&wallImages.length===0,'完全在视口外时不请求材质或执行贴图');
+    run('W+=160;H+=90;DPR=2;drawRoom();');
+    ok(run('Object.values(wallTextureCache)').every((t,i)=>t===cacheNow[i]),'改变尺寸和像素比不重新生成世界材质');
+  }finally{
+    run('Object.assign(cam,savedWallTest.cam);fogNear=savedWallTest.fogNear;T=savedWallTest.T;W=savedWallTest.W;H=savedWallTest.H;DPR=savedWallTest.DPR;contentRnd=savedWallTest.contentRnd;Math.random=savedWallTest.random;drawWallMaterial=savedWallTest.material;wallTexture=savedWallTest.texture;for(const k in wallTextureCache) delete wallTextureCache[k];Object.assign(wallTextureCache,savedWallTest.cache);');
+    for(const k of wallContextKeys){const s=savedWallContext[k];if(s.own)ctxStub[k]=s.value;else delete ctxStub[k];}
+  }
+
+  console.log('[55] 回放式闪光防护：可见画面、真实倒计时与本地开关');
+  ok(run('cfg.flashGuard===true'),'闪光防护默认开启（用户要求：新手默认不再被强白屏晃到）');
+  ok((html.match(/id="segFlashGuard"/g)||[]).length===1 && /aria-label="闪光防护"/.test(html),'设置只有一个有名称的闪光防护控件');
+  const guardKeys=['save','restore','translate','scale','fillRect','drawImage','arc','fillText','fill','stroke','globalAlpha','globalCompositeOperation','fillStyle','strokeStyle','lineWidth'];
+  const savedGuardContext={};
+  for(const k of guardKeys) savedGuardContext[k]={own:Object.prototype.hasOwnProperty.call(ctxStub,k),value:ctxStub[k]};
+  run(`var guardSaved={cfg:JSON.parse(JSON.stringify(cfg)),cam:{...cam},T,paused,pauseT,playing,
+    storage:localStorage.getItem(LS_CFG),rnd:Math.random,contentRnd,material:drawWallMaterial,W,H,CX,CY,DPR,
+    wash:guardWashCache,washKey:guardWashKey,dailyMod:DAILY.mod};
+    cfg.sound=false;cfg.auto=false;cfg.roundIdx=3;match.active=false;DAILY.active=false;
+    playing=true;paused=false;roundOver=false;roundEndAt=0;T=100;resetStats(true);cfg.flashGuard=true;`);
+  const guardRects=[],guardImages=[],guardArcs=[],guardText=[],guardStrokes=[],guardStack=[],guardCenters=[],guardFills=[];
+  let guardUnderflow=false;
+  let guardMatrix=[1,0,0,1,0,0];
+  ctxStub.globalAlpha=1;ctxStub.globalCompositeOperation='source-over';
+  ctxStub.save=()=>guardStack.push({style:{globalAlpha:ctxStub.globalAlpha,globalCompositeOperation:ctxStub.globalCompositeOperation,
+    fillStyle:ctxStub.fillStyle,strokeStyle:ctxStub.strokeStyle,lineWidth:ctxStub.lineWidth},matrix:guardMatrix.slice()});
+  ctxStub.restore=()=>{const s=guardStack.pop();if(s){Object.assign(ctxStub,s.style);guardMatrix=s.matrix;}else guardUnderflow=true;};
+  ctxStub.translate=(x,y)=>{guardMatrix[4]+=guardMatrix[0]*x+guardMatrix[2]*y;guardMatrix[5]+=guardMatrix[1]*x+guardMatrix[3]*y;};
+  ctxStub.scale=(x,y)=>{guardMatrix[0]*=x;guardMatrix[1]*=x;guardMatrix[2]*=y;guardMatrix[3]*=y;};
+  ctxStub.fillRect=(...a)=>guardRects.push({args:a,alpha:ctxStub.globalAlpha,style:ctxStub.fillStyle});
+  ctxStub.drawImage=(...a)=>guardImages.push(a);
+  ctxStub.arc=(...a)=>{
+    guardArcs.push(a);
+    if(a[2]===24) guardCenters.push([guardMatrix[0]*a[0]+guardMatrix[2]*a[1]+guardMatrix[4],guardMatrix[1]*a[0]+guardMatrix[3]*a[1]+guardMatrix[5]]);
+  };
+  ctxStub.fillText=(...a)=>guardText.push(a);
+  /* 深色底盘和文字底衬走的是 rrectPath + fill()，不是 fillRect —— 分开记录才能验「底盘托底」。 */
+  ctxStub.fill=()=>guardFills.push({alpha:ctxStub.globalAlpha,style:ctxStub.fillStyle});
+  ctxStub.stroke=()=>guardStrokes.push({composite:ctxStub.globalCompositeOperation,alpha:ctxStub.globalAlpha,style:ctxStub.strokeStyle});
+  const clearGuardDraw=()=>{guardRects.length=guardImages.length=guardArcs.length=guardText.length=guardStrokes.length=guardCenters.length=guardFills.length=0;};
+  const whiteGuard=()=>run('T=100;paused=false;playing=true;roundOver=false;cfg.mode=0;cfg.flashGuard=true;blindStart=100;blindUntil=102;blindDur=2;blindPeak=1;dizzyBlindUntil=0;nearUntil=0;fogNear=0;flashes=[];pops=[];');
+  try{
+    ok(run('flashGuardState()===null'),'没有致盲时不显示滤镜和提示');
+    whiteGuard();
+    ok(run('flashGuardState().left===2 && flashGuardState().progress===1 && flashGuardState().amount===1 && flashGuardState().blocked'),'正脸致盲从满圆开始，读取真实剩余时间与强度');
+    run('T=100.5;');
+    ok(run('flashGuardState().left===1.5 && flashGuardState().progress===0.75 && flashGuardState().amount===0.75'),'倒计时圆环按剩余时长减少，而不是循环旋转');
+    run('T=101.4;');
+    ok(run('!flashGuardState().blocked && flashGuardState().left>0'),'可以射击但残余致盲未散时进入恢复中，不提前结束圆环');
+    run('T=102;');
+    ok(run('flashGuardState()===null'),'致盲到点滤镜与圆环一起消失');
+    whiteGuard();run('blindUntil=100.5;blindDur=0.5;blindPeak=0.55;');
+    ok(run('flashGuardState().amount===0.55 && flashGuardState().progress===1'),'擦闪保留较轻泛白强度，圆环仍按完整短时长计算');
+
+    run('blindUntil=0;blindDur=0;dizzyBlindStart=100;dizzyBlindUntil=101.8;T=100.9;');
+    ok(run('flashGuardState().kind==="plasma" && Math.abs(flashGuardState().progress-0.5)<1e-8 && flashGuardState().amount===1'),'电浆圆环覆盖完整1.8秒，不只在末0.45秒运动');
+    clearGuardDraw();run('T=2.58;dizzyBlindStart=T;dizzyBlindUntil=T+1.8;drawFlashGuard();');
+    ok(guardText.some(a=>a[0]==='电浆致盲 · 1.8s'),'电浆1.8秒不因浮点误差被进位显示成1.9秒');
+    run('dizzyBlindStart=100;dizzyBlindUntil=101.8;T=101.7;');
+    ok(run('!flashGuardState().blocked && flashGuardState().amount<0.35'),'电浆淡出仍遵守原可射击阈值');
+    /* 用户要求：蕾娜之眼是近视，不做护眼，保持原版紫雾表现。
+       所以近视期间防护既不出环、也不改画面，只有白屏类的闪才走防护。 */
+    run('dizzyBlindUntil=0;nearStart=100;nearUntil=105;T=100.14;');
+    ok(run('flashGuardState()===null'),'蕾娜近视不触发防护提示（眼睛不做护眼）');
+    run('T=102;');
+    ok(run('flashGuardState()===null'),'近视全程都没有防护圆环，不误报成致盲');
+    whiteGuard();run('T=100.5;dizzyBlindStart=100;dizzyBlindUntil=101.8;nearStart=100;nearUntil=105;');
+    /* amount 取各效果的较大值：电浆前 1.35s 都是满强度，所以这里仍是 1。 */
+    ok(run('flashGuardState().count===2 && flashGuardState().left===1.5 && flashGuardState().kind==="flash" && flashGuardState().amount===1'),
+       '同时近视与电浆时只统计白屏类，倒计时不被更长的近视时间拉长（取白屏剩余 1.5s）');
+    run('paused=true;pauseT=T;var frozenGuard=JSON.stringify(flashGuardState());T+=3.5;');
+    ok(run('JSON.stringify(flashGuardState())===frozenGuard'),'暂停期间使用暂停时刻，圆环与滤镜不偷偷退潮');
+    run('shiftTime(3.5);paused=false;');
+    ok(run('JSON.stringify(flashGuardState())===frozenGuard'),'排期平移后圆环保留同样剩余时间');
+    run('T+=20;');
+    ok(run('flashGuardState()===null'),'掉帧越过结束时刻直接清理提示，不留负数计时');
+
+    whiteGuard();
+    const guardTimers=run('JSON.stringify([blindStart,blindUntil,blindDur,blindPeak,dizzyBlindStart,dizzyBlindUntil,nearStart,nearUntil,reflickBase,st,score])');
+    run('cfg.flashGuard=false;');
+    ok(run('flashGuardState()===null'),'关闭开关立即停用防护显示');
+    run('cfg.flashGuard=true;');
+    ok(run('JSON.stringify([blindStart,blindUntil,blindDur,blindPeak,dizzyBlindStart,dizzyBlindUntil,nearStart,nearUntil,reflickBase,st,score])')===guardTimers,'开关切换不重置计时、不免盲、不修改统计');
+    clearGuardDraw();
+    run('fogNear=1;drawBlind();var guardOldDizzyArt=dizzyBlindArt;drawDizzyBlind(1);');
+    /* 白屏类和蓝幕被防护取代；紫雾属于蕾娜近视，用户要求保持原版，所以照画。 */
+    ok(guardRects.length===0&&guardImages.length===0&&run('dizzyBlindArt===guardOldDizzyArt'),'防护下跳过白屏与不透明蓝幕，也不重建蓝幕缓存');
+    clearGuardDraw();run('fogNear=1;drawNearsight();');
+    ok(guardRects.length===1&&run('nearGrad()!==null'),'蕾娜紫雾不受防护影响，仍按原版绘制');
+    clearGuardDraw();run('fogNear=0;T=100.5;drawFlashGuard();');
+    /* 用户要求白雾更明显：旧的0.12上限属于上一版外观，不再是本版期望。 */
+    ok(guardRects.length===2&&Math.abs(guardRects[0].alpha-0.75*0.32)<1e-8&&guardRects[0].style==='#f3f6f8','防护使用更浓的32%白雾底，并按致盲强度退潮');
+    ok(guardArcs.some(a=>a[2]===24&&Math.abs((a[4]-a[3])-Math.PI*2*0.75)<1e-8),'实际圆环绘制角度与剩余75%一致');
+    ok(guardCenters.length===2&&guardCenters.every(p=>Math.abs(p[0]-run('flashGuardIconPos().x'))<1e-9&&Math.abs(p[1]-run('flashGuardIconPos().y'))<1e-9),'图标与进度环画在准星正上方的固定屏幕位置');
+    ok(run('flashGuardIconPos().y<CY')&&run('flashGuardIconPos().x===CX'),'图标位置在画面中轴、准星之上，不压住瞄准点');
+    const fixedGuardCenter=JSON.stringify(guardCenters);
+    clearGuardDraw();run('cam.yaw=1.7;cam.pitch=-0.8;drawFlashGuard();');
+    ok(JSON.stringify(guardCenters)===fixedGuardCenter,'转身和抬低头不移动致盲图标，图标不跟随鼠标视角');
+    clearGuardDraw();run('W=960;H=540;CX=W/2;CY=H/2;DPR=2;drawFlashGuard();');
+    ok(guardCenters.length===2&&guardCenters.every(p=>Math.abs(p[0]-480)<1e-9&&Math.abs(p[1]-run('flashGuardIconPos().y'))<1e-9)&&run('flashGuardIconPos().y<270'),
+       '改变视口或像素比后图标仍在中轴、准星上方（按比例收放）');
+    run('W=guardSaved.W;H=guardSaved.H;CX=guardSaved.CX;CY=guardSaved.CY;DPR=guardSaved.DPR;Object.assign(cam,guardSaved.cam);');
+    clearGuardDraw();run('T=100;drawFlashGuard();');
+    ok(guardRects.length===2&&Math.abs(guardRects[0].alpha-0.32)<1e-8,'完整致盲有明确白雾但不是不透明白屏');
+    clearGuardDraw();run('T=100.5;drawFlashGuard();');
+    ok(guardText.some(a=>a[0]==='致盲中 · 1.5s'),'提示显示真实剩余秒数，而不是固定倒计时');
+    clearGuardDraw();run('T=101.4;drawFlashGuard();');
+    ok(guardText.some(a=>a[0].startsWith('恢复中')),'达到原射击阈值后文案切换为恢复中');
+    clearGuardDraw();run('T=102;drawFlashGuard();');
+    ok(guardRects.length===0&&guardArcs.length===0&&guardText.length===0,'结束后不残留滤镜、圆环或文字');
+    run('var firstGuardWash=guardWash();');
+    ok(run('guardWash()===firstGuardWash'),'泛白渐变按视口缓存，逐帧不重建');
+    run('W++;');ok(run('guardWash()!==firstGuardWash'),'尺寸变化后更新泛白渐变缓存');run('W=guardSaved.W;');
+
+    /* 蕾娜近视不受防护影响：照样藏靶、照样保留雾，跟关闭防护时一致。 */
+    whiteGuard();run('fogNear=1;');clearGuardDraw();run('drawTarget();');
+    ok(guardImages.length===0,'防护开启时近视仍藏靶（蕾娜之眼不做护眼）');
+    clearGuardDraw();run('cfg.flashGuard=false;drawTarget();');
+    ok(guardImages.length===0,'防护关闭时同样藏靶，开关不改变近视规则');
+    clearGuardDraw();run('cfg.flashGuard=true;cfg.mode=1;drawTarget();cfg.mode=0;');
+    ok(guardImages.length===0,'纯躲闪模式仍不画靶，不被防护开关改变');
+    run('var guardFogReads=[];drawWallMaterial=(w,s,m,l,f,c)=>guardFogReads.push([f,c]);fogNear=0;cfg.flashGuard=false;surf(WALL_FRONT,"#bba58b",{material:WALL_SKINS.front});fogNear=1;cfg.flashGuard=true;surf(WALL_FRONT,"#bba58b",{material:WALL_SKINS.front});');
+    ok(run('JSON.stringify(guardFogReads[0])!==JSON.stringify(guardFogReads[1]) && guardFogReads[1][1]===FOG_NEAR'),'防护不改变近视雾：蕾娜之眼的紫雾照常压在墙面上');
+    run('drawWallMaterial=guardSaved.material;');
+
+    whiteGuard();run('cfg.blur=true;cfg.flashGuard=false;render();');
+    ok(/brightness\(/.test(run('cvs.style.filter')),'关闭防护时仍有原版致盲滤镜');
+    run('cfg.flashGuard=true;render();');
+    ok(run('cvs.style.filter==="none"'),'开启防护移除整画布增亮与模糊，避免看不清或漏出强白光');
+    ok(run(`(()=>{const cross=drawCrosshair,wash=drawFlashGuardWash,icon=drawFlashGuardIcon,order=[];
+      try{drawCrosshair=()=>{order.push('cross');cross();};drawFlashGuardWash=()=>{order.push('wash');wash();};drawFlashGuardIcon=()=>{order.push('icon');icon();};render();return order.join(',')==='wash,cross,icon';}
+      finally{drawCrosshair=cross;drawFlashGuardWash=wash;drawFlashGuardIcon=icon;}})()`),'白雾压在准星下、图标盖在准星上（准星不被糊住也不被穿过）');
+    const guardWhiteStrokes=guardStrokes.map(s=>s.style);
+    ok(guardWhiteStrokes.includes('#ffffff')&&!guardWhiteStrokes.includes('#23333b'),'图标线条改为白色，深色描边不再叠加成两层黑线');
+    /* 深色底盘与文字底衬是路径 fill（不是 fillRect），所以查 guardFills。
+       render() 里准星也会 fill，因此只按颜色过滤、不断言总条数。 */
+    ok(guardFills.filter(f=>/^rgba\(16,26,34/.test(f.style)).length===2 && guardRects.filter(r=>r.style==='#f3f6f8').length===1,
+       '白色图标用深色底盘托底，白雾本身仍只有一层');
+    clearGuardDraw();run('T=101.99;drawFlashGuard();');
+    const guardDarkFills=guardFills.filter(f=>/^rgba\(16,26,34/.test(f.style));
+    ok(guardDarkFills.length===2&&guardDarkFills.every(f=>f.alpha<0.2),'临近结束时图标与底盘一起淡出，不留下孤立的深色底盘');
+    run('T=100.5;');   /* 归位：下面还要用「仍然很白」的状态验证滤镜开关 */    run('cfg.flashGuard=false;render();');
+    ok(/brightness\(/.test(run('cvs.style.filter')),'关闭防护立即恢复原版显示，无需重新被闪');
+
+    whiteGuard();run('blindUntil=0;blindDur=0;flashes=[];dizzyPlasmas=[];pops=[{x:0,y:0,z:3,t:T,dur:0.8,rgb:"255,220,180",rose:true}];');
+    clearGuardDraw();run('drawFlashes();');
+    ok(guardImages.length===0&&guardStrokes.length===1&&guardStrokes.every(s=>s.composite==='source-over'&&s.alpha<=0.36),'维斯防护爆点只留低亮度小环，不使用白芯与加性高光');
+    ok(guardArcs.every(a=>a[2]<=46),'防护爆点大小有界，不膨胀成第二个遮屏');
+    const frozenGuardPop=JSON.stringify(guardArcs);clearGuardDraw();run('paused=true;pauseT=T;T+=4;drawFlashes();');
+    ok(JSON.stringify(guardArcs)===frozenGuardPop,'暂停期间小爆点提示与防护圆环使用同一冻结时钟');
+
+    for(const guard of [false,true]){
+      whiteGuard();run('cfg.flashGuard='+guard+';targets=[{x:0,y:0,z:6.5,r:0.1,born:99}];cam.yaw=0;cam.pitch=0;st.hits=0;st.shots=0;');
+      const r0=run('reflickStart(T)');run('shoot();');
+      ok(run('st.hits===0 && st.shots===1')&&run('reflickStart(T)')===r0,'flashGuard='+guard+'：白屏强度超阈值仍吞弹，回靶起点不变');
+      run('blindUntil=0;blindDur=0;dizzyBlindStart=100;dizzyBlindUntil=101.8;shoot();');
+      ok(run('st.hits===0 && st.shots===2'),'flashGuard='+guard+'：电浆致盲仍不能提前命中靶点');
+      run('dizzyBlindUntil=0;nearStart=99;nearUntil=105;fogNear=1;shoot();');
+      ok(run('st.hits===0 && st.shots===3'),'flashGuard='+guard+'：近视中看见靶点也仍按原规则吞弹');
+      run('nearUntil=0;fogNear=0;blindStart=99;blindUntil=100.2;blindDur=2;blindPeak=1;shoot();');
+      ok(run('st.hits===1 && st.shots===4'),'flashGuard='+guard+'：恢复到可射击阈值后正常命中');
+    }
+    const guardPopResults=[];
+    for(const guard of [false,true]){
+      run('T=100;resetStats(true);cfg.flashGuard='+guard+';contentRnd=mulberry32(63281);var guardFlash=spawnFlash("breach");T=guardFlash.popAt;');
+      aim('guardFlash.pos');run('popFlash(guardFlash);');
+      guardPopResults.push(run('JSON.stringify([blindStart,blindUntil,blindDur,blindPeak,reflickBase,st,score,combo])'));
+    }
+    ok(guardPopResults[0]===guardPopResults[1],'真实闪光引爆在开关两侧得到相同致盲、计分和回靶计时');
+    run('T=100;resetStats(true);cfg.flashGuard=true;var guardEye=spawnFlash("reyna");T=guardEye.openAt;');
+    aim('guardEye.pos');run('updateFlashes();T+=0.3;render();');   /* 近视有 0.28s 淡入，等它生效 */
+    ok(run('nearUntil>0 && fogNear>0.15'),'蕾娜之眼睁开后近视照常生效（紫雾不被防护压掉）');
+    ok(run('flashGuardState()===null'),'近视不弹防护提示，玩家看到的就是原版紫雾');
+    run('shoot();shoot();render();');
+    ok(run('guardEye.dead && nearUntil===0 && fogNear===0'),'击毁紫眼照常解除近视');
+    run('T=100;resetStats(true);var guardDizzy=spawnFlash("gekko");T=guardDizzy.popAt;updateFlashes();');
+    ok(run('flashGuardState().kind==="plasma" && st.blinds===1'),'真实电浆命中使用独立致盲时间显示圆环');
+    run('resetStats(true);');
+    ok(run('flashGuardState()===null'),'重开清除全部防护提示，不跨局残留');
+
+    run('cfg.flashGuard=false;$("segFlashGuard").children[1].onclick();');
+    ok(run('cfg.flashGuard && $("segFlashGuard").children[1].classList.contains("act") && JSON.parse(localStorage.getItem(LS_CFG)).flashGuard'),'设置开启按钮实际生效、高亮并保存');
+    run('cfg.flashGuard=false;loadCfg();syncSegs();');
+    ok(run('cfg.flashGuard && $("segFlashGuard").children[1].classList.contains("act")'),'重新加载配置后保持开启并回显');
+    run('$("segFlashGuard").children[0].onclick();');
+    ok(run('!cfg.flashGuard && JSON.parse(localStorage.getItem(LS_CFG)).flashGuard===false'),'设置关闭按钮实际生效并持久化');
+    run('localStorage.setItem(LS_CFG,JSON.stringify({flashGuard:"true"}));loadCfg();');
+    ok(run('cfg.flashGuard===false'),'无效类型不意外开启闪光防护');
+    run('cfg.flashGuard=true;applySync({flashGuard:false,diff:0});');
+    ok(run('cfg.flashGuard && !Object.prototype.hasOwnProperty.call(packSync(),"flashGuard")'),'防护是本地设置，不发送或接受房主同步');
+    run('DAILY.mod=DAILY_MODS[0];dailyApplyCfg();');
+    ok(run('cfg.flashGuard && !Object.prototype.hasOwnProperty.call(DAILY.snap,"flashGuard")'),'进入每日挑战不覆盖本地防护设置');
+    run('cfg.flashGuard=false;dailyRestoreCfg();');
+    ok(run('!cfg.flashGuard'),'退出每日挑战不回滚玩家刚改的防护设置');
+
+    whiteGuard();run('var guardRandomCalls=0;Math.random=()=>{guardRandomCalls++;return 0.5;};contentRnd=()=>{guardRandomCalls++;return 0.5;};var guardLogicBefore=JSON.stringify([blindUntil,blindDur,blindPeak,nearUntil,dizzyBlindUntil,reflickBase,targets,flashes,impactSlots,st,score]);for(let i=0;i<8;i++){flashGuardState();drawFlashGuard();}');
+    ok(run('guardRandomCalls===0 && JSON.stringify([blindUntil,blindDur,blindPeak,nearUntil,dizzyBlindUntil,reflickBase,targets,flashes,impactSlots,st,score])===guardLogicBefore'),'防护状态和绘制不消耗随机流、不回写训练状态');
+    ok(guardStack.length===0&&!guardUnderflow,'防护绘制正确恢复Canvas状态，不污染后续场景与准星');
+  }finally{
+    run('Math.random=guardSaved.rnd;contentRnd=guardSaved.contentRnd;drawWallMaterial=guardSaved.material;Object.assign(cfg,guardSaved.cfg);Object.assign(cam,guardSaved.cam);T=guardSaved.T;paused=guardSaved.paused;pauseT=guardSaved.pauseT;playing=guardSaved.playing;W=guardSaved.W;H=guardSaved.H;CX=guardSaved.CX;CY=guardSaved.CY;DPR=guardSaved.DPR;guardWashCache=guardSaved.wash;guardWashKey=guardSaved.washKey;DAILY.mod=guardSaved.dailyMod;if(guardSaved.storage===null)localStorage.removeItem(LS_CFG);else localStorage.setItem(LS_CFG,guardSaved.storage);');
+    for(const k of guardKeys){const s=savedGuardContext[k];if(s.own)ctxStub[k]=s.value;else delete ctxStub[k];}
+  }
+
+  console.log('[56] 拱圈与门柱：共边、等宽、倒角和饰条收口');
+  const archReport=run(`(()=>{
+    const close=(a,b)=>Math.abs(a-b)<1e-9;
+    const same=(a,b)=>close(a.x,b.x)&&close(a.y,b.y)&&close(a.z,b.z);
+    const left=VOUS[0],right=VOUS[VOUS.length-1],n=right.length/2;
+    const report={
+      door:ARCH.r===1.70&&ARCH.ys===1.05&&ROOM.x===7&&ROOM.yF===-1.65&&ROOM.yC===3.10&&ROOM.zW===6.5&&ROOM.zE===18,
+      hole:ARCH_POLY.length===33&&ARCH_POLY.slice(0,31).every((p,i)=>same(p,P(1.7*Math.cos(Math.PI*(1-i/30)),1.05+1.7*Math.sin(Math.PI*(1-i/30)),6.5))),
+      leftShared:left[0]===JAMB_COL[0][1]&&left[left.length-1]===JAMB_COL[0][2],
+      rightShared:right[n-1]===JAMB_COL[1][1]&&right[n]===JAMB_COL[1][2],
+      spring:VOUS.flat().every(p=>p.y>=ARCH.ys)&&[left[0],left[left.length-1],right[n-1],right[n]].every(p=>p.y===ARCH.ys),
+      width:close(ARCH_FRAME.outer-ARCH_FRAME.inner,0.38)&&JAMB_COL.every(q=>close(Math.abs(q[0].x-q[3].x),0.38)),
+      depth:VOUS.concat(JAMB_COL).flat().every(p=>p.z===ARCH_FRAME.z)&&ARCH_FRAME.z===6.4,
+      smooth:VOUS.every(q=>q.length===10)&&Math.abs(left[1].x-left[0].x)/(left[1].y-left[0].y)<0.05,
+      joints:JAMB_JOINTS.length===10&&JAMB_JOINTS.every(q=>close(q[2].y-q[1].y,0.014)&&q.every(p=>Math.abs(p.x)>=ARCH_FRAME.inner+ARCH_FRAME.bevel-1e-9&&Math.abs(p.x)<=ARCH_FRAME.outer-ARCH_FRAME.bevel+1e-9&&p.z===ARCH_FRAME.z)),
+      springJoints:JAMB_JOINTS.filter(q=>close((q[0].y+q[2].y)/2,ARCH.ys)).length===2,
+      trim:FRONT_RAILS.concat(FRONT_BASEBOARDS).every(q=>q.every(p=>Math.abs(p.x)>=ARCH_FRAME.outer)&&q.some(p=>Math.abs(p.x)===ARCH_FRAME.outer)),
+      trimDepth:FRONT_RAILS.concat(FRONT_BASEBOARDS).every(q=>q.every(p=>p.z>ARCH_FRAME.z)),
+      internalGap:true,stripOutside:true,projection:true
+    };
+    for(let i=0;i<VOUS.length-1;i++){
+      const a=VOUS[i][VOUS[i].length/2-1],b=VOUS[i+1][0];
+      const da=Math.atan2(a.y-ARCH.ys,a.x),db=Math.atan2(b.y-ARCH.ys,b.x);
+      if(!(da>db&&close((da-db)*(ARCH_FRAME.inner+ARCH_FRAME.outer)/2,ARCH_FRAME.joint))) report.internalGap=false;
+    }
+    for(const q of VOUS){
+      const m=q.length/2;
+      for(let i=0;i<m-1;i++){
+        const a=q[i],b=q[i+1];
+        if(Math.hypot((a.x+b.x)/2,(a.y+b.y)/2-ARCH.ys)<=ARCH.r) report.stripOutside=false;
+      }
+    }
+    const save={cam:{...cam},fogNear,surf,wallTriangle,random:Math.random,contentRnd};
+    const state=JSON.stringify([targets,flashes,impactSlots,flashSeq,st,score,cfg,ARCH_POLY]);
+    let randomCalls=0;
+    try{
+      Math.random=()=>{randomCalls++;return 0.5;};contentRnd=()=>{randomCalls++;return 0.5;};fogNear=0;
+      const pairs=[[left[0],JAMB_COL[0][1]],[left[left.length-1],JAMB_COL[0][2]],[right[n-1],JAMB_COL[1][1]],[right[n],JAMB_COL[1][2]]];
+      for(const yaw of [-0.75,-0.32,0,0.32,0.75]) for(const pitch of [-0.45,0,0.45]){
+        Object.assign(cam,{x:0,y:0,z:0,yaw,pitch});
+        for(const [a,b] of pairs){const p=proj(toCam(a)),q=proj(toCam(b));if(Math.hypot(p.x-q.x,p.y-q.y)>1e-9)report.projection=false;}
+      }
+      const trace=[];
+      surf=(q,color,o)=>{trace.push({q,color,o:o||{}});};
+      stoneSurf(JAMB_COL[0],0,0.93);
+      report.bevel=trace.length===3&&trace.slice(1).every(f=>close(Math.max(...f.q.map(p=>p.x))-Math.min(...f.q.map(p=>p.x)),ARCH_FRAME.bevel)&&close(Math.max(...f.q.map(p=>p.y))-Math.min(...f.q.map(p=>p.y)),ARCH.ys-ROOM.yF));
+      trace.length=0;Object.assign(cam,{x:0,y:0,z:0,yaw:0,pitch:0});drawRoom();
+      const index=q=>trace.findIndex(f=>f.q===q);
+      const firstFrame=Math.min(...VOUS.concat(JAMB_COL).map(index));
+      report.order=FRONT_RAILS.concat(FRONT_BASEBOARDS).every(q=>index(q)>=0&&index(q)<firstFrame);
+      report.once=FRONT_RAILS.concat(FRONT_BASEBOARDS).every(q=>trace.filter(f=>f.q===q).length===1);
+      report.shading=trace[index(left)].o.lit===trace[index(JAMB_COL[0])].o.lit&&trace[index(right)].o.lit===trace[index(JAMB_COL[1])].o.lit;
+      report.seamDrawn=JAMB_JOINTS.every(q=>index(q)>index(JAMB_COL[1]));
+      surf=save.surf;
+      const tris=[];wallTriangle=(tex,a,b,c)=>tris.push([a,b,c]);
+      drawWallMaterial(left,clipPoly(left.map(toCam)).map(proj),WALL_SKINS.stone,1,0,FOG_IN);
+      report.triangles=tris.length===(left.length/2-1)*2;
+      report.noFan=tris.every(tri=>{
+        const x=tri.reduce((s,p)=>s+p.x/3,0),y=tri.reduce((s,p)=>s+p.y/3,0);
+        return Math.hypot(x,y-ARCH.ys)>ARCH.r&&tri.every(p=>p.z>=NEAR&&[p.x,p.y,p.z,p.u,p.v].every(Number.isFinite));
+      });
+      wallTriangle=save.wallTriangle;
+      report.state=JSON.stringify([targets,flashes,impactSlots,flashSeq,st,score,cfg,ARCH_POLY])===state;
+      report.random=randomCalls===0;
+    }finally{
+      Object.assign(cam,save.cam);fogNear=save.fogNear;surf=save.surf;wallTriangle=save.wallTriangle;Math.random=save.random;contentRnd=save.contentRnd;
+    }
+    return report;
+  })()`);
+  for(const [key,label] of [
+    ['door','只改门框装饰，门洞半径、起拱高度和房间尺寸保持不变'],
+    ['hole','用于遮挡的33点门洞轮廓保持原样'],
+    ['leftShared','左侧拱圈与门柱直接共用内外连接点'],
+    ['rightShared','右侧拱圈与门柱直接共用内外连接点'],
+    ['spring','拱圈两端精确停在柱顶高度，不再向下越界重叠'],
+    ['width','拱圈和门柱统一为0.38宽，不留上宽下窄的错台'],
+    ['depth','所有门框正面在同一深度，连接处没有内退外凸'],
+    ['smooth','每块拱石带连续弧段，端部方向平顺接近竖柱'],
+    ['internalGap','拱石间保留正常正宽石缝，不用扩张角度互相压住'],
+    ['stripOutside','内弧各小段均在原门洞外，不侵占靶区'],
+    ['joints','门柱细石缝同宽且避开内外倒角'],
+    ['springJoints','两侧起拱接头各保留一道薄石缝'],
+    ['trim','前墙腰线和踢脚线都止于门框外侧'],
+    ['trimDepth','饰条世界深度在门框之后，不凸穿门框'],
+    ['projection','左右转身与俯仰时连接点的屏幕投影完全重合'],
+    ['bevel','柱身倒角沿竖边保持0.018宽，不生成厚亮柱头'],
+    ['order','前墙饰条先于门框绘制，斜视也不会横盖门柱'],
+    ['once','前墙饰条每帧只画一次，不被后续房间绘制重复覆盖'],
+    ['shading','每侧门柱与相接拱石采用相同明暗，接头不突变'],
+    ['seamDrawn','接头石缝在门柱完成后绘制，保持清晰薄线'],
+    ['triangles','弧形石材按小条带贴图，不直接整块扇形三角化'],
+    ['noFan','实际贴图三角形不横跨门洞且所有坐标有限'],
+    ['state','拱门绘制不修改靶点、计分、排期或门洞判定数据'],
+    ['random','拱门细节与绘制不消耗任意游戏随机流']
+  ]) ok(archReport[key],label);
 
   console.log('\n'+(fails?('有 '+fails+' 项失败'):'全部通过')+'（'+assertions+' 条断言）');
   process.exit(fails?1:0);
