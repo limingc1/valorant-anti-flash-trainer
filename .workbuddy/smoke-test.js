@@ -14,9 +14,12 @@ try{ new vm.Script(code,{filename:'game.js'}); console.log('[1] 语法检查'); 
 catch(e){ console.log('[1] 语法检查'); ok(false,e.message); process.exit(1); }
 
 /* ---- DOM 桩 ---- */
+const pixelUploads=[];
 const ctxStub=new Proxy({},{
   get(t,k){
     if(k==='createRadialGradient'||k==='createLinearGradient') return ()=>({addColorStop(){}});
+    if(k==='createImageData') return (w,h)=>({width:w,height:h,data:new Uint8ClampedArray(w*h*4)});
+    if(k==='putImageData') return (...args)=>pixelUploads.push(args);
     if(k in t) return t[k];
     return function(){};
   },
@@ -352,7 +355,7 @@ try{
      '中心点默认高亮在「关闭」');
   ok(kids('segCross')[0].classList.contains('act'),'准星样式初始即高亮「十字」');
   ok(kids('segCrossC')[0].classList.contains('act'),'准星颜色初始即高亮「白」');
-  ok(kids('segQual')[1].classList.contains('act'),'渲染画质初始即高亮「标准」');
+  ok(kids('segQual')[0].classList.contains('act'),'渲染画质初始即高亮「流畅」（用户指定的新默认值）');
   ok(kids('segMode')[0].classList.contains('act'),'训练模式初始即高亮「综合」');
 
   console.log('[16] 卡顿帧不兑现累积位移');
@@ -2521,6 +2524,223 @@ try{
     ['state','拱门绘制不修改靶点、计分、排期或门洞判定数据'],
     ['random','拱门细节与绘制不消耗任意游戏随机流']
   ]) ok(archReport[key],label);
+
+  console.log('[57] 渲染减负：门洞裁剪、静态背景复用与缓存失效');
+  const perfKeys=['drawImage','setTransform','save','restore'];
+  const perfMethods={};for(const k of perfKeys)perfMethods[k]={own:Object.prototype.hasOwnProperty.call(ctxStub,k),value:ctxStub[k]};
+  const perfImages=[],perfTransforms=[];
+  ctxStub.drawImage=(...a)=>perfImages.push(a);ctxStub.setTransform=(...a)=>perfTransforms.push(a);
+  run(`var perfSaved={cam:{...cam},T,W,H,CX,CY,F,DPR,cw:cvs.width,ch:cvs.height,cap:dprCap,
+    room:drawRoom,layer:drawRoomLayer,near:fogNear,cache:roomFrameCanvas,key:roomFrameKey,ready:roomFrameReady,
+    targets:targets,flashes:flashes,random:Math.random,contentRnd};
+    W=1280;H=720;CX=640;CY=360;F=640/Math.tan(103*RAD/2);DPR=1;cvs.width=1280;cvs.height=720;
+    Object.assign(cam,{x:0,y:0,z:0,yaw:0,pitch:0});fogNear=0;`);
+  try{
+    const projectionReport=run(`(()=>{
+      const saved={sin:Math.sin,cos:Math.cos,cam:{...cam}};let calls=0,error=0;
+      try{
+        Math.sin=x=>{calls++;return saved.sin(x);};Math.cos=x=>{calls++;return saved.cos(x);};
+        cam.yaw=0.127;cam.pitch=-0.083;toCam(P(1,2,3));const first=calls;
+        for(let i=0;i<40;i++)toCam(P(i,1,6));const repeat=calls-first;
+        cam.yaw+=0.04;const p=P(2,-0.2,8),actual=toCam(p);
+        const cy=saved.cos(cam.yaw),sy=saved.sin(cam.yaw),cp=saved.cos(cam.pitch),sp=saved.sin(cam.pitch);
+        const expected={x:p.x*cy-p.z*sy,y:p.x*(-sy*sp)+p.y*cp-p.z*(cy*sp),z:p.x*(sy*cp)+p.y*sp+p.z*(cy*cp)};
+        for(const k of ['x','y','z'])error=Math.max(error,Math.abs(actual[k]-expected[k]));
+        return {first,repeat,error,changed:calls-first};
+      }finally{Math.sin=saved.sin;Math.cos=saved.cos;Object.assign(cam,saved.cam);}
+    })()`);
+    ok(projectionReport.first===4&&projectionReport.repeat===0,'同一视角只计算一组正余弦，不逐顶点重复计算');
+    ok(projectionReport.changed===4&&projectionReport.error<1e-12,'视角改变后立即更新投影缓存，射击或逻辑调用不读旧视角');
+    const portal=run('corridorTextureBounds()');
+    ok(portal.x0>0&&portal.x1<1280&&portal.y0>0&&portal.y1<720,'走廊贴图只需提交门洞屏幕范围，不绘制整面隐藏墙');
+    run('cam.z=ROOM.zW+1;');ok(run('corridorTextureBounds()===null'),'相机在走廊内时取消门洞优化边界，不错误剔除可见墙');
+    run('cam.z=0;cam.yaw=Math.PI;');
+    ok(run('(()=>{const b=corridorTextureBounds();return b.x1<=b.x0||b.y1<=b.y0;})()'),'背向门洞时走廊贴图范围为空');
+    run('cam.yaw=0;');
+    const hiddenCounts=[];
+    for(const name of ['outerLeft','outerRight','end']){
+      perfImages.length=0;
+      run(`(()=>{const skin=WALL_SKINS.${name},q=skin.full.pts.map(v=>v.p);surf(q,'#9d6a4c',{lit:1,noFog:true,material:skin});})()`);
+      hiddenCounts.push(perfImages.length);
+    }
+    ok(hiddenCounts[0]===0&&hiddenCounts[1]===0,'正视门洞时两侧被前墙挡住的砖墙不提交贴图');
+    ok(hiddenCounts[2]>0&&hiddenCounts[2]<140,'尽头砖墙只提交门洞里可见的固定网格，仍有可见砖纹');
+
+    run('var perfRoomDraws=0;drawRoom=()=>{perfRoomDraws++;};roomFrameCanvas=null;roomFrameKey="";roomFrameReady=false;');
+    perfImages.length=0;run('drawRoomLayer();');
+    ok(run('perfRoomDraws===1&&!roomFrameReady')&&perfImages.length===0,'移动后的首帧直接画房间，不额外拷贝全屏');
+    run('drawRoomLayer();');
+    ok(run('perfRoomDraws===2&&roomFrameReady')&&perfImages.length===1&&perfImages[0][0]===cache.scene,'连续第二帧视图不变才保存不含技能的背景');
+    perfImages.length=0;perfTransforms.length=0;run('drawRoomLayer();');
+    ok(run('perfRoomDraws===2')&&perfImages.length===1&&perfImages[0][0]===run('roomFrameCanvas'),'静止视角逐帧只画缓存背景，不再重复墙面贴图');
+    ok(perfTransforms.some(a=>a.join(',')==='1,0,0,1,0,0')&&perfImages[0].length===3,'背景按位图1:1复用，不二次缩放导致模糊或接缝');
+    for(const [label,expr] of [['水平视角','cam.yaw+=0.1'],['俯仰视角','cam.pitch+=0.1'],['相机位置','cam.x+=0.01'],['近视强度','fogNear=0.7'],['投影比例','F+=1'],['视口尺寸','W+=1'],['像素比','DPR=0.75']]){
+      run(expr);const n=run('perfRoomDraws');run('drawRoomLayer();');
+      ok(run('perfRoomDraws')===n+1&&!run('roomFrameReady'),label+'改变时立即丢弃旧背景，避免粘画面或近视残影');
+      run('drawRoomLayer();drawRoomLayer();');
+    }
+    run('var perfCachedBackground=roomFrameCanvas;');
+    const n=run('perfRoomDraws');run('T+=3;targets=targets.slice(1);flashes=[{test:true}];drawRoomLayer();');
+    ok(run('perfRoomDraws')===n&&run('roomFrameCanvas===perfCachedBackground'),'靶点和技能变化不烘进背景，动态对象仍单独绘制');
+    run('cvs.width=5000;cvs.height=4000;drawRoomLayer();');
+    ok(run('roomFrameCanvas===null&&!roomFrameReady'),'超高分辨率不分配无界背景缓存，超过32MB时退回正常绘制');
+    run('cvs.width=1280;cvs.height=720;DPR=1;W=1280;H=720;CX=640;CY=360;F=640/Math.tan(103*RAD/2);fogNear=0;Object.assign(cam,{x:0,y:0,z:0,yaw:0,pitch:0});drawRoom=perfSaved.room;');
+    ok(run(`(()=>{const funcs={drawRoomLayer,drawFlashes,drawTarget,drawNearsight,drawBlind,drawDizzyBlind,drawFlashGuardWash,drawCrosshair,drawFlashGuardIcon},order=[];
+      try{drawRoomLayer=()=>order.push('room');drawFlashes=()=>order.push('flashes');drawTarget=()=>order.push('targets');drawNearsight=()=>order.push('near');drawBlind=()=>order.push('blind');drawDizzyBlind=()=>order.push('dizzy');drawFlashGuardWash=()=>order.push('wash');drawCrosshair=()=>order.push('cross');drawFlashGuardIcon=()=>order.push('icon');render();return order.join(',')==='room,flashes,targets,near,blind,dizzy,wash,cross,icon';}
+      finally{drawRoomLayer=funcs.drawRoomLayer;drawFlashes=funcs.drawFlashes;drawTarget=funcs.drawTarget;drawNearsight=funcs.drawNearsight;drawBlind=funcs.drawBlind;drawDizzyBlind=funcs.drawDizzyBlind;drawFlashGuardWash=funcs.drawFlashGuardWash;drawCrosshair=funcs.drawCrosshair;drawFlashGuardIcon=funcs.drawFlashGuardIcon;}})()`),'复用背景之后仍每帧绘制技能、靶球、近视与防护，不冻结训练画面');
+    const sizeReport=run(`(()=>{const width=Object.getOwnPropertyDescriptor(cvs,'width'),height=Object.getOwnPropertyDescriptor(cvs,'height');let writes=0,w=cvs.width,h=cvs.height;
+      Object.defineProperty(cvs,'width',{configurable:true,get:()=>w,set:v=>{w=v;writes++;}});Object.defineProperty(cvs,'height',{configurable:true,get:()=>h,set:v=>{h=v;writes++;}});
+      try{dprCap=1;resize();writes=0;resize();const same=writes;roomFrameReady=true;roomFrameKey='old';nearGradKey='old';guardWashKey='old';dprCap=0.75;resize();return {same,changed:writes,invalid:!roomFrameReady&&roomFrameKey===''&&nearGradKey===''&&guardWashKey===''};}
+      finally{Object.defineProperty(cvs,'width',width);Object.defineProperty(cvs,'height',height);}})()`);
+    ok(sizeReport.same===0,'尺寸和画质不变时不重设画布位图，避免不必要清空与分配');
+    ok(sizeReport.changed===2&&sizeReport.invalid,'切换画质重新分配位图并清除背景/渐变缓存');
+    ok(!/backdrop-filter/.test(html.match(/#musicBall\{[^}]+\}/)[0]),'游戏中音乐浮条不再实时模糊背后不断变化的画布');
+    run('var perfRandomCalls=0;Math.random=()=>{perfRandomCalls++;return 0.5;};contentRnd=()=>{perfRandomCalls++;return 0.5;};flashes=perfSaved.flashes;');
+    const beforeDrawState=run('JSON.stringify([targets,flashes,impactSlots,flashSeq,st,score,cfg,ARCH_POLY])');
+    run('drawRoomLayer();drawRoomLayer();drawRoomLayer();');
+    ok(run('perfRandomCalls===0')&&run('JSON.stringify([targets,flashes,impactSlots,flashSeq,st,score,cfg,ARCH_POLY])')===beforeDrawState,'绘制优化和缓存不改训练状态，也不消耗任意游戏随机流');
+  }finally{
+    run('drawRoom=perfSaved.room;drawRoomLayer=perfSaved.layer;Object.assign(cam,perfSaved.cam);T=perfSaved.T;W=perfSaved.W;H=perfSaved.H;CX=perfSaved.CX;CY=perfSaved.CY;F=perfSaved.F;DPR=perfSaved.DPR;cvs.width=perfSaved.cw;cvs.height=perfSaved.ch;dprCap=perfSaved.cap;fogNear=perfSaved.near;roomFrameCanvas=perfSaved.cache;roomFrameKey=perfSaved.key;roomFrameReady=perfSaved.ready;targets=perfSaved.targets;flashes=perfSaved.flashes;Math.random=perfSaved.random;contentRnd=perfSaved.contentRnd;');
+    for(const k of perfKeys){const s=perfMethods[k];if(s.own)ctxStub[k]=s.value;else delete ctxStub[k];}
+  }
+
+  console.log('[58] 球面靶球：一次性烘焙、轮廓、光照与离屏剔除');
+  const targetPixels=pixelUploads.find(([im])=>im.width===128&&im.height===128)?.[0];
+  ok(!!targetPixels&&targetPixels.data.length===128*128*4,'球面明暗烘成128×128位图，不使用逐帧3D网格');
+  const spherePixel=(x,y)=>Array.from(targetPixels.data.slice((y*128+x)*4,(y*128+x)*4+4));
+  ok(run('BALL_R===54&&BALL_S===128'),'球体半径和贴图尺寸保持原值，不扩大命中轮廓');
+  ok(spherePixel(0,0)[3]===0&&spherePixel(64,5)[3]===0&&spherePixel(64,64)[3]===255,'球外透明、球内实心，保持没有外圈光晕');
+  const litColor=run('ballSurfaceColor(-0.3,-0.4)'),shadeColor=run('ballSurfaceColor(0.5,0.5)');
+  ok(litColor[0]+litColor[1]+litColor[2]>shadeColor[0]+shadeColor[1]+shadeColor[2]+90,'光源侧更明亮、背光侧更暗，球面立体层次清楚');
+  ok(run('ballSurfaceColor(0,0)[0]>ballSurfaceColor(0,0)[1]*2&&ballSurfaceColor(0,0)[0]>ballSurfaceColor(0,0)[2]*2'),'靶球主体仍是红色，不变成白色高光块');
+  ok(run('ballSurfaceColor(0,0.4)[1]<ballSurfaceColor(-0.24,-0.3)[1]'),'高光集中在球面受光区，不把整个球照成平涂亮片');
+  const oldTargetImage=ctxStub.drawImage,targetDraws=[];ctxStub.drawImage=(...a)=>targetDraws.push(a);
+  run('var targetArtSaved={T,cam:{...cam},W,H,CX,CY,F,targets,flashes,near:fogNear};T=100;W=1280;H=720;CX=640;CY=360;F=500;Object.assign(cam,{x:0,y:0,z:0,yaw:0,pitch:0});');
+  try{
+    const uploadsBefore=pixelUploads.length;
+    run('var targetArtTest={x:0,y:0,z:6.5,r:0.145,born:99};for(let i=0;i<30;i++)drawOneTarget(targetArtTest);');
+    ok(targetDraws.length===30&&targetDraws.every(a=>a[0]===run('ballSprite'))&&pixelUploads.length===uploadsBefore,'每球每帧一次drawImage，球面光照不重新烘焙');
+    targetDraws.length=0;run('drawOneTarget({x:99,y:0,z:6.5,r:0.145,born:99});drawOneTarget({x:0,y:99,z:6.5,r:0.145,born:99});drawOneTarget({x:0,y:0,z:-1,r:0.145,born:99});');
+    ok(targetDraws.length===0,'屏外或相机后方的靶球不提交图片绘制');
+    run('drawOneTarget({x:(W-CX+2)*6.5/F,y:0,z:6.5,r:0.145,born:99});');
+    ok(targetDraws.length===1,'中心略在屏外但球边仍可见时继续画，不裁掉边缘靶球');
+    targetDraws.length=0;run('drawOneTarget(targetArtTest);');
+    const args=targetDraws[0];
+    ok(Math.abs(args[3]-(500*0.145/6.5)/54*128)<1e-9&&Math.abs(args[1]+args[3]/2-640)<1e-9,'靶球投影尺寸和中心与原判定保持一致');
+    ok(run('JSON.stringify(targetArtTest)==='+JSON.stringify(JSON.stringify({x:0,y:0,z:6.5,r:0.145,born:99}))),'球体绘制不修改靶心、半径或出生时间');
+  }finally{
+    ctxStub.drawImage=oldTargetImage;
+    run('T=targetArtSaved.T;Object.assign(cam,targetArtSaved.cam);W=targetArtSaved.W;H=targetArtSaved.H;CX=targetArtSaved.CX;CY=targetArtSaved.CY;F=targetArtSaved.F;targets=targetArtSaved.targets;flashes=targetArtSaved.flashes;fogNear=targetArtSaved.near;');
+  }
+
+  console.log('[59] 音频采样率：限制解码内存并保留兼容回退');
+  const audioFactoryReport=run(`(()=>{
+    const old={AC,master,busFlash,C:window.AudioContext,W:window.webkitAudioContext},calls=[];
+    const fake=()=>({state:'running',destination:{},createGain:()=>({gain:{value:0},connect(){}})});
+    try{
+      AC=null;window.AudioContext=function(options){calls.push(options);return fake();};audio();audio();
+      const normal=calls.length===1&&calls[0].sampleRate===48000&&calls[0].latencyHint==='interactive';
+      calls.length=0;AC=null;window.AudioContext=function(options){calls.push(options);if(options)throw Error('unsupported options');return fake();};
+      const supported=!!audio();return {normal,fallback:supported&&calls.length===2&&calls[1]===undefined};
+    }finally{AC=old.AC;master=old.master;busFlash=old.busFlash;window.AudioContext=old.C;window.webkitAudioContext=old.W;}
+  })()`);
+  ok(audioFactoryReport.normal,'WebAudio优先48kHz并只创建一个实时上下文，避免96/192kHz歌曲PCM膨胀');
+  ok(audioFactoryReport.fallback,'浏览器拒绝自定义采样率时退回默认上下文，不让声音失效');
+
+  console.log('[60] 画质设置：默认流畅、存档生效、设备上限与自动降档');
+  function qualityBoot(saved,pixelRatio=1){
+    const nodes={},events={},store={};let frameCb;
+    if(saved!==undefined) store.aft_cfg=JSON.stringify(saved);
+    const memory=values=>({getItem:k=>k in values?values[k]:null,setItem:(k,v)=>{values[k]=String(v);},removeItem:k=>{delete values[k];}});
+    const doc={...document,hidden:false,
+      getElementById:id=>nodes[id]||(nodes[id]=el(id)),
+      addEventListener:(name,fn)=>{(events[name]||(events[name]=[])).push(fn);}};
+    const env={...sandbox,document:doc,window:{addEventListener(){},devicePixelRatio:pixelRatio},
+      localStorage:memory(store),sessionStorage:memory({}),
+      setTimeout:()=>1,clearTimeout(){},setInterval:()=>1,clearInterval(){},
+      requestAnimationFrame:cb=>{frameCb=cb;return 1;}};
+    env.window.document=doc;env.globalThis=env;
+    const context=vm.createContext(env),exec=s=>vm.runInContext(s,context);
+    exec(code);
+    return {run:exec,doc,nodes,store,events,frame:ts=>frameCb(ts)};
+  }
+  const freshQuality=qualityBoot();
+  ok(freshQuality.run('cfg.quality===0&&dprCap===0.75&&DPR===0.75'),'无存档首次打开即应用流畅，不只是按钮高亮');
+  ok(freshQuality.run('cvs.width===Math.round(W*0.75)&&cvs.height===Math.round(H*0.75)'),'首次画布位图就按流畅分辨率分配');
+  ok(freshQuality.nodes.segQual.children[0].classList.contains('act')&&/选择 流畅/.test(freshQuality.nodes.qualityState.textContent),'默认流畅的按钮与实际分辨率说明一致');
+  const withoutQuality=qualityBoot({sens:1.25});
+  ok(withoutQuality.run('cfg.quality===0&&DPR===0.75&&cfg.sens===1.25'),'旧存档缺少画质时采用流畅，同时保留其它个人设置');
+  for(const [value,dpi,expect] of [[0,1,0.75],[1,1,1],[2,2,2],[2,1,1]]){
+    const h=qualityBoot({quality:value},dpi);
+    ok(h.run('cfg.quality')===value&&h.run('dprCap')===[0.75,1,2][value]&&h.run('DPR')===expect,
+       '保存画质 '+value+' / 设备密度 '+dpi+'：刷新后恢复实际分辨率，不仅恢复选中态');
+  }
+  for(const value of [-1,3,0.5,'2',true,null]){
+    const h=qualityBoot({quality:value},2);
+    ok(h.run('cfg.quality===0&&dprCap===0.75&&DPR===0.75&&Number.isFinite(cvs.width)&&Number.isFinite(cvs.height)'),
+       '非法画质 '+JSON.stringify(value)+' 回退流畅，不产生无选中态或NaN分辨率');
+  }
+  const qualityClient=qualityBoot({quality:2},2);
+  for(const dpi of [0.6,1,1.25,2,3]){
+    qualityClient.run('window.devicePixelRatio='+dpi);
+    for(let index=0;index<3;index++){
+      qualityClient.run('$("segQual").children['+index+'].onclick();');
+      const expected=Math.min(dpi,[0.75,1,2][index]);
+      ok(qualityClient.run('DPR')===expected&&qualityClient.run('cvs.width')===Math.round(1440*expected)&&qualityClient.run('cvs.height')===Math.round(810*expected),
+         '设备密度 '+dpi+' / '+['流畅','标准','精细'][index]+' 按真实设备上限计算，不强制超采样');
+    }
+  }
+  qualityClient.run('window.devicePixelRatio=2;applyQuality(0);roomFrameReady=true;roomFrameKey="cached";fpsT=0.4;fpsN=8;qualitySlowTime=1.8;dprDrop=1;$("segQual").children[2].onclick();');
+  ok(qualityClient.run('cfg.quality===2&&DPR===2&&dprDrop===0&&fpsT===0&&fpsN===0&&qualitySlowTime===0&&qualitySkipSample'),
+     '手动切档清除旧FPS样本与自动降档状态，不被上一档立刻拉低');
+  ok(qualityClient.run('!roomFrameReady&&roomFrameKey===""')&&JSON.parse(qualityClient.store.aft_cfg).quality===2,'手动切档清除旧背景并保存所选画质');
+  ok(qualityClient.run('lowerQuality()&&dprCap===1&&DPR===1&&dprDrop===1'),'高密度屏幕第一次自动降档由2倍直接降到1倍');
+  ok(qualityClient.nodes.segQual.children[2].classList.contains('act')&&/已自动降档/.test(qualityClient.nodes.qualityState.textContent)&&JSON.parse(qualityClient.store.aft_cfg).quality===2,
+     '自动降档显示提示但不覆盖精细偏好，按钮继续表示用户选择的上限');
+  ok(qualityClient.run('lowerQuality()&&dprCap===0.75&&DPR===0.75&&dprDrop===2'),'持续低帧可第二次降到流畅，不在1倍提前耗尽降档次数');
+  ok(qualityClient.run('!lowerQuality()&&dprDrop===2&&dprCap===0.75'),'已在最低档时不重复降档或增加无效次数');
+  const qualityReload=qualityBoot(JSON.parse(qualityClient.store.aft_cfg),2);
+  ok(qualityReload.run('cfg.quality===2&&DPR===2&&dprDrop===0'),'刷新恢复用户选择的精细，自动降档不会永久写进存档');
+  qualityClient.run('window.devicePixelRatio=1;applyQuality(2);');
+  ok(qualityClient.run('lowerQuality()&&DPR===0.75&&dprDrop===1'),'普通屏幕选精细时按有效1倍降到0.75，不空降两次仍停在1倍');
+  qualityClient.run('window.devicePixelRatio=2;applyQuality(0);');
+  ok(qualityClient.run('!lowerQuality()&&dprDrop===0'),'默认流畅不再因低FPS消耗无效降档额度');
+  qualityClient.run('applyQuality(2);playing=true;paused=false;roundOver=false;cfg.auto=false;document.hidden=false;for(let i=0;i<14;i++)sampleQuality(0.04);');
+  ok(qualityClient.run('dprDrop===0&&qualitySlowTime>0&&qualitySlowTime<1'),'单个半秒低帧窗口不直接降档，等待持续低帧');
+  qualityClient.run('for(let i=0;i<61;i++)sampleQuality(1/120);');
+  ok(qualityClient.run('dprDrop===0&&qualitySlowTime===0'),'恢复正常帧率后清除累计低帧，不因间歇波动迟发降档');
+  qualityClient.run('applyQuality(2);for(let i=0;i<53;i++)sampleQuality(0.04);');
+  ok(qualityClient.run('DPR===1&&dprDrop===1'),'活跃训练持续两秒低于45FPS后正常降档');
+  qualityClient.run('for(let i=0;i<53;i++)sampleQuality(0.04);');
+  ok(qualityClient.run('DPR===0.75&&dprDrop===2'),'降档后重新采样，持续低帧仍可继续降到流畅');
+  qualityClient.run('applyQuality(2);qualitySlowTime=1.9;fpsT=0.4;fpsN=10;document.hidden=true;for(let i=0;i<20;i++)sampleQuality(0.1);');
+  ok(qualityClient.run('dprDrop===0&&DPR===2&&fpsT===0&&fpsN===0&&qualitySlowTime===0'),'后台节流不污染FPS或触发画质下降');
+  qualityClient.run('document.hidden=false;qualitySlowTime=1.2;fpsT=0.4;fpsN=4;');
+  for(const callback of qualityClient.events.visibilitychange) callback();
+  qualityClient.run('sampleQuality(0.04);');
+  ok(qualityClient.run('qualitySkipSample===false&&fpsT===0&&fpsN===0&&qualitySlowTime===0&&DPR===2'),'切回前台丢弃首个跨后台间隔并重建采样窗口');
+  const unchangedClock=qualityClient.run('T');
+  qualityClient.run('qualitySlowTime=1.9;sampleQuality(12);');
+  ok(qualityClient.run('qualitySlowTime===0&&dprDrop===0&&DPR===2')&&qualityClient.run('T')===unchangedClock,
+     '异常长间隔只清FPS样本，不改训练时钟、不误降档');
+  qualityClient.run('applyQuality(2);playing=false;for(let i=0;i<100;i++)sampleQuality(0.04);');
+  ok(qualityClient.run('dprDrop===0&&DPR===2'),'菜单停留时不根据低帧率改动玩家画质');
+  qualityClient.run('playing=true;paused=true;for(let i=0;i<100;i++)sampleQuality(0.04);');
+  ok(qualityClient.run('dprDrop===0&&DPR===2'),'暂停界面低帧率不触发自动降档');
+  qualityClient.run('paused=false;roundOver=true;for(let i=0;i<100;i++)sampleQuality(0.04);');
+  ok(qualityClient.run('dprDrop===0&&DPR===2'),'结算界面低帧率不触发自动降档');
+  qualityClient.run('playing=false;roundOver=false;roundEndAt=0;cfg.musicWhen=0;lastTs=0;');
+  qualityClient.frame(10000);qualityClient.frame(15000);
+  ok(qualityClient.run('T===15&&lastDt===5'),'过滤画质采样不跳过rAF或修改实际游戏时间推进');
+  qualityClient.run('applyQuality(2);lowerQuality();var qualityCapBefore=dprCap;applyCfgToUI();');
+  ok(qualityClient.run('dprCap===qualityCapBefore&&dprDrop===1'),'刷新设置UI不重置运行时降档，挑战配置回显也不会抬高画质');
+  qualityClient.run('applySync({quality:0});');
+  ok(qualityClient.run('cfg.quality===2&&!Object.prototype.hasOwnProperty.call(packSync(),"quality")'),'画质仍是本机偏好，不被联机房主覆盖');
+  qualityClient.run('DAILY.mod=DAILY_MODS[0];dailyApplyCfg();');
+  ok(qualityClient.run('cfg.quality===2&&!Object.prototype.hasOwnProperty.call(DAILY.snap,"quality")&&!Object.prototype.hasOwnProperty.call(DAILY.applied,"quality")'),
+     '每日挑战不保存或强制覆盖个人画质');
+  qualityClient.run('applyQuality(0);dailyRestoreCfg();');
+  ok(qualityClient.run('cfg.quality===0&&DPR===0.75'),'退出每日挑战保留期间选择的新画质');
 
   console.log('\n'+(fails?('有 '+fails+' 项失败'):'全部通过')+'（'+assertions+' 条断言）');
   process.exit(fails?1:0);

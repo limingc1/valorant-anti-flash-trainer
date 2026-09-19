@@ -253,8 +253,8 @@
   .musicRow .mdel:hover{color:var(--red);border-color:var(--red)}
   /* ---- 音乐盒悬浮条（左下角，游戏中纯展示——指针锁定时点击都归画布） ---- */
   #musicBall{position:absolute;left:16px;bottom:16px;z-index:30;display:flex;align-items:center;gap:8px;
-             padding:7px 10px 7px 7px;background:rgba(10,17,24,.9);border:1px solid var(--line);border-radius:9px;
-             backdrop-filter:blur(3px);width:min(92%,360px)}
+             padding:7px 10px 7px 7px;background:#101923;border:1px solid var(--line);border-radius:9px;
+             width:min(92%,360px)}
   #musicBall.hide{display:none}
   #musicBall .art,#musicPMini .art{flex:none;border-radius:6px;display:flex;align-items:center;justify-content:center;
              color:#ffd27a;background:linear-gradient(135deg,#233140,#16222e);border:1px solid var(--line)}
@@ -610,7 +610,11 @@
                   <input type="range" id="rTr" min="0.04" max="0.15" step="0.01" value="0.1"></div>
                 <div class="row" data-lockfair><label>同时靶点数 <b id="vTn">5</b></label>
                   <input type="range" id="rTn" min="1" max="9" step="1" value="5"></div>
-                <div class="row"><label>渲染画质</label><div class="seg" id="segQual"></div></div>
+                <div class="row"><label>渲染画质</label><div class="seg" id="segQual" role="group" aria-label="渲染画质"></div></div>
+                <div class="tip" id="qualityState" style="margin:-2px 0 6px"></div>
+                <div class="tip" style="margin:-2px 0 6px">
+                  默认流畅；只调整画面清晰度，不改变命中范围。精细最高使用 2 倍像素密度，普通屏幕上可能与标准相同。
+                </div>
               </div>
               <div class="sec">
                 <h3>准星</h3>
@@ -790,8 +794,9 @@ const fwdVec=()=>{const cp=Math.cos(cam.pitch);
   return{x:Math.sin(cam.yaw)*cp,y:Math.sin(cam.pitch),z:Math.cos(cam.yaw)*cp}};
 
 /* ---------- 配置 ---------- */
+const DEFAULT_QUALITY=0;
 const cfg={
-  sens:0.8, fov:103, invertY:false, targetR:0.1, targetN:5, quality:1,
+  sens:0.8, fov:103, invertY:false, targetR:0.1, targetN:5, quality:DEFAULT_QUALITY,
   diff:0, mode:0, vis:0, auto:true, rate:1, roundIdx:1,
   crossKind:0, crossColor:0, crossLen:4, crossThick:2, crossGap:2, crossDot:false,
   sound:true, blur:true, flashGuard:true, gain:0.8, flashGain:1.0, audioLead:0.25,
@@ -912,8 +917,9 @@ function decodeRoom(code){
 }
 function newRoomCode(){ return encodeRoom(cfg.roundIdx, (Math.random()*0xFFFFF)|0); }
 /* 帧率统计与渲染精度自适应 */
-let fpsT=0, fpsN=0, fps=60, dprCap=1.0, dprDrop=0, lastDt=0.0167;
-const QUAL_DPR=[0.75,1.0,2.0];   /* 流畅 / 标准 / 精细 */
+const QUAL_DPR=[0.75,1.0,2.0], QUAL_NAMES=['流畅','标准','精细'];
+let fpsT=0, fpsN=0, fps=60, dprCap=QUAL_DPR[DEFAULT_QUALITY], dprDrop=0, lastDt=0.0167;
+let qualitySlowTime=0,qualitySkipSample=true;
 
 /* ---------- DOM ---------- */
 const $=id=>document.getElementById(id);
@@ -922,13 +928,58 @@ const stage=$('stage'), cvs=$('scene'), ctx=cvs.getContext('2d',{alpha:false});
 /* ---------- 画布 ---------- */
 let W=0,H=0,DPR=1,CX=0,CY=0,F=1;
 function resize(){
-  const r=stage.getBoundingClientRect();
-  DPR=Math.min(window.devicePixelRatio||1, dprCap);
-  W=Math.max(320,Math.round(r.width)); H=Math.max(240,Math.round(r.height));
-  cvs.width=Math.round(W*DPR); cvs.height=Math.round(H*DPR);
-  cvs.style.width=W+'px'; cvs.style.height=H+'px';
+  const r=stage.getBoundingClientRect(),dpr=Math.min(window.devicePixelRatio||1,dprCap);
+  const w=Math.max(320,Math.round(r.width)),h=Math.max(240,Math.round(r.height));
+  const changed=w!==W || h!==H || dpr!==DPR;
+  W=w;H=h;DPR=dpr;
+  const bw=Math.round(W*DPR),bh=Math.round(H*DPR);
+  if(cvs.width!==bw) cvs.width=bw;
+  if(cvs.height!==bh) cvs.height=bh;
+  if(cvs.style.width!==W+'px') cvs.style.width=W+'px';
+  if(cvs.style.height!==H+'px') cvs.style.height=H+'px';
   ctx.setTransform(DPR,0,0,DPR,0,0);
   CX=W/2; CY=H/2; updateF();
+  if(changed){roomFrameReady=false;roomFrameKey='';nearGradKey='';guardWashKey='';}
+  updateQualityState();
+}
+function qualityIndex(value){
+  return Number.isInteger(value)&&value>=0&&value<QUAL_DPR.length?value:DEFAULT_QUALITY;
+}
+function resetQualitySampling(){
+  fpsT=0;fpsN=0;qualitySlowTime=0;qualitySkipSample=true;
+}
+function applyQuality(value){
+  cfg.quality=qualityIndex(value);
+  dprCap=QUAL_DPR[cfg.quality];dprDrop=0;
+  resetQualitySampling();resize();
+}
+function updateQualityState(){
+  const el=$('qualityState');if(!el) return;
+  const text='选择 '+QUAL_NAMES[qualityIndex(cfg.quality)]+' · 当前 '+cvs.width+' × '+cvs.height+'（'+DPR.toFixed(2)+'×）'+
+    (dprDrop?' · 已自动降档，再次点选可恢复':'');
+  if(el.textContent!==text) el.textContent=text;
+}
+function lowerQuality(){
+  if(dprDrop>=2) return false;
+  const effective=Math.min(window.devicePixelRatio||1,dprCap);
+  let next;
+  for(let i=QUAL_DPR.length-1;i>=0;i--) if(QUAL_DPR[i]<effective-1e-6){next=QUAL_DPR[i];break;}
+  if(next===undefined) return false;
+  dprCap=next;dprDrop++;
+  resetQualitySampling();resize();
+  return true;
+}
+function sampleQuality(dt){
+  /* 只重置性能采样，不重置游戏时钟；后台节流和恢复前台的长间隔不代表渲染不足。 */
+  if(document.hidden || !Number.isFinite(dt) || dt<=0 || dt>0.5){resetQualitySampling();return;}
+  if(qualitySkipSample){qualitySkipSample=false;return;}
+  fpsT+=dt;fpsN++;
+  if(fpsT<0.5) return;
+  const span=fpsT;
+  fps=fpsN/span;fpsT=0;fpsN=0;
+  const el=$('fps');if(el) el.textContent=Math.round(fps)+' fps';
+  qualitySlowTime=playing&&!paused&&!roundOver&&fps<45?qualitySlowTime+span:0;
+  if(qualitySlowTime>=2){qualitySlowTime=0;lowerQuality();}
 }
 /* cfg.fov 是水平 FOV。(H/2)/(tan(h/2)*(H/W)) 化简后正是 (W/2)/tan(h/2)。
    VALORANT 把水平 FOV 锁死在 103°（16:9），默认值即原值。 */
@@ -941,17 +992,22 @@ function updateF(){
   }
 }
 window.addEventListener('resize',resize);
+document.addEventListener('visibilitychange',resetQualitySampling);
 
 /* ---------- 投影 / 裁剪 ---------- */
+let viewYaw=NaN,viewPitch=NaN,viewCY=1,viewSY=0,viewCP=1,viewSP=0;
 function toCam(p){
+  if(viewYaw!==cam.yaw || viewPitch!==cam.pitch){
+    viewYaw=cam.yaw;viewPitch=cam.pitch;
+    viewCY=Math.cos(viewYaw);viewSY=Math.sin(viewYaw);
+    viewCP=Math.cos(viewPitch);viewSP=Math.sin(viewPitch);
+  }
   const dx=p.x-cam.x, dy=p.y-cam.y, dz=p.z-cam.z;
-  const cy=Math.cos(cam.yaw), sy=Math.sin(cam.yaw);
-  const cp=Math.cos(cam.pitch), sp=Math.sin(cam.pitch);
-  return{ x:dx*cy-dz*sy,
-          y:dx*(-sy*sp)+dy*cp-dz*(cy*sp),
-          z:dx*(sy*cp)+dy*sp+dz*(cy*cp) };
+  return{ x:dx*viewCY-dz*viewSY,
+          y:dx*(-viewSY*viewSP)+dy*viewCP-dz*(viewCY*viewSP),
+          z:dx*(viewSY*viewCP)+dy*viewSP+dz*(viewCY*viewCP) };
 }
-const proj=c=>({x:CX+c.x*(F/c.z), y:CY-c.y*(F/c.z)});
+const proj=c=>{const k=F/c.z;return{x:CX+c.x*k,y:CY-c.y*k};};
 function clipPoly(pts){
   const out=[];
   for(let i=0;i<pts.length;i++){
@@ -1145,7 +1201,9 @@ const GAIN_HEADROOM=0.62;               // 对齐改版前 master=0.5 的响度�
 function audio(){
   if(!AC){
     const C=window.AudioContext||window.webkitAudioContext; if(!C) return null;
-    AC=new C();
+    /* 设备可能默认96/192kHz，整首歌按该采样率解码会成倍占用PCM内存。 */
+    try{ AC=new C({sampleRate:48000,latencyHint:'interactive'}); }
+    catch(e){ AC=new C(); }
     master=AC.createGain(); master.gain.value=cfg.gain*GAIN_HEADROOM; master.connect(AC.destination);
     busFlash=AC.createGain(); busFlash.gain.value=cfg.flashGain; busFlash.connect(master);
   }
@@ -2002,9 +2060,22 @@ function clipWallPoly(pts){
   }
   return out;
 }
-function wallTriangle(tex,a,b,c){
+function wallScreenBounds(points,limit,pad){
+  let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
+  for(const p of points){x0=Math.min(x0,p.x);y0=Math.min(y0,p.y);x1=Math.max(x1,p.x);y1=Math.max(y1,p.y);}
+  const extra=pad||0;
+  return {x0:Math.max(limit?limit.x0:0,x0-extra),y0:Math.max(limit?limit.y0:0,y0-extra),
+    x1:Math.min(limit?limit.x1:W,x1+extra),y1:Math.min(limit?limit.y1:H,y1+extra)};
+}
+function corridorTextureBounds(){
+  if(cam.x<=-ROOM.x || cam.x>=ROOM.x || cam.y<=ROOM.yF || cam.y>=ROOM.yC || cam.z<=ROOM.zB || cam.z>=ROOM.zW-NEAR) return null;
+  const portal=clipPoly(ARCH_POLY.map(toCam));
+  return wallScreenBounds(portal.map(proj),null,2);
+}
+function wallTriangle(tex,a,b,c,bounds){
   const p=proj(a), q=proj(b), r=proj(c);
-  if(Math.max(p.x,q.x,r.x)<0 || Math.min(p.x,q.x,r.x)>W || Math.max(p.y,q.y,r.y)<0 || Math.min(p.y,q.y,r.y)>H) return;
+  const x0=bounds?bounds.x0:0,y0=bounds?bounds.y0:0,x1=bounds?bounds.x1:W,y1=bounds?bounds.y1:H;
+  if(Math.max(p.x,q.x,r.x)<x0-1 || Math.min(p.x,q.x,r.x)>x1+1 || Math.max(p.y,q.y,r.y)<y0-1 || Math.min(p.y,q.y,r.y)>y1+1) return;
   const area=(q.x-p.x)*(r.y-p.y)-(q.y-p.y)*(r.x-p.x);
   if(Math.abs(area)<0.05) return;
   const au=a.u*tex.width, av=a.v*tex.height, bu=b.u*tex.width, bv=b.v*tex.height, cu=c.u*tex.width, cv=c.v*tex.height;
@@ -2031,12 +2102,16 @@ function wallTriangle(tex,a,b,c){
   ctx.drawImage(tex,0,0); ctx.restore();
 }
 function drawWallMaterial(world,screen,skin,lit,fog,fc){
-  if(fog>=0.995 || screen.every(p=>p.x<0) || screen.every(p=>p.x>W) || screen.every(p=>p.y<0) || screen.every(p=>p.y>H)) return;
+  if(fog>=0.995) return;
+  /* 走廊只能透过门洞看到；裁掉隐藏贴片，不改变固定世界网格或可见区域的UV。 */
+  const corridor=skin===WALL_SKINS.end || skin===WALL_SKINS.outerLeft || skin===WALL_SKINS.outerRight;
+  const bounds=wallScreenBounds(screen,corridor?corridorTextureBounds():null,1);
+  if(bounds.x1<=bounds.x0 || bounds.y1<=bounds.y0) return;
   const tex=wallTexture(skin.kind);
   ctx.save(); pathFromScreen(screen); ctx.clip();
   const paint=pts=>{
     const cp=clipWallPoly(pts);
-    for(let i=1;i<cp.length-1;i++) wallTriangle(tex,cp[0],cp[i],cp[i+1]);
+    for(let i=1;i<cp.length-1;i++) wallTriangle(tex,cp[0],cp[i],cp[i+1],bounds);
   };
   if(skin.kind==='stone'){
     const cp=world.map(p=>Object.assign(toCam(p),{u:(p.x+ROOM.x)/(2*ROOM.x),v:(ROOM.yC-p.y)/(ROOM.yC-ROOM.yF)}));
@@ -2939,15 +3014,30 @@ function glowDot(x,y,r,rgb,a0,a1){
   ctx.drawImage(glowSprite(rgb), x-r, y-r, r*2, r*2);
   ctx.restore();
 }
-/* 靶球：纯红球，不带外圈光晕 */
-const BALL_S=128, BALL_R=54;         /* 位图边长 / 球半径，留一点边避免缩放时切边 */
+/* 球面光照只在启动时烘焙；轮廓与命中半径不变，不加外圈光晕。 */
+const BALL_S=128, BALL_R=54;
+function ballSurfaceColor(nx,ny){
+  const rr=nx*nx+ny*ny;
+  if(rr>=1) return [0,0,0,0];
+  const nz=Math.sqrt(1-rr);
+  const light=Math.max(0,-0.45*nx-0.55*ny+0.704*nz);
+  const fill=Math.max(0,0.62*nx+0.38*ny+0.686*nz);
+  const gloss=Math.max(0,-0.243*nx-0.297*ny+0.923*nz);
+  const diffuse=0.12+0.76*light+0.12*fill;
+  const spec=0.72*Math.pow(gloss,80)+0.055*Math.pow(gloss,12);
+  const rim=0.10*Math.pow(1-nz,2)*Math.max(0,nx*0.55+ny*0.45);
+  const srgb=v=>Math.round(255*clamp(v<=0.0031308?12.92*v:1.055*Math.pow(v,1/2.4)-0.055,0,1));
+  return [srgb(0.83*diffuse+spec+rim*0.60),srgb(0.025*diffuse+spec*0.93+rim*0.30),
+    srgb(0.048*diffuse+spec*0.92+rim*0.40),Math.round(255*clamp((1-Math.sqrt(rr))*BALL_R+0.5,0,1))];
+}
 const ballSprite=(()=>{
   const cv=document.createElement('canvas');
   cv.width=BALL_S; cv.height=BALL_S;
-  const g=cv.getContext('2d'), c=BALL_S/2, r=BALL_R;
-  const bg=g.createRadialGradient(c-r*0.35,c-r*0.35,r*0.08,c,c,r);
-  bg.addColorStop(0,'#ffffff'); bg.addColorStop(0.45,'#ff6a75'); bg.addColorStop(1,'#b02533');
-  g.fillStyle=bg; g.beginPath(); g.arc(c,c,r,0,6.2832); g.fill();
+  const g=cv.getContext('2d'),pixels=g.createImageData(BALL_S,BALL_S),c=BALL_S/2;
+  for(let y=0;y<BALL_S;y++) for(let x=0;x<BALL_S;x++){
+    pixels.data.set(ballSurfaceColor((x+0.5-c)/BALL_R,(y+0.5-c)/BALL_R),(y*BALL_S+x)*4);
+  }
+  g.putImageData(pixels,0,0);
   return cv;
 })();
 /* 屏幕上的速度方向：取拖尾最后两点的投影夹角，飞鸟和曲球都要用 */
@@ -3852,9 +3942,8 @@ function drawOneTarget(tg){
   const rr=Math.max(3,F*tg.r/c.z);
   const pop=clamp((T-tg.born)/0.14,0,1);          /* 补位后弹入，提示新球位置 */
   const R=rr*(0.55+0.45*pop+0.12*Math.sin(Math.PI*pop));   /* 大小恒定，不做呼吸脉动 */
-  /* 靶球预渲染成离屏图，每帧只做一次 drawImage。
-     原来每颗球每帧要新建两个 radialGradient，球一多就是一笔不小的开销 */
   const k=R/BALL_R, half=BALL_S*k/2;
+  if(s.x+half<0 || s.x-half>W || s.y+half<0 || s.y-half>H) return;
   ctx.drawImage(ballSprite, s.x-half, s.y-half, BALL_S*k, BALL_S*k);
 }
 /* 近视紫幕：盖在场景与靶点之上，中心留一点可视区，越靠边缘越浓 */
@@ -4016,12 +4105,38 @@ function drawFlashGuard(){
   drawFlashGuardWash(state);
   drawFlashGuardIcon(state);
 }
+const ROOM_FRAME_MAX_PIXELS=8*1024*1024;
+let roomFrameCanvas=null,roomFrameKey='',roomFrameReady=false;
+function drawRoomLayer(){
+  if(cvs.width*cvs.height>ROOM_FRAME_MAX_PIXELS){
+    drawRoom();roomFrameReady=false;roomFrameKey='';
+    if(roomFrameCanvas){roomFrameCanvas.width=0;roomFrameCanvas.height=0;roomFrameCanvas=null;}
+    return;
+  }
+  const key=[W,H,DPR,F,CX,CY,cvs.width,cvs.height,cam.x,cam.y,cam.z,cam.yaw,cam.pitch,fogNear].join('/');
+  if(roomFrameReady && roomFrameKey===key){
+    ctx.save();ctx.setTransform(1,0,0,1,0,0);
+    ctx.drawImage(roomFrameCanvas,0,0);
+    ctx.restore();
+    return;
+  }
+  drawRoom();
+  /* 连续两帧视图不变才存背景；转头时不多做全屏拷贝，也不缓存技能、靶点或致盲遮罩。 */
+  if(roomFrameKey===key){
+    if(!roomFrameCanvas) roomFrameCanvas=document.createElement('canvas');
+    if(roomFrameCanvas.width!==cvs.width) roomFrameCanvas.width=cvs.width;
+    if(roomFrameCanvas.height!==cvs.height) roomFrameCanvas.height=cvs.height;
+    const g=roomFrameCanvas.getContext('2d',{alpha:false});
+    g.drawImage(cvs,0,0);
+    roomFrameReady=true;
+  }else{roomFrameKey=key;roomFrameReady=false;}
+}
 let lastFilter='', lastNearOn=false;
 function render(){
   ctx.fillStyle='#05080b'; ctx.fillRect(0,0,W,H);
   fogNear=nearAmount();          /* 每帧算一次，surf() 复用，别在上百个面里重复算 */
   computeArchScreen();
-  drawRoom();
+  drawRoomLayer();
   drawFlashes();
   drawTarget();
   drawNearsight();
@@ -4704,17 +4819,11 @@ function frame(ts){
   requestAnimationFrame(frame);
   T=ts/1000;
 
-  /* 帧率统计；持续偏低则下调渲染精度（最多两档） */
   const dt = lastTs ? T-lastTs : 0.0167;
   lastDt=dt;
   musicTick(dt);                   /* 音乐盒：闪避压低内插 + 播放闸门，菜单/游戏都要走 */
-  if(lastTs){ fpsT+=dt; fpsN++; }
   lastTs=T;
-  if(fpsT>=0.5){
-    fps=fpsN/fpsT; fpsT=0; fpsN=0;
-    const el=$('fps'); if(el) el.textContent=Math.round(fps)+' fps';
-    if(fps<45 && dprDrop<2){ dprDrop++; dprCap=Math.max(0.75,dprCap-0.5); resize(); }
-  }
+  sampleQuality(dt);
 
   if(playing&&!paused&&!roundOver){
     applyLook();                     /* 本帧累积的鼠标位移在这里统一应用 */
@@ -4725,7 +4834,8 @@ function frame(ts){
   updateRound();
   shownScore += (score-shownScore)*0.18;
   if(Math.abs(score-shownScore)<0.6) shownScore=score;
-  $('score').textContent=Math.round(shownScore);
+  const displayed=String(Math.round(shownScore)),scoreEl=$('score');
+  if(scoreEl.textContent!==displayed) scoreEl.textContent=displayed;
   render();
 }
 
@@ -5002,8 +5112,8 @@ function bindUI(){
                           applyVolume(); saveCfg(); };
   $('rLead').oninput=e=>{ cfg.audioLead=+e.target.value; $('vLead').textContent=cfg.audioLead.toFixed(2)+'s';
                           saveCfg(); };   /* 对之后新生成的闪光生效（audOff 在 spawnFlash 算） */
-  buildSeg($('segQual'),[{n:'流畅'},{n:'标准'},{n:'精细'}],v=>v,i=>{
-    cfg.quality=i; dprDrop=0; dprCap=QUAL_DPR[i]; resize(); saveCfg();
+  buildSeg($('segQual'),QUAL_NAMES,v=>cfg.quality,i=>{
+    applyQuality(i);saveCfg();
   });
   buildSeg($('segCross'),CROSS_KINDS,v=>v,i=>{ cfg.crossKind=i; saveCfg(); });
   buildSeg($('segCrossC'),CROSS_COLORS,v=>v,i=>{ cfg.crossColor=i; saveCfg(); });
@@ -5045,11 +5155,13 @@ function saveCfg(){
   try{ localStorage.setItem(LS_CFG, JSON.stringify(cfg)); }catch(e){}
 }
 function loadCfg(){
+  cfg.quality=DEFAULT_QUALITY;
   if(typeof localStorage==='undefined') return;
   let s=null; try{ s=JSON.parse(localStorage.getItem(LS_CFG)||'null'); }catch(e){}
   if(!s||typeof s!=='object') return;
   for(const k in s){
-    if(k==='agents' && s.agents && typeof s.agents==='object')
+    if(k==='quality') cfg.quality=qualityIndex(s.quality);
+    else if(k==='agents' && s.agents && typeof s.agents==='object')
       cfg.agents=Object.assign({},cfg.agents,s.agents);
     else if(typeof cfg[k]===typeof s[k]) cfg[k]=s[k];     // 类型对得上才覆盖，挡脏数据
   }
@@ -5603,8 +5715,8 @@ function initMatchUI(){
   else resumeMatch();     /* 没带房码：尝试把上次中断的对局挂回来（sessionStorage） */
 }
 /* ---------- 启动 ---------- */
-resize();
 loadCfg();
+applyQuality(cfg.quality);
 bindUI();
 buildAgents();
 syncChecks();

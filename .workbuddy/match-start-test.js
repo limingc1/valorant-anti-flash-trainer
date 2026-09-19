@@ -7,7 +7,7 @@ function ok(value,msg){assert.ok(value,msg); checks++; console.log('  OK '+msg);
 function client(name,offset=0){
   let mono=10000, wall=1000000+offset, tid=0, raf=[];
   const timers=new Map(), nodes=new Map(), events={};
-  const canvas=new Proxy({},{get:(o,k)=>k.startsWith('create')?()=>({addColorStop(){}}):()=>{},set:(o,k,v)=>(o[k]=v,true)});
+  const canvas=new Proxy({},{get:(o,k)=>k==='createImageData'?(w,h)=>({width:w,height:h,data:new Uint8ClampedArray(w*h*4)}):k.startsWith('create')?()=>({addColorStop(){}}):()=>{},set:(o,k,v)=>(o[k]=v,true)});
   function el(id){
     const cls=new Set();
     return {id,style:{},dataset:{},children:[],value:'',textContent:'',innerHTML:'',
