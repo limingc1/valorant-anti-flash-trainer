@@ -1385,6 +1385,9 @@ let mbuf=null, mbufId=null, msrc=null, mbus=null;
 let mduck=1, mPending=false, mGen=0, mFolder;
 let mPlayT0=0, mPlayOff=0, mDur=0, musicPanelOpen=false;   /* 进度条：起播时刻/偏移/总长 + 面板开关 */
 let mLoad=null, mWarm=null, mLoadText='', mError='', mRefreshGen=0, mListText='';
+/* 启动不联网、不出声：玩家在音乐盒里主动点开或点播放后，才读清单并下载。
+   这样打开训练器时不会凭空下载歌曲，也不会被浏览器拦截自动播放。 */
+let mArmed=false, mArmedTask=null;
 let mDecodeTail=Promise.resolve();
 const MUSIC_FETCH_MS=90000, MUSIC_META_MS=10000, MUSIC_DECODE_MS=30000;
 /* 网络超时不是游戏排期；仅下一首保留原始压缩数据（≤25MB），绝不预解码整张歌单。 */
@@ -1643,11 +1646,13 @@ function musicPanelToggle(force){
 /* 悬浮条 / 播放面板 / 音乐盒页签 三处共用的控制 */
 function musicToggle(){
   mActive=!mActive;
-  if(!mActive) musicStop(); else musicKick();
+  if(!mActive) musicStop();
+  else{ musicArm(); musicKick(); }
   musicUI();
 }
 function musicJump(dir){
-  if(!mlist.length) return;
+  musicArm();
+  if(!mlist.length){ musicUI(); return; }
   mActive=true;
   mcur = dir>0 ? musicNextIdx(mcur,mlist.length,mLoop,true,Math.random)
                : ((mcur<=0?mlist.length:mcur)-1)%mlist.length;
@@ -1744,7 +1749,7 @@ function musicTick(dt){
   if(Math.abs(mduck-target)<0.002) mduck=target;
   if(mbus) mbus.gain.value=cfg.musicVol*mduck;
   const want=musicShouldPlay();
-  if(want&&!msrc&&!mPending) musicStart();
+  if(mArmed&&want&&!msrc&&!mPending) musicStart();   /* 未武装：玩家还没打开过音乐盒，别自动下载 */
   if(!want&&(msrc||mPending)){ musicStop(); musicUI(); }
   if(musicPanelOpen&&msrc&&mDur>0){               /* 面板开着：每帧推进进度条 */
     const p=musicCalcPos(), fr=clamp(p/mDur,0,1);
@@ -1782,8 +1787,17 @@ function musicImport(fileList){
     }));
   }).then(()=>musicRefresh());
 }
+/* musicKick 只在玩家主动操作后才会拉起播放：未武装时连清单都不读。 */
+function musicArm(){
+  if(mArmed) return mArmedTask||Promise.resolve();
+  mArmed=true;
+  /* 已经有曲目（刚导入/已扫过）就不再重扫清单，避免重复请求 manifest。 */
+  if(!mlist.length) mArmedTask=musicRefresh();
+  return mArmedTask||Promise.resolve();
+}
 function musicKick(){
   const ac=audio();
+  if(!mArmed) return;
   if(ac&&ac.state==='running'&&musicShouldPlay()&&!msrc&&!mPending) musicStart();
 }
 function musicBoot(){
@@ -1801,8 +1815,8 @@ function musicBoot(){
   $('musicBallPlay').onclick=musicToggle;
   $('musicBallPrev').onclick=()=>musicJump(-1);
   $('musicBallNext').onclick=()=>musicJump(1);
-  $('musicBallList').onclick=()=>musicPanelToggle();
-  $('musicBallMeta').onclick=()=>musicPanelToggle();
+  $('musicBallList').onclick=()=>{ musicArm(); musicPanelToggle(); };
+  $('musicBallMeta').onclick=()=>{ musicArm(); musicPanelToggle(); };
   $('musicPPrev').onclick=()=>musicJump(-1);
   $('musicPPlay').onclick=musicToggle;
   $('musicPNext').onclick=()=>musicJump(1);
@@ -1812,13 +1826,18 @@ function musicBoot(){
     const r=e.currentTarget.getBoundingClientRect();
     musicSeek((e.clientX-r.left)/Math.max(1,r.width));
   };
-  $('musicAdd').onclick=()=>{ $('musicFile').click(); };
-  $('musicFile').onchange=e=>{ musicImport(e.target.files); e.target.value=''; };
-  $('musicRescan').onclick=()=>{ musicRefresh(true).then(()=>log('已重新扫描 music/ 文件夹','c')); };
+  $('musicAdd').onclick=()=>{ musicArm(); $('musicFile').click(); };
+  $('musicFile').onchange=e=>{ musicArm(); musicImport(e.target.files); e.target.value=''; };
+  $('musicRescan').onclick=()=>{ musicArm(); musicRefresh(true).then(()=>log('已重新扫描 music/ 文件夹','c')); };
   mActive=cfg.musicWhen!==0;
-  musicRefresh();
-  document.addEventListener('pointerdown',musicKick);
-  document.addEventListener('keydown',musicKick);
+  /* 延迟加载：启动不 musicRefresh、不挂 pointerdown/keydown 自动播放，
+     只在自己点「音乐盒」页签或播放控制时武装。 */
+  $('musicList').innerHTML='<div class="tip">'+musicListHint()+'</div>';
+  musicUI();
+}
+function musicListHint(){
+  return mArmed ? '正在读取曲目清单…'
+    : '曲目在首次打开音乐盒时载入，启动不预载、不出声；点「▶ 播放」也会立即开始。';
 }
 
 /* ---------- 表面着色：明暗 + 距离雾 ---------- */
@@ -4977,6 +4996,7 @@ function selectTab(name){
   for(const pg of ['solo','battle','rec','music','set'])
     $('tab-'+pg).classList.toggle('act', pg===name);
   if(name==='rec'){ renderRecords(); renderDaily(); renderMatchStats(); }   /* 每次进这页都现读现画 */
+  if(name==='music') musicArm();     /* 首次打开音乐盒才读清单，启动不预载 */
 }
 function toggleMini(){ $('miniStats').classList.toggle('hide'); }
 function resetStats(silent){

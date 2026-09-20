@@ -11,7 +11,7 @@
 ```
 node .workbuddy/smoke-test.js     # 期望 845 条 OK，末行「全部通过」
 node .workbuddy/api-test.mjs      # 期望 38 条 OK，末行「全部通过」
-node .workbuddy/music-loading-test.js # 44 条：加载、取消、压缩预取和缓存
+node .workbuddy/music-loading-test.js # 51 条：加载、取消、压缩预取、缓存与按需加载
 node .workbuddy/match-start-test.js   # 25 条：双客户端开局、迟到、旧响应及 KV 限制
 ```
 
@@ -83,6 +83,10 @@ node .workbuddy/match-start-test.js   # 25 条：双客户端开局、迟到、�
    - IndexedDB 不可用（vm 测试环境/老浏览器）时必须优雅降级成只有文件夹曲目。
    - 歌单先读小 manifest，不批量下载/解码取时长；当前曲开始播放后只预取下一首压缩数据（≤25MB），
      不缓存下一首 PCM。切歌可取消旧下载，过期解码结果不得启动播放；错误需用户重试，不能每帧重拉。
+   - **启动不联网、不出声**（2026-09-21）：`mArmed` 为假时 `musicTick`/`musicKick` 都不拉起播放，
+     `musicBoot` 不调 `musicRefresh`、也不挂 `pointerdown/keydown` 自动播放。
+     只有进入「音乐盒」页签（`selectTab` 里的 `musicArm()`）或点播放控制才首次读清单。
+     这样打开训练器不会凭空下载歌曲，也不会被浏览器自动播放策略拦下。
 
 ## 联机开局可靠性（2026-09-16）
 

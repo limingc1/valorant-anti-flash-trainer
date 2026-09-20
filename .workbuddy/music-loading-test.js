@@ -150,6 +150,24 @@ function harness(){
     const h=harness();h.list();h.run('musicStart()');await flush();h.bytes(0);await flush();h.decodes[0].reject(new Error('unsupported'));await flush();
     ok(!h.run('mPending')&&!h.run('mActive')&&h.run('mError').includes('解码失败'),'unsupported media reports failure without an automatic retry loop');
   }
+  {
+    /* 按需加载：打开训练器不联网、不出声，等玩家进音乐盒或点播放才开始。 */
+    const h=harness();h.run('mActive=true;cfg.musicWhen=2;playing=false;musicTick(.016)');
+    ok(!h.run('mArmed')&&h.requests.length===0&&h.decodes.length===0,'启动后即使播放范围为菜单+训练也不读清单、不预取、不播放');
+    ok(h.run('musicListHint()').includes('音乐盒'),
+       '未加载时列表给出「首次打开音乐盒时载入」的说明而不是空列表');
+    h.run('musicTick(.016);musicKick();musicTick(.016)');
+    ok(h.requests.length===0&&!h.run('mPending'),'未武装时的帧循环与手势都不会自动拉起播放');
+    h.run('musicArm()');await flush();
+    ok(h.run('mArmed')&&h.requests.length===1&&/manifest\.json$/.test(h.requests[0].url),'首次武装才读清单');
+    ok(/name==='music'\)\s*musicArm\(\)/.test(html),'训练器里「进入音乐盒页签」正是触发武装的入口');
+    h.manifest(0,['a.mp3','b.mp3']);await flush();
+    h.run('mActive=true;musicKick()');await flush();
+    ok(h.requests.length===2&&/a\.mp3$/.test(h.requests[1].url),'武装后按原有闸门自动播放首曲');
+    const beforeRearm=h.requests.length;
+    h.run('mArmed=false;musicArm()');await flush();
+    ok(h.run('mArmed')&&h.requests.length===beforeRearm,'曲库非空时重新武装不会重复读取清单');
+  }
   ok(!code.includes('new Audio(')&&!code.includes("createElement('audio')"),'music playback never uses HTML audio elements');
   console.log('全部通过（'+count+' 条断言）');
 })().catch(e=>{console.error(e);process.exitCode=1;});
