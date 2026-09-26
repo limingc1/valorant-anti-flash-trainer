@@ -13,9 +13,10 @@ node .workbuddy/smoke-test.js     # 期望 845 条 OK，末行「全部通过」
 node .workbuddy/api-test.mjs      # 期望 38 条 OK，末行「全部通过」
 node .workbuddy/music-loading-test.js # 51 条：加载、取消、压缩预取、缓存与按需加载
 node .workbuddy/match-start-test.js   # 25 条：双客户端开局、迟到、旧响应及 KV 限制
+node .workbuddy/training-test.js      # 296 条：弱项统计、一键专项、跟枪计时/音效及玩法隔离
 ```
 
-两条都必须全绿。**断言数只增不减** —— 这些数字是回归钉子，一条条对应以前真出过的事故
+五套都必须全绿。**断言数只增不减** —— 这些数字是回归钉子，一条条对应以前真出过的事故
 （每帧重复结算把 KV 额度刷爆、音画不同步、回靶计时虚高、房主看不到对手……）。
 
 如果某次改动确实应该改变一个被钉住的值：改测试，并在提交信息里写清**为什么旧的期望是错的**。
@@ -34,7 +35,8 @@ node .workbuddy/match-start-test.js   # 25 条：双客户端开局、迟到、�
 | `functions/api/room.js` | Pages Function `/api/room`，联机房间；动作 host / join / ready / score / again / leave |
 | `.workbuddy/smoke-test.js` | 冒烟测试：Node `vm` + 最小 DOM 桩，跑的是**真实**游戏脚本 |
 | `.workbuddy/api-test.mjs` | 后端测试：假 KV 跑完整房间生命周期 |
-| `.github/workflows/ci.yml` | CI，跑上面两套 |
+| `.workbuddy/training-test.js` | 真实脚本独立 VM：弱项诊断、专项恢复、跟枪输入/计时/记录隔离 |
+| `.github/workflows/ci.yml` | CI，跑上述五套测试 |
 | `sfx/` | 自定义音效 wav + 切分脚本 + 说明 |
 | `music/` | 音乐盒曲目文件夹（**随仓库入库**，push 即部署；`README.md` 有用法） |
 | `build-dist.ps1` | 本地构建 `dist/`（CI 跑同样步骤，平时不用管） |
@@ -87,6 +89,42 @@ node .workbuddy/match-start-test.js   # 25 条：双客户端开局、迟到、�
      `musicBoot` 不调 `musicRefresh`、也不挂 `pointerdown/keydown` 自动播放。
      只有进入「音乐盒」页签（`selectTab` 里的 `musicArm()`）或点播放控制才首次读清单。
      这样打开训练器不会凭空下载歌曲，也不会被浏览器自动播放策略拦下。
+
+## 单人专项与跟枪训练（2026-09-25）
+
+- `PRACTICE.kind` 区分 `agent` / `track`，不扩展 `MODES`，联机协议仍为 0..2。
+- 进入专项只快照 `PRACTICE_KEYS`；结束/退出恢复。`saveCfg` 用快照替换临时玩法字段，
+  音量、灵敏度、准星等个人设置照常保存，不能把单特工池或跟枪的临时模式写进普通存档。
+- 普通计时记录新增 `by/scope/profile/id`；旧记录无明细不猜测。弱项按同难度模式最近20局
+  单人样本加权，本轮用id去重；长期至少3局10次、本轮至少3次，成功率低于60%才推荐。
+  每日结算必须在 `dailyFinish` 清状态/还原配置前固定 `lastResultKind`，联机退出后也不得补出普通点评。
+- 跟枪独立 `TRACK.elapsed`，只计有效前台帧；每帧插值视角并细分到不超过1/240秒采样。
+  开始/恢复需在画布内移动鼠标，控件上的移动不得启动；暂停、失焦、后台和>0.1秒异常帧不补分。
+  不消耗内容随机流，不调用点射计分；`F/A/R` 与出闪入口、每日/联机入口有功能级闸门。
+- 跟枪压上球体只在命中边沿播放 `sfx.trackAcquire` 短音，走 WebAudio 合成及 master 总音量，
+  不借用点射命中声、不下载素材、不用 setTimeout。持续命中不重播，`TRACK.cueAt` 按有效时间限制180ms冷却；
+  暂停等待和重开清冷却，普通丢帧不断重置冷却，避免边缘抖动/低帧率刷音。
+- 左右往返使用宽幅快速平滑折返，平滑变速增加双轴变化，八字不变；保持球体在门洞内、连续且不耗随机流。
+  `motionVersion` 随成绩保存，增强前两类记录标「旧版轨迹」，不要静默覆盖旧成绩。
+- 跟枪参数 `aft_tracking_cfg`、记录 `aft_tracking_records` 独立存储，最多100条；
+  自然结束只保存一次，不调用 `recordRound/dailyPost/submitMyResult`。切换玩法清理致盲、技能及丢丢音源。
+- 特工专项60秒，暂停冻结倒计时；结束恢复配置，但“再练此专项”使用 `COACH.lastDrill`。
+  跟枪成绩不得进入原背闪最佳榜、每日榜或云端房间，不增加 KV 写。
+
+## 菜单排版（2026-09-26）
+
+- 页内二级分类走 `PAGE_TABS` **显式登记**（`setTabs`/`recTabs` → 分组 id 列表），
+  不要改成遍历 DOM 找 `.pageGroup`：设置页的分组藏在 `#scroll` 里，
+  而冒烟测试的最小 DOM 桩没有 `parentNode`/`closest`，遍历会直接抛错让整个脚本挂掉（踩过）。
+- `.subtabs` 与 `.seg` 是**同一套外观**（整条等宽平分、文字居中、同一轨道底色），
+  不要改回 `flex:none` 的小胶囊：那样按钮左对齐、不占满宽度，和设置页的分段控件不一致。
+  `#tab-set #scroll` 必须保持 `padding:0`，否则设置页比其它页多缩进 16px、二级导航对不齐。
+- 设置页分「玩法」（`data-lockfair`，联机/专项中被锁）与「手感与画面」（永不同步、随时可改），
+  这是按「会不会被房主覆盖」切的，不是按视觉分类切的。
+- 底部 `#ovlBtn` 的文案与样式**跟着页签走**（见 `selectTab`）：跟枪页不重复放第二个开始按钮
+  （曾出现上下两个一模一样的红按钮，玩家不知道点哪个）；记录/音乐/设置页是「返回游戏」而非
+  「返回结算」；主按钮样式只留给真正的开始动作。
+- 走势图画布在隐藏分组里不量尺寸，所以 `recTabs` 切到「走势」时必须 `refreshRecords()` 补画。
 
 ## 联机开局可靠性（2026-09-16）
 

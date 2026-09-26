@@ -24,3 +24,5 @@ jobs:
         run: node .workbuddy/music-loading-test.js
       - name: Run two-client match start tests
         run: node .workbuddy/match-start-test.js
+      - name: Run coaching and tracking tests
+        run: node .workbuddy/training-test.js

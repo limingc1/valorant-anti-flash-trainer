@@ -1146,8 +1146,8 @@ try{
   run('leaveMatch(true); localStorage.removeItem("aft_matchstats");');
   /* 弱项诊断：同配置历史均值对比 + 点名最弱特工 */
   run('localStorage.removeItem("aft_records");');
-  run('(function(){var r={best:{},log:[]};for(var i=0;i<3;i++)r.log.push({t:i,ri:0,diff:0,mode:0,score:i,cb:0,bl:0,ag:"kayo",dg:5,tr:10,hs:5,ss:10,rf:1000,rt:null,pb:false});localStorage.setItem("aft_records",JSON.stringify(r));})();');
   run('cfg.roundIdx=0;cfg.diff=0;startRound();');
+  run('(function(){var r={best:{},log:[]};for(var i=0;i<3;i++)r.log.push({t:i,ri:0,diff:0,mode:cfg.mode,scope:"solo",profile:coachProfile(),score:i,cb:0,bl:0,ag:"kayo",dg:5,tr:10,hs:5,ss:10,rf:1000,rt:null,pb:false});localStorage.setItem("aft_records",JSON.stringify(r));})();');
   run('st.rfN=4;st.rfSum=5.6;st.by={phoenix:{n:5,dg:4},kayo:{n:4,dg:1}};');
   const note=run('buildCoachNotes()');
   ok(/均值/.test(note)&&/慢\s*400/.test(note),'回靶对比：1400ms vs 均值1000 → 慢 400ms');

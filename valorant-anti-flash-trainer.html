@@ -176,10 +176,12 @@
   #ovlBtn{width:100%;padding:12px;font-size:14px;font-weight:600;margin-top:16px;letter-spacing:3px}
   /* ---- 统一菜单（开屏 / 暂停 / 设置 / 对战） ---- */
   #ovlBox{width:min(94%,620px);max-height:90vh;display:flex;flex-direction:column;padding:0;overflow:hidden}
-  #menuHead{padding:24px 26px 14px;text-align:center;
+  /* 顶部收窄：logo 与副标题原来吃掉太多垂直空间，菜单内容区被压得只剩几行 */
+  #menuHead{padding:18px 26px 12px;text-align:center;
           background:radial-gradient(58% 130% at 50% -8%,rgba(255,70,85,.09),transparent 70%)}
-  #menuHead h1{font-size:20px;margin-bottom:3px}
-  #menuHead .sub{margin-bottom:16px}
+  #ovlBox .logo{width:62px;height:62px;margin-bottom:8px}
+  #menuHead h1{font-size:18px;margin-bottom:2px}
+  #menuHead .sub{margin-bottom:12px;font-size:10px;letter-spacing:2px}
   #menuTabs{display:flex;gap:4px;background:rgba(8,13,19,.55);border:1px solid rgba(255,255,255,.05);
           border-radius:10px;padding:4px;margin:0 26px}
   #menuTabs .tab{flex:1;padding:9px 4px;font-size:12.5px;background:transparent;border:none;
@@ -188,11 +190,36 @@
   #menuTabs .tab.act{background:linear-gradient(180deg,rgba(255,70,85,.24),rgba(255,70,85,.10));
                  color:#fff;font-weight:600;
                  box-shadow:inset 0 0 0 1px rgba(255,70,85,.42),0 2px 12px rgba(255,70,85,.14)}
-  #menuBody{overflow-y:auto;padding:20px 26px 26px;text-align:left}
+  #menuBody{overflow-y:auto;padding:16px 26px 22px;text-align:left}
   #menuBody::-webkit-scrollbar{width:8px}
   #menuBody::-webkit-scrollbar-thumb{background:#2b3b4d;border-radius:4px}
   .tabpage{display:none}
   .tabpage.act{display:block}
+  /* 页内二级导航：设置/记录页内容太长，没有分类就只能一路滚着找。
+     吸顶是为了切分类时不用先滚回顶部。 */
+  /* 页内二级导航：外观与设置页的 .seg 分段控件保持一致（同一条深色轨道、等宽平分、
+     文字居中），而不是几个左对齐的小胶囊 —— 后者看着像标签、也不占满宽度。
+     吸顶是为了切分类时不用先滚回顶部；轨道用不透明底色，滚动内容不会透出来。 */
+  .subtabs{position:sticky;top:0;z-index:3;display:flex;gap:3px;
+           background:#0c131b;border:1px solid rgba(255,255,255,.05);
+           border-radius:9px;padding:3px;margin:0 0 14px}
+  .subtabs button{flex:1;min-width:0;padding:7px 4px;font-size:11.5px;background:transparent;
+           border:none;border-radius:6px;color:var(--txt2);
+           cursor:pointer;letter-spacing:.5px;transition:.15s}
+  .subtabs button:hover{color:var(--txt);background:rgba(255,255,255,.05)}
+  .subtabs button.act{background:rgba(255,70,85,.18);color:#fff;font-weight:600;
+           box-shadow:inset 0 0 0 1px rgba(255,70,85,.4)}
+  /* #scroll 的内边距是旧侧栏布局留下的，会让设置页比其它页多缩进 16px，
+     二级导航和别的页签也就对不齐了。菜单里的设置页按 menuBody 的统一内边距走。 */
+  #tab-set #scroll{padding:0}
+  /* 页内分组容器：设置页四组、记录页四组都用这一个类 */
+  .pageGroup{display:none}
+  .pageGroup.act{display:block}
+  .pageGroup>h3{font-size:11px;color:var(--txt);letter-spacing:1.6px;margin-bottom:10px;font-weight:600}
+  /* 页首一句「这一页做什么」，避免进去先看到一堆参数 */
+  .pageLead{font-size:11.5px;color:var(--txt2);line-height:1.8;margin-bottom:14px;
+            padding-left:9px;border-left:2px solid rgba(255,70,85,.42)}
+  .pageLead b{color:var(--txt)}
   #tab-solo ul{list-style:none;font-size:12.5px;line-height:2.05;color:#c8d2dc;margin-bottom:14px}
   #tab-solo li b{color:var(--txt);display:inline-block;min-width:76px;font-weight:600}
   #tab-solo .keys{font-size:11.5px;color:var(--txt2);border-top:1px solid rgba(255,255,255,.06);
@@ -220,6 +247,8 @@
                  box-shadow:0 0 0 3px rgba(255,70,85,.12)}
   .tabBtns{display:flex;gap:8px;margin-top:18px}
   .tabBtns button{flex:1;padding:10px;font-size:13px}
+  #menuActions{flex:none;flex-direction:column;gap:8px;margin:0;padding:14px 26px 18px;border-top:1px solid var(--line)}
+  #menuActions button{flex:none;width:100%;margin:0;padding:11px 14px;font-size:13px;font-weight:600;letter-spacing:1px;box-sizing:border-box}
   /* ---- 训练记录页 ---- */
   #recBest{display:grid;grid-template-columns:1fr 1fr;gap:7px}
   .recCard{background:linear-gradient(180deg,rgba(255,255,255,.035),rgba(255,255,255,.012));
@@ -396,6 +425,36 @@
   #nearTag.on{opacity:1}
   .sfx{font-size:11px;color:var(--txt2);margin-top:8px;cursor:help}
   .sfx.on{color:var(--grn)}
+  .trainingCard{padding:14px 16px;border:1px solid var(--line);border-radius:10px;background:rgba(17,29,41,.8);margin-bottom:14px}
+  .trainingCard h3{font-size:14px;letter-spacing:.5px;margin-bottom:7px;color:var(--txt)}
+  .trainingCard p{font-size:11.5px;line-height:1.8;color:var(--txt2);margin-bottom:10px}
+  .trainingCard .eyebrow{font-size:10px;letter-spacing:2px;color:var(--cyn);margin-bottom:6px}
+  .trainingCard button{width:100%;margin-top:8px}
+  .coachRow{display:grid;grid-template-columns:72px 1fr 1fr;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.06);font-size:11px;color:var(--txt2)}
+  .coachRow b{font-weight:600;color:var(--txt)}
+  .coachRow .weak{color:var(--amb)}
+  .coachHead{font-size:10px;letter-spacing:.5px;color:#718395}
+  #resCoach{text-align:left;margin:2px 0 14px}
+  #recAgentHistory{margin:12px 0 18px}
+  #recAgentHistory h3{font-size:12px;margin-bottom:5px;color:var(--txt)}
+  #trackStart{width:100%;padding:11px;margin:4px 0 8px}
+  #trackLockNote{color:var(--amb);margin-bottom:8px}
+  #trackStats{font-size:12px;color:var(--txt2);line-height:1.8;margin-top:8px}
+  #trackStats b{color:var(--cyn);font-variant-numeric:tabular-nums}
+  #trackStats.hide{display:none!important}
+  #practiceTag{font-size:11px;color:var(--cyn);margin-top:6px}
+  #trackPrompt{position:absolute;left:50%;top:60%;transform:translateX(-50%);max-width:90%;padding:10px 16px;background:rgba(12,24,34,.94);border:1px solid var(--line);border-radius:8px;color:var(--txt);font-size:12px;text-align:center;z-index:5;cursor:pointer}
+  #trackResult{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(8,13,19,.86);z-index:20;cursor:default}
+  #trackResBox{width:min(94%,560px);max-height:92vh;overflow-y:auto;background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:24px;text-align:center}
+  #trackResBox h2{font-size:14px;color:var(--txt2);letter-spacing:2px;margin-bottom:16px}
+  #trackResBox .resTop span{color:var(--cyn)}
+  #trackResMeta,#trackResNote{font-size:11.5px;color:var(--txt2);line-height:1.8;margin:10px 0 14px}
+  .trackHistoryRow{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:11px;padding:9px 0;border-bottom:1px solid var(--line);color:var(--txt2)}
+  .trackHistoryRow b{color:var(--cyn);font-size:14px}
+  .trackHistoryRow small{display:block;margin-top:3px;line-height:1.6}
+  #trackResHistory{text-align:left;margin-bottom:16px}
+  button:disabled{cursor:not-allowed;opacity:.45}
+  @media(max-width:620px){#menuTabs{flex-wrap:wrap;margin:0}#menuTabs .tab{flex-basis:28%}.coachRow{grid-template-columns:64px 1fr 1fr}.resBtns{flex-wrap:wrap}}
   @media(max-width:900px){
     #app{flex-direction:column}
     #side{width:100%;height:46%;border-left:none;border-top:1px solid var(--line)}
@@ -423,7 +482,14 @@
         <div>被闪 <b class="k" id="sBlind">0</b> &nbsp; 转身 <b id="sRT">--</b>ms &nbsp; 回靶 <b id="sRF">--</b>ms</div>
         <div>命中 <b id="sHit">0 / 0</b> &nbsp; 总分 <b class="c" id="sScore">0</b></div>
       </div>
+      <div id="practiceTag" style="display:none"></div>
+      <div id="trackStats" style="display:none">
+        <div>跟住比例 <b id="trackHudRate">0%</b> · 当前连续 <b id="trackHudStreak">0.0s</b></div>
+        <div>最长连续 <b id="trackHudBest">0.0s</b> · 重新跟住 <b id="trackHudReacquire">—</b></div>
+        <div>移动准星持续跟住红球，无需点击</div>
+      </div>
     </div>
+    <button id="trackPrompt" style="display:none">在画面内移动鼠标开始 · 点此重试锁定鼠标</button>
     <div id="combo"><span class="cx">COMBO</span><span class="cn">0</span><span class="cl">连击</span></div>
     <div id="watermark" aria-hidden="true">
       <svg width="15" height="15" viewBox="0 0 64 64">
@@ -445,6 +511,7 @@
       <button id="bAuto" class="on">自动<kbd>A</kbd></button>
       <button id="bMatch">联机对战</button>
       <button id="bReset">重置统计</button>
+      <button id="practiceExit" style="display:none">退出专项</button>
     </div>
     <div id="ovl">
       <div id="ovlBox">
@@ -467,6 +534,7 @@
           <div class="sub">ANTI-FLASH TRAINER &nbsp;/&nbsp; 反应 · 转身 · 回靶 &nbsp;·&nbsp; MADE BY LIMING</div>
           <div id="menuTabs">
             <button class="tab act" data-tab="solo">单人训练</button>
+            <button class="tab" data-tab="track">跟枪训练</button>
             <button class="tab" data-tab="battle">联机对战</button>
             <button class="tab" data-tab="rec">训练记录</button>
             <button class="tab" data-tab="music">音乐盒</button>
@@ -495,6 +563,26 @@
               <b>R</b> 刷新靶点 &nbsp;·&nbsp; <b>A</b> 自动开关 &nbsp;·&nbsp; <b>H</b> 收起统计<br>
               <b>M</b> 静音 &nbsp;·&nbsp; <b>Esc</b> 菜单 / 设置
             </div>
+          </div>
+          <!-- 跟枪训练 -->
+          <div class="tabpage" id="tab-track">
+            <div class="pageLead">
+              <b>跟住红球就是全部要求。</b>准星压上球体自动累计有效时间，不需要开枪、也不需要按住鼠标。
+            </div>
+            <div class="trainingCard">
+              <div class="eyebrow">TRACKING / 独立单人训练</div>
+              <h3>选择训练参数</h3>
+              <div class="row"><label>移动轨迹</label><div class="seg" id="segTrackPath" role="group" aria-label="跟枪轨迹"></div></div>
+              <div class="tip" style="margin:-6px 0 10px">左右往返：宽幅快速折返 · 平滑变速：横向加减速＋上下起伏 · 八字跟踪：双轴连续绕行</div>
+              <div class="row"><label>目标速度</label><div class="seg" id="segTrackSpeed" role="group" aria-label="跟枪速度"></div></div>
+              <div class="row"><label>目标大小</label><div class="seg" id="segTrackSize" role="group" aria-label="跟枪目标大小"></div></div>
+              <div class="row"><label>训练时长</label><div class="seg" id="segTrackDuration" role="group" aria-label="跟枪时长"></div></div>
+              <div class="tip" id="trackLockNote"></div>
+              <button id="trackStart" class="pri">开始跟枪训练</button>
+              <div class="tip">独立计分和记录，不进入背闪最佳榜、每日榜或联机对战。训练中暂停不计时，异常长帧不补计得分；压上球体时的提示音跟随总音量与音效开关。</div>
+            </div>
+            <h3 style="font-size:12px;color:var(--txt2);margin:12px 0 6px">本机跟枪记录 · 最近 20 局</h3>
+            <div id="trackHistory"></div>
           </div>
           <!-- 联机对战 -->
           <div class="tabpage" id="tab-battle">
@@ -526,24 +614,39 @@
           </div>
           <!-- 训练记录 -->
           <div class="tabpage" id="tab-rec">
-            <div class="sec" id="dailyBox">
-              <h3 style="font-size:10.5px;color:var(--txt2);letter-spacing:1.6px;margin-bottom:9px;font-weight:600">每日挑战榜单 · <span id="dailyModName2">—</span> · <span id="dailyDate">----</span></h3>
-              <div id="dailyBoard" style="margin-bottom:9px"></div>
-              <div class="tip">入口在「单人训练」页 · 每日一条修饰规则（全网相同）· 同一串闪光同一条规则，纯拼操作 · 每人每天最好成绩上榜</div>
+            <div class="subtabs" id="recTabs">
+              <button class="act" data-page="recGroupBest">最佳与记录</button>
+              <button data-page="recTrend">走势</button>
+              <button data-page="recDaily">每日榜</button>
+              <button data-page="recMatch">对战战绩</button>
             </div>
-            <div class="sec" id="mstatBox">
-              <h3 style="font-size:10.5px;color:var(--txt2);letter-spacing:1.6px;margin-bottom:9px;font-weight:600">对战战绩</h3>
-              <div id="mstatCard" style="margin-bottom:9px"></div>
+            <div class="pageGroup act" id="recGroupBest">
+              <h3 style="font-size:10.5px;color:var(--txt2);letter-spacing:1.6px;margin:0 0 9px;font-weight:600">最佳纪录 · 按 时长 × 难度</h3>
+              <div id="recBest"></div>
+              <div id="recAgentHistory"></div>
+              <h3 style="font-size:10.5px;color:var(--txt2);letter-spacing:1.6px;margin:16px 0 9px;font-weight:600">最近训练</h3>
+              <div id="recList"></div>
+              <div class="tabBtns" style="margin-top:12px">
+                <button id="recClear" style="flex:none;margin-left:auto;padding:6px 12px;font-size:11px">清空记录</button>
+              </div>
             </div>
-            <h3 style="font-size:10.5px;color:var(--txt2);letter-spacing:1.6px;margin:16px 0 9px;font-weight:600">最佳纪录 · 按 时长 × 难度</h3>
-            <div id="recBest"></div>
-            <h3 style="font-size:10.5px;color:var(--txt2);letter-spacing:1.6px;margin:16px 0 9px;font-weight:600">分数走势 · 最近 24 局（按难度）</h3>
-            <div class="chk" id="recChips"></div>
-            <canvas id="recChart" width="560" height="150" style="width:100%;height:150px;margin-top:8px"></canvas>
-            <h3 style="font-size:10.5px;color:var(--txt2);letter-spacing:1.6px;margin:16px 0 9px;font-weight:600">最近训练</h3>
-            <div id="recList"></div>
-            <div class="tabBtns" style="margin-top:12px">
-              <button id="recClear" style="flex:none;margin-left:auto;padding:6px 12px;font-size:11px">清空记录</button>
+            <div class="pageGroup" id="recTrend">
+              <h3 style="font-size:10.5px;color:var(--txt2);letter-spacing:1.6px;margin:0 0 9px;font-weight:600">分数走势 · 最近 24 局（按难度）</h3>
+              <div class="chk" id="recChips"></div>
+              <canvas id="recChart" width="560" height="150" style="width:100%;height:150px;margin-top:8px"></canvas>
+            </div>
+            <div class="pageGroup" id="recDaily">
+              <div class="sec" id="dailyBox">
+                <h3 style="font-size:10.5px;color:var(--txt2);letter-spacing:1.6px;margin-bottom:9px;font-weight:600">每日挑战榜单 · <span id="dailyModName2">—</span> · <span id="dailyDate">----</span></h3>
+                <div id="dailyBoard" style="margin-bottom:9px"></div>
+                <div class="tip">入口在「单人训练」页 · 每日一条修饰规则（全网相同）· 同一串闪光同一条规则，纯拼操作 · 每人每天最好成绩上榜</div>
+              </div>
+            </div>
+            <div class="pageGroup" id="recMatch">
+              <div class="sec" id="mstatBox" style="margin-top:0">
+                <h3 style="font-size:10.5px;color:var(--txt2);letter-spacing:1.6px;margin-bottom:9px;font-weight:600">对战战绩</h3>
+                <div id="mstatCard" style="margin-bottom:9px"></div>
+              </div>
             </div>
           </div>
           <!-- 音乐盒 -->
@@ -568,94 +671,118 @@
           </div>
           <!-- 设置 -->
           <div class="tabpage" id="tab-set">
+            <div class="subtabs" id="setTabs">
+              <button class="act" data-page="setGroupPlay">玩法</button>
+              <button data-page="setGroupFeel">手感与画面</button>
+              <button data-page="setGroupAudio">声音</button>
+              <button data-page="setGroupHelp">说明</button>
+            </div>
             <div id="scroll">
-              <div class="sec">
-                <h3>声音</h3>
-                <div class="row"><label>全局音量 <b id="vGain">80%</b></label>
-                  <input type="range" id="rGain" min="0" max="1" step="0.05" value="0.8"></div>
-                <div class="row"><label>闪光音量 <b id="vFgain">100%</b></label>
-                  <input type="range" id="rFgain" min="0" max="1" step="0.05" value="1"></div>
-                <div class="row"><label>出手声提前 <b id="vLead">0.25s</b></label>
-                  <input type="range" id="rLead" min="0" max="0.6" step="0.05" value="0.25"></div>
-                <div class="tip" style="margin:-2px 0 6px">
-                  出手声比<b>球出现在画面上</b>提前这么多秒响，给你一点预警转身的时间。
-                  0 = 音画严格同步；越大越靠声音背闪。困难模式建议 0.3~0.5s。
+              <div class="pageGroup act" id="setGroupPlay">
+                <div class="pageLead">
+                  影响<b>训练题目本身</b>的设置。联机对战中这几项由房主打齐，所以会暂时锁住。
                 </div>
-                <div class="sfx" id="sfxState">使用内置合成音</div>
-              </div>
-              <div class="sec" data-lockfair>
-                <h3>模式 / 难度</h3>
-                <div class="row"><label>训练模式</label><div class="seg" id="segMode"></div></div>
-                <div class="row"><label>难度曲线</label><div class="seg" id="segDiff"></div></div>
-                <div class="row"><label>闪光轨迹可见度</label><div class="seg" id="segVis"></div></div>
-                <div class="row"><label>单轮时长</label><div class="seg" id="segRound"></div></div>
-                <div class="row"><label>自动闪光频率 <b id="vInt">1.0×</b></label>
-                  <input type="range" id="rInt" min="0.3" max="1" step="0.1" value="1"></div>
-              </div>
-              <div class="sec" data-lockfair>
-                <h3>闪光类型 · 点击开关（后 5 种默认关闭）</h3>
-                <div class="ags" id="agBox"></div>
-              </div>
-              <div class="sec">
-                <h3>手感</h3>
-                <div class="row"><label>鼠标灵敏度 <b id="vSens">0.80</b></label>
-                  <input type="range" id="rSens" min="0.15" max="4" step="0.05" value="0.8"></div>
-                <div class="row"><label>视场角 FOV <b id="vFov">103°</b></label>
-                  <input type="range" id="rFov" min="70" max="125" step="1" value="103"></div>
-                <div class="tip" style="margin:-2px 0 6px">
-                  这里调的是<b>水平</b> FOV。<code>103°</code> 是瓦罗兰特锁定值，默认即原值；
-                  在 16:9 下相当于垂直约 70°。
+                <div class="sec" data-lockfair style="margin-top:0">
+                  <h3>模式 / 难度</h3>
+                  <div class="row"><label>训练模式</label><div class="seg" id="segMode"></div></div>
+                  <div class="row"><label>难度曲线</label><div class="seg" id="segDiff"></div></div>
+                  <div class="row"><label>闪光轨迹可见度</label><div class="seg" id="segVis"></div></div>
+                  <div class="row"><label>单轮时长</label><div class="seg" id="segRound"></div></div>
+                  <div class="row"><label>自动闪光频率 <b id="vInt">1.0×</b></label>
+                    <input type="range" id="rInt" min="0.3" max="1" step="0.1" value="1"></div>
                 </div>
-                <div class="row"><label>靶点大小 <b id="vTr">0.10</b></label>
-                  <input type="range" id="rTr" min="0.04" max="0.15" step="0.01" value="0.1"></div>
-                <div class="row" data-lockfair><label>同时靶点数 <b id="vTn">5</b></label>
-                  <input type="range" id="rTn" min="1" max="9" step="1" value="5"></div>
-                <div class="row"><label>渲染画质</label><div class="seg" id="segQual" role="group" aria-label="渲染画质"></div></div>
-                <div class="tip" id="qualityState" style="margin:-2px 0 6px"></div>
-                <div class="tip" style="margin:-2px 0 6px">
-                  默认流畅；只调整画面清晰度，不改变命中范围。精细最高使用 2 倍像素密度，普通屏幕上可能与标准相同。
+                <div class="sec" data-lockfair>
+                  <h3>闪光类型 · 点击开关（后 5 种默认关闭）</h3>
+                  <div class="ags" id="agBox"></div>
                 </div>
               </div>
-              <div class="sec">
-                <h3>准星</h3>
-                <div class="row"><label>样式</label><div class="seg" id="segCross"></div></div>
-                <div class="row"><label>颜色</label><div class="seg" id="segCrossC"></div></div>
-                <div class="row"><label>长度 <b id="vCLen">4</b></label>
-                  <input type="range" id="rCLen" min="2" max="22" step="1" value="4"></div>
-                <div class="row"><label>粗细 <b id="vCTh">2</b></label>
-                  <input type="range" id="rCTh" min="1" max="6" step="1" value="2"></div>
-                <div class="row"><label>中心间隙 <b id="vCGap">2</b></label>
-                  <input type="range" id="rCGap" min="0" max="20" step="1" value="2"></div>
-                <div class="row"><label>中心点</label><div class="seg" id="segCrossDot"></div></div>
-              </div>
-              <div class="sec">
-                <h3>辅助</h3>
-                <div class="row"><label>闪光防护</label><div class="seg" id="segFlashGuard" role="group" aria-label="闪光防护"></div></div>
-                <div class="tip" style="margin:-2px 0 10px">
-                  回放式效果（<b>默认开启</b>）：普通闪光与丢丢电浆致盲时，画面保持可见，以<b>淡白滤镜 + 准星上方的白色恢复圆环</b>提示。<br>
-                  仅改变显示，致盲时长、靶点命中限制与计分不变；只保存于本机。想要原版白屏可关掉它。<br>
-                  <b>蕾娜之眼是近视，不做护眼</b>，仍是原来的紫雾与藏靶。
+              <div class="pageGroup" id="setGroupFeel">
+                <div class="pageLead">
+                  只影响<b>你自己的操作手感与显示</b>，联机不会同步、也不会被覆盖；训练中途也能随时改。
                 </div>
-                <div class="chk" id="chkBox">
-                  <button data-k="sound" class="act">音效</button>
-                  <button data-k="blur" class="act">动态模糊</button>
-                  <button data-k="invert">反转 Y 轴</button>
+                <div class="sec" style="margin-top:0">
+                  <h3>鼠标与画面</h3>
+                  <div class="row"><label>鼠标灵敏度 <b id="vSens">0.80</b></label>
+                    <input type="range" id="rSens" min="0.15" max="4" step="0.05" value="0.8"></div>
+                  <div class="row"><label>视场角 FOV <b id="vFov">103°</b></label>
+                    <input type="range" id="rFov" min="70" max="125" step="1" value="103"></div>
+                  <div class="tip" style="margin:-2px 0 10px">
+                    这里调的是<b>水平</b> FOV。<code>103°</code> 是瓦罗兰特锁定值，默认即原值；
+                    在 16:9 下相当于垂直约 70°。
+                  </div>
+                  <div class="row"><label>靶点大小 <b id="vTr">0.10</b></label>
+                    <input type="range" id="rTr" min="0.04" max="0.15" step="0.01" value="0.1"></div>
+                  <div class="row" data-lockfair><label>同时靶点数 <b id="vTn">5</b></label>
+                    <input type="range" id="rTn" min="1" max="9" step="1" value="5"></div>
+                  <div class="row"><label>渲染画质</label><div class="seg" id="segQual" role="group" aria-label="渲染画质"></div></div>
+                  <div class="tip" id="qualityState" style="margin:-2px 0 6px"></div>
+                  <div class="tip" style="margin:-2px 0 0">
+                    默认流畅；只调整画面清晰度，不改变命中范围。精细最高使用 2 倍像素密度，普通屏幕上可能与标准相同。
+                  </div>
+                </div>
+                <div class="sec">
+                  <h3>准星</h3>
+                  <div class="row"><label>样式</label><div class="seg" id="segCross"></div></div>
+                  <div class="row"><label>颜色</label><div class="seg" id="segCrossC"></div></div>
+                  <div class="row"><label>长度 <b id="vCLen">4</b></label>
+                    <input type="range" id="rCLen" min="2" max="22" step="1" value="4"></div>
+                  <div class="row"><label>粗细 <b id="vCTh">2</b></label>
+                    <input type="range" id="rCTh" min="1" max="6" step="1" value="2"></div>
+                  <div class="row"><label>中心间隙 <b id="vCGap">2</b></label>
+                    <input type="range" id="rCGap" min="0" max="20" step="1" value="2"></div>
+                  <div class="row"><label>中心点</label><div class="seg" id="segCrossDot"></div></div>
+                </div>
+                <div class="sec">
+                  <h3>辅助</h3>
+                  <div class="row"><label>闪光防护</label><div class="seg" id="segFlashGuard" role="group" aria-label="闪光防护"></div></div>
+                  <div class="tip" style="margin:-2px 0 10px">
+                    回放式效果（<b>默认开启</b>）：普通闪光与丢丢电浆致盲时，画面保持可见，以<b>淡白滤镜 + 准星上方的白色恢复圆环</b>提示。<br>
+                    仅改变显示，致盲时长、靶点命中限制与计分不变；只保存于本机。想要原版白屏可关掉它。<br>
+                    <b>蕾娜之眼是近视，不做护眼</b>，仍是原来的紫雾与藏靶。
+                  </div>
+                  <div class="chk" id="chkBox">
+                    <button data-k="sound" class="act">音效</button>
+                    <button data-k="blur" class="act">动态模糊</button>
+                    <button data-k="invert">反转 Y 轴</button>
+                  </div>
                 </div>
               </div>
-              <div class="sec">
-                <div class="tip">
-                  <b>致盲判定</b>：引爆瞬间，视线与闪光方向夹角 θ 小于该特工锥角才被闪，
-                  <code>θ 越小 → 白屏越久</code>，最长约 2.2s。<br><br>
-                  <b>布雷奇穿墙闪</b>在墙后引爆：墙面先亮起<b>一颗黄点</b>，随后从该点爆开，反应窗口很短。<br><br>
-                  <b>蕾娜之眼</b>可击毁：看到紫球直接打掉即免盲。<br><br>
-                  <b>推荐练法</b>：先「纯躲闪」把躲闪率练到 90%，再切「综合训练」加回靶。
+              <div class="pageGroup" id="setGroupAudio">
+                <div class="pageLead">
+                  全局声音。音乐盒的<b>曲目与循环</b>在「音乐盒」页调整。
+                </div>
+                <div class="sec" style="margin-top:0">
+                  <h3>音量</h3>
+                  <div class="row"><label>全局音量 <b id="vGain">80%</b></label>
+                    <input type="range" id="rGain" min="0" max="1" step="0.05" value="0.8"></div>
+                  <div class="row"><label>闪光音量 <b id="vFgain">100%</b></label>
+                    <input type="range" id="rFgain" min="0" max="1" step="0.05" value="1"></div>
+                  <div class="row"><label>出手声提前 <b id="vLead">0.25s</b></label>
+                    <input type="range" id="rLead" min="0" max="0.6" step="0.05" value="0.25"></div>
+                  <div class="tip" style="margin:-2px 0 6px">
+                    出手声比<b>球出现在画面上</b>提前这么多秒响，给你一点预警转身的时间。
+                    0 = 音画严格同步；越大越靠声音背闪。困难模式建议 0.3~0.5s。
+                  </div>
+                  <div class="sfx" id="sfxState">使用内置合成音</div>
+                </div>
+              </div>
+              <div class="pageGroup" id="setGroupHelp">
+                <div class="sec" style="margin-top:0">
+                  <div class="tip">
+                    <b>致盲判定</b>：引爆瞬间，视线与闪光方向夹角 θ 小于该特工锥角才被闪，
+                    <code>θ 越小 → 白屏越久</code>，最长约 2.2s。<br><br>
+                    <b>布雷奇穿墙闪</b>在墙后引爆：墙面先亮起<b>一颗黄点</b>，随后从该点爆开，反应窗口很短。<br><br>
+                    <b>蕾娜之眼</b>可击毁：看到紫球直接打掉即免盲。<br><br>
+                    <b>推荐练法</b>：先「纯躲闪」把躲闪率练到 90%，再切「综合训练」加回靶。
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         </div>
-        <div class="tabBtns">
+        <div class="tabBtns" id="menuActions">
           <button id="ovlBtn" class="pri">开始训练 · 锁定鼠标</button>
+          <button id="menuPracticeExit" style="display:none">退出当前专项</button>
         </div>
       </div>
     </div>
@@ -725,6 +852,15 @@
           <div><b id="resTrials">0</b><span>闪光总数</span></div>
         </div>
         <div id="resNote"></div>
+        <div id="resCoach" class="trainingCard" style="display:none">
+          <div class="eyebrow">COACH / 针对性训练</div>
+          <h3 id="coachTitle">训练建议</h3>
+          <p id="coachAdvice"></p>
+          <div class="coachRow coachHead"><span>特工</span><span>本轮成功 / 次数</span><span>近期成功 / 次数</span></div>
+          <div id="coachBreakdown"></div>
+          <p class="tip" id="coachSampleNote"></p>
+          <button id="coachTrain" class="pri" style="display:none">开始专项训练</button>
+        </div>
         <div id="mCmp" style="display:none;margin:2px 0 14px"></div>
         <div id="resRec">
           <div class="resRecHead"><span>最近训练 · 走势</span>
@@ -739,6 +875,26 @@
           <button id="resAgain" class="pri">再来一轮</button>
           <button id="resClose">继续自由练习</button>
           <button id="resSettings">设置</button>
+        </div>
+      </div>
+    </div>
+    <div id="trackResult">
+      <div id="trackResBox">
+        <h2>跟枪训练完成</h2>
+        <div class="resTop"><span id="trackResScore">0</span><small>跟枪分 / 1000</small></div>
+        <div class="resGrid">
+          <div class="g"><b id="trackResRate">0%</b><span>有效跟住比例</span></div>
+          <div class="w"><b id="trackResOn">0.0s</b><span>有效跟住时间</span></div>
+          <div class="y"><b id="trackResBest">0.0s</b><span>最长连续跟住</span></div>
+          <div><b id="trackResReacquire">—</b><span>平均重新跟住</span></div>
+        </div>
+        <div id="trackResMeta"></div>
+        <div id="trackResNote"></div>
+        <div id="trackResHistory"></div>
+        <div class="resBtns">
+          <button id="trackAgain" class="pri">再练一轮</button>
+          <button id="trackSetup">调整跟枪设置</button>
+          <button id="trackBack">返回背闪训练</button>
         </div>
       </div>
     </div>
@@ -887,6 +1043,17 @@ const st={trials:0,dodges:0,blinds:0,graze:0,hits:0,shots:0,best:0,rtSum:0,rtN:0
 let reflickBase=0;
 /* 鼠标位移累积：同一帧内的多个 mousemove 合并后统一应用到相机 */
 let mdx=0, mdy=0;
+const PRACTICE={kind:'',snapshot:null,key:''};
+const COACH={recommendation:null,lastDrill:null};
+let lastResultKind='solo',menuTab='solo',roundRecordSerial=0;
+const TRACK_PATHS=['左右往返','平滑变速','八字跟踪'];
+const TRACK_SPEEDS=[{n:'慢速',omega:0.85},{n:'标准',omega:1.25},{n:'快速',omega:1.75}];
+const TRACK_SIZES=[{n:'大',r:0.18},{n:'中',r:0.13},{n:'小',r:0.09}];
+const TRACK_SECONDS=[30,60];
+const TRACK_MOTION_VERSION=2,TRACK_CUE_GAP=0.18;
+const trackCfg={path:0,speed:1,size:1,seconds:60};
+const TRACK={settings:null,target:null,elapsed:0,on:0,streak:0,best:0,lost:0,hadHit:false,
+  reacquireSum:0,reacquireN:0,onTarget:false,waiting:true,skip:true,yaw:0,pitch:0,saved:false,lastUI:-1,cueAt:-Infinity};
 /* ---------- 联机对战（房间码 = round 5bit + seed 20bit，编成 6 位 base32） ---------- */
 const ROOM_API='/api/room';                     /* Pages Function；离线/file:// 时自动降级 */
 const B32='0123456789ABCDEFGHJKMNPQRSTVWXYZ';      /* Crockford Base32：32 符号，去掉 I L O U */
@@ -1351,6 +1518,7 @@ const sfx={
   throw(k,onStart){ snd(k?k+'_throw':null,'throw',0.95,()=>(THROW_SYNTH[k]||THROW_SYNTH.phoenix)(),'flash',onStart); },
   beep(k){  snd(k?k+'_beep':null,'beep',0.85,()=>tone(1250,0.045,'square',0.07),'flash'); },
   pop(k){   snd(k?k+'_pop':null,'pop',1,()=>(POP_SYNTH[k]||POP_SYNTH.phoenix)(),'flash'); },
+  trackAcquire(){ snd(null,null,1,()=>tone(940,0.065,'sine',0.085,1380)); },
   hit(){    snd(null,'hit',0.9,()=>tone(880,0.07,'square',0.10,1400)); },
   miss(){   snd(null,'miss',0.8,()=>tone(190,0.10,'sine',0.07,120)); },
   dodge(){  snd(null,'dodge',0.9,()=>{ tone(620,0.06,'sine',0.08); setTimeout(()=>tone(930,0.08,'sine',0.08),55); }); },
@@ -2470,6 +2638,7 @@ function activateFlash(f){
   const ba=st.by[f.a.key]||(st.by[f.a.key]={n:0,dg:0}); ba.n++;
 }
 function spawnFlash(key,scheduled=false,at_){
+  if(PRACTICE.kind==='track') return null;
   const at=(at_===undefined?T:at_);
   const a=AGENTS[key||gpickEl(enabledAgents())]; if(!a) return null;
   const d=DIFF[cfg.diff];
@@ -2860,6 +3029,7 @@ function makeTarget(avoid){
   return {x:p.x, y:p.y, z:ROOM.zW, born:T, r:r};
 }
 function fillTargets(){
+  if(PRACTICE.kind==='track') return;
   const n=Math.max(1,cfg.targetN|0);
   while(targets.length<n) targets.push(makeTarget());
   while(targets.length>n) targets.pop();
@@ -2875,6 +3045,7 @@ function replaceTarget(i){        /* 只补这一个，其余靶点保持原位�
 
 /* ---------- 射击 ---------- */
 function shoot(){
+  if(PRACTICE.kind==='track'||lastResultKind==='track') return;
   if(!playing||paused||roundOver) return;
   st.shots++;
   const blind=Math.max(blindAmount(),dizzyBlindAmount());
@@ -3952,6 +4123,7 @@ function drawFlashes(){
   }
 }
 function drawTarget(){
+  if(PRACTICE.kind==='track'){drawTrackingTarget();return;}
   if(cfg.mode===1 || fogNear>0.15) return;   /* 近视期间靶球被浓雾吞掉，完全看不见（不受防护影响） */
   for(const tg of targets) drawOneTarget(tg);
 }
@@ -4233,18 +4405,25 @@ function updateCombo(){
 
 /* ---------- 单轮计时与结算 ---------- */
 let roundEndAt=0, roundOver=false, lastRoundSec=-1;
-function roundSec(){ return ROUNDS[cfg.roundIdx].sec; }
+function roundSec(){ return PRACTICE.kind==='track'&&TRACK.settings?TRACK.settings.seconds:ROUNDS[cfg.roundIdx].sec; }
 function startRound(){
   roundOver=false;
+  lastResultKind=PRACTICE.kind||'solo';
+  COACH.recommendation=null;
+  $('resCoach').style.display='none';
+  $('trackResult').style.display='none';
   dailyResultShown=false;
   roundEndAt = roundSec()>0 ? T+roundSec() : 0;
   lastRoundSec=-1;
   match.sent=false;                /* 新一轮：允许再上报一次比分 */
   $('result').style.display='none';
   resetStats(true);
+  if(PRACTICE.kind==='track'){resetTracking();return;}
   log('新一轮开始 · '+ROUNDS[cfg.roundIdx].n,'c');
 }
 function updateRound(){
+  if(PRACTICE.kind==='track'){updateTrackingHUD();return;}
+  if(PRACTICE.kind==='agent'&&paused) return;
   const el=$('roundTag');
   /* 三个必须同时成立的前提，缺一个就不该有倒计时，更不该结算：
      - 正在游戏中（updateRound 在主循环里是无条件调用的，playing=false 也会跑到这）
@@ -4268,7 +4447,9 @@ function updateRound(){
   if(left<=0) endRound();
 }
 function endRound(){
+  if(PRACTICE.kind==='track') return finishTracking();
   if(roundOver) return;            /* 幂等：重复调用只结算一次 */
+  lastResultKind=DAILY.active?'daily':match.active?'match':PRACTICE.kind==='agent'?'agent':'solo';
   roundOver=true;
   mdx=0; mdy=0;                    /* 别把结束瞬间的位移攒到下一轮开局 */
   if(document.exitPointerLock) document.exitPointerLock();
@@ -4276,6 +4457,7 @@ function endRound(){
   const rec=recordRound();             /* 先入库，再渲染结算(含内嵌记录条)，让本局立刻出现在榜上 */
   fillResult(rec);
   $('result').style.display='flex';
+  if(PRACTICE.kind==='agent') restorePractice();
   if(match.active) submitMyResult();   /* 对战：本轮分数自动上报云端 */
 }
 function pct(a,b){ return b?Math.round(a/b*100)+'%':'--'; }
@@ -4329,11 +4511,14 @@ function renderMatchStats(){
     +'<div class="recRow"><span>当前 / 最佳连胜</span><b>'+cur+' / '+s.best+'</b></div>';
 }
 function recordRound(){
-  if(DAILY.active){ dailyFinish(); return; }   /* 每日挑战走独立榜单，不进常规纪录（配置不可比） */
+  if(PRACTICE.kind==='track'||lastResultKind==='track') return;
+  if(DAILY.active){lastResultKind='daily';dailyFinish();return;}   /* 每日挑战走独立榜单，不进常规纪录（配置不可比） */
   const sec=roundSec();
   if(!sec) return;                          /* 「不限」不记录 */
   if(!st.trials && !st.shots) return;       /* 整轮一次手都没动，没必要占榜 */
   const entry={t:Date.now(), ri:cfg.roundIdx, diff:cfg.diff, mode:cfg.mode,
+    id:Date.now().toString(36)+'_'+(++roundRecordSerial),scope:match.active?'match':PRACTICE.kind==='agent'?'agent':'solo',
+    by:agentStatsSnapshot(st.by),profile:coachProfile(),
     score, cb:st.best, bl:st.blinds, ag:enabledAgents().join(','),
     dg:st.dodges, tr:st.trials, hs:st.hits, ss:st.shots,
     rf:st.rfN?Math.round(st.rfSum/st.rfN*1000):null,
@@ -4350,7 +4535,7 @@ function recordRound(){
     log('★ 新纪录！'+ROUNDS[entry.ri].n+' · '+DIFF[entry.diff].n+'  '+entry.score+' 分','y');
     sfx.record();                        /* 破纪录音效：合成号角，放 sfx/record.wav 可覆盖 */
   }
-  return {pb:entry.pb, prev:b?b.score:null, ri:entry.ri, diff:entry.diff};
+  return {pb:entry.pb,prev:b?b.score:null,ri:entry.ri,diff:entry.diff,id:entry.id};
 }
 function fmtDT(t){ const d=new Date(t);
   return (d.getMonth()+1)+'-'+d.getDate()+' '+(''+d.getHours()).padStart(2,'0')+':'+(''+d.getMinutes()).padStart(2,'0'); }
@@ -4531,6 +4716,7 @@ function renderRecords(){
       '<div class="d">'+(b?fmtDT(b.t)+' · ★'+MODES[b.mode].n:'还没有记录')+'</div></div>';
   }
   $('recBest').innerHTML=cards;
+  renderAgentHistory();
   renderChips($('recChips'));
   drawRecChart(R,'recChart');
   const list=$('recList');
@@ -4622,7 +4808,13 @@ function dailyMyBest(){ try{ const d=JSON.parse(localStorage.getItem('aft_daily'
   return (d&&d.date===dailyKeyDate())?(d.best|0):null; }catch(e){ return null; } }
 function dailySetBest(sc){ try{ localStorage.setItem('aft_daily',
   JSON.stringify({date:dailyKeyDate(),best:sc|0})); }catch(e){} }
+function standardTrainingEntry(){
+  if(PRACTICE.kind){log('请先退出当前专项，再进入每日挑战或联机对战。','y');return false;}
+  if(lastResultKind==='track')leaveTrackingResult('solo');
+  return true;
+}
 function dailyStart(){
+  if(!standardTrainingEntry())return;
   if(match.active){ log('先退出当前对战再打每日挑战','y'); return; }
   if(DAILY.active) return;
   ensureName();                           /* 名字先定下来，榜上才不会换编号 */
@@ -4731,35 +4923,303 @@ function renderDaily(){
     renderDailyBoard(rows);
   });
 }
-/* ---------- 弱项诊断：本轮 vs 同配置历史均值 + 点名躲闪率最低的特工 ----------
-   数据不够就闭嘴：同配置历史 <2 局不比均值，某特工样本 <3 次不点名。每日挑战不掺和。 */
-function buildCoachNotes(){
+/* ---------- 弱项诊断与单人专项 ---------- */
+function agentStatsSnapshot(by){
+  const out={};
+  for(const key of Object.keys(AGENTS)){
+    const b=by&&by[key];
+    if(b&&Number.isInteger(b.n)&&b.n>0&&b.n<=10000&&Number.isInteger(b.dg)&&b.dg>=0&&b.dg<=b.n)
+      out[key]={n:b.n,dg:b.dg};
+  }
+  return out;
+}
+function coachProfile(){
+  return JSON.stringify([cfg.roundIdx,cfg.diff,cfg.mode,cfg.vis,cfg.rate,cfg.targetN,cfg.targetR,enabledAgents().slice().sort().join(',')]);
+}
+function coachHistory(diff,mode,exclude){
+  return loadRecords().log.filter(e=>e&&e.by&&e.diff===diff&&e.mode===mode&&
+    (e.scope==='solo'||e.scope==='agent')&&(!exclude||e.id!==exclude)).slice(0,20);
+}
+function coachAssessment(current,entry){
+  const recent=coachHistory(cfg.diff,cfg.mode,entry&&entry.id);
+  const rows=[{by:agentStatsSnapshot(current)}].concat(recent).slice(0,20),totals={};
+  for(const row of rows) for(const [key,b] of Object.entries(agentStatsSnapshot(row.by))){
+    const a=totals[key]||(totals[key]={n:0,dg:0,rounds:0});a.n+=b.n;a.dg+=b.dg;a.rounds++;
+  }
+  const worst=(stats,min,history)=>{
+    let result=null;
+    for(const [key,b] of Object.entries(stats)){
+      if(b.n<min||(history&&b.rounds<3)||b.dg/b.n>=0.6) continue;
+      if(!result||b.dg/b.n<result.dg/result.n) result={key,n:b.n,dg:b.dg,rounds:b.rounds||1,origin:history?'近期':'本轮',diff:cfg.diff};
+    }
+    return result;
+  };
+  const round=agentStatsSnapshot(current);
+  return {round,totals,recommendation:worst(totals,10,true)||worst(round,3,false),rounds:rows.length};
+}
+function coachAdvice(key){
+  if(key==='gekko') return '丢丢无法背闪。先跟住飞行中的本体，锁定后尽快一枪击毁；电浆射出后再打掉本体也无法取消命中。';
+  if(key==='vyse') return '先辨认贴墙花蕊，可在蓄势时一枪打掉。若等到旋转绽放，听见绽放声就及时转身，不要等紫光爆开。';
+  if(key==='reyna') return '紫眼睁开时提前背开，或用两枪击毁解除近视。先解决紫眼，再回靶；闪光防护不会取消它的近视。';
+  if(key==='phoenix') return '曲球绕过拐角后的窗口较短。重点听出手声并观察转弯提示，提前转身，别等红球完全飞出来。';
+  if(key==='skye') return '飞鸟引爆时机有变化，不要只记固定秒数。结合出手声和鸟的位置及时转身，再练回靶。';
+  if(key==='breach') return '墙上的黄点就是预警。看见或听见提示就转身，不要等爆光；练习时保持左右两侧都能观察到。';
+  if(key==='kayo') return '结合出手声、滴答声和罐体充能判断引爆，先把背闪时机练稳定，再追求回靶速度。';
+  return '先听出手声、判断来向并转身，再回靶。专项只开启这一位特工，优先把成功应对率练稳定。';
+}
+function buildCoachNotes(entry){
+  if(DAILY.active||lastResultKind==='daily'||lastResultKind==='match'||lastResultKind==='track'||PRACTICE.kind==='track'||match.active) return '';
   let out='';
   try{
-    const R=loadRecords();
-    /* log[0] 永远是刚结算的本局（recordRound 先 unshift 再 fillResult）—— 对比对象是之前的历史 */
-    const hist=R.log.slice(1).filter(e=>e.ri===cfg.roundIdx&&e.diff===cfg.diff&&e.rf!=null);
+    const hist=loadRecords().log.filter(e=>e&&e.profile===coachProfile()&&Number.isFinite(e.rf)&&e.rf>=0&&
+      (e.scope==='solo'||e.scope==='agent')&&(!entry||e.id!==entry.id)).slice(0,20);
     if(st.rfN&&hist.length>=2){
-      const avg=hist.reduce((a,e)=>a+(e.rf||0),0)/hist.length;
-      const cur=Math.round(st.rfSum/st.rfN*1000);
-      const d=cur-Math.round(avg);
-      if(Math.abs(d)>=50)
-        out+=' 本次回靶 '+cur+'ms，比你的'+ROUNDS[cfg.roundIdx].n+'·'+DIFF[cfg.diff].n+'均值'
-            +(d>0?'慢 ':'快 ')+Math.abs(d)+'ms'+(d>0?'，甩枪再果断点。':'，手感在线。');
+      const avg=hist.reduce((a,e)=>a+e.rf,0)/hist.length,cur=Math.round(st.rfSum/st.rfN*1000),d=cur-Math.round(avg);
+      if(Math.abs(d)>=50) out+=' 本次回靶 '+cur+'ms，比相同训练配置均值'+(d>0?'慢 ':'快 ')+Math.abs(d)+'ms。';
     }
-    let worst=null;
-    for(const k in st.by){
-      const b=st.by[k];
-      if(b.n>=3&&AGENTS[k]){
-        const dr=b.dg/b.n;
-        if(!worst||dr<worst.dr) worst={zh:AGENTS[k].zh,dr:dr};
-      }
-    }
-    if(worst&&worst.dr<0.6)
-      out+=' '+worst.zh+'的闪你只躲了 '+Math.round(worst.dr*100)+'%，是最弱项，建议单独开它练两局。';
+    const worst=coachAssessment(st.by,entry).recommendation;
+    if(worst) out+=' '+AGENTS[worst.key].zh+'的'+worst.origin+'成功应对率为 '+pct(worst.dg,worst.n)+'（'+worst.dg+'/'+worst.n+'），是当前最弱项。'+coachAdvice(worst.key);
   }catch(e){}
   return out;
 }
+function renderCoachCard(entry){
+  const box=$('resCoach'),button=$('coachTrain');
+  COACH.recommendation=null;button.style.display='none';
+  if(DAILY.active||lastResultKind==='daily'||lastResultKind==='match'||lastResultKind==='track'||PRACTICE.kind==='track'||match.active){box.style.display='none';return;}
+  const data=coachAssessment(st.by,entry),rec=data.recommendation;
+  box.style.display='';
+  $('coachTitle').textContent=rec?rec.origin+'弱项 · '+AGENTS[rec.key].zh:'本轮特工表现';
+  $('coachAdvice').textContent=rec?coachAdvice(rec.key):'样本足够且成功率低于60%时会推荐专项；数据不足不急着下结论。擦闪和有效击毁也计入成功应对。';
+  const rows=Object.keys(AGENTS).filter(k=>data.round[k]||data.totals[k]);
+  $('coachBreakdown').innerHTML=rows.map(key=>{
+    const b=data.round[key],h=data.totals[key],value=v=>v?`${v.dg} / ${v.n} · ${pct(v.dg,v.n)}`:'—';
+    return '<div class="coachRow"><b>'+esc(AGENTS[key].zh)+'</b><span>'+value(b)+'</span><span'+(h&&h.dg/h.n<0.6?' class="weak"':'')+'>'+value(h)+'</span></div>';
+  }).join('')||'<div class="tip">本轮还没有可用的特工样本。</div>';
+  $('coachSampleNote').textContent='近期按相同难度、模式汇总最近20局（含本轮）。每位至少3局、10次才判断长期弱项；本轮至少3次。旧记录缺少特工明细时不猜测。';
+  if(rec){COACH.recommendation=rec;button.textContent='开始'+AGENTS[rec.key].zh+'专项 · 60s';button.style.display='';}
+}
+function renderAgentHistory(){
+  const box=$('recAgentHistory');if(!box) return;
+  const totals={},rows=coachHistory(cfg.diff,cfg.mode);
+  for(const row of rows) for(const [key,b] of Object.entries(agentStatsSnapshot(row.by))){
+    const a=totals[key]||(totals[key]={n:0,dg:0,rounds:0});a.n+=b.n;a.dg+=b.dg;a.rounds++;
+  }
+  box.innerHTML='<h3>近期特工表现 · '+DIFF[cfg.diff].n+' / '+MODES[cfg.mode].n+'</h3><div class="tip">最近20局同难度、同模式；仅统计带特工明细的单人训练，旧记录不会补猜。</div>'+
+    (Object.keys(totals).length?Object.keys(AGENTS).filter(k=>totals[k]).map(k=>{
+      const b=totals[k];return '<div class="coachRow"><b>'+esc(AGENTS[k].zh)+'</b><span>'+b.dg+' / '+b.n+' · '+pct(b.dg,b.n)+'</span><span>'+b.rounds+'局'+(b.rounds<3||b.n<10?' · 样本较少':'')+'</span></div>';
+    }).join(''):'<div class="tip">完成新的计时背闪训练后，这里会逐步积累各特工的成功率。</div>');
+}
+const PRACTICE_KEYS=['mode','diff','rate','vis','roundIdx','targetN','targetR','auto','agents'];
+function beginPractice(kind,key){
+  if(match.active||DAILY.active){log('先退出联机或完成每日挑战，再开始单人专项。','y');return false;}
+  if(PRACTICE.kind&&!roundOver){log('请先退出当前专项，再切换训练。','y');return false;}
+  if(PRACTICE.kind) restorePractice();
+  const snap={};for(const k of PRACTICE_KEYS) snap[k]=k==='agents'?{...cfg.agents}:cfg[k];
+  PRACTICE.snapshot=snap;PRACTICE.kind=kind;PRACTICE.key=key||'';
+  return true;
+}
+function restorePractice(){
+  const snap=PRACTICE.snapshot;
+  PRACTICE.kind='';PRACTICE.key='';PRACTICE.snapshot=null;
+  if(snap) for(const k of PRACTICE_KEYS) cfg[k]=k==='agents'?{...snap[k]}:snap[k];
+  syncPracticeChrome();applyCfgToUI();updateStats();
+}
+function syncPracticeChrome(){
+  const active=!!PRACTICE.kind,track=PRACTICE.kind==='track';
+  $('practiceExit').style.display=active?'':'none';$('menuPracticeExit').style.display=active?'':'none';
+  $('practiceTag').style.display=active?'':'none';
+  $('practiceTag').textContent=track?'跟枪训练 · 独立记录':active?AGENTS[PRACTICE.key].zh+'专项 · 60s':'';
+  $('miniStats').style.display=track?'none':'';$('trackStats').style.display=track?'':'none';
+  $('scoreLbl').textContent=track?'TRACK / 1000':'SCORE';
+  $('bReset').textContent=active?'重开专项':'重置统计';
+  $('trackPrompt').style.display=track&&TRACK.waiting?'':'none';
+  $('hint').style.visibility=track?'hidden':'';
+  $('bAuto').classList.toggle('on',cfg.auto);
+  $('bFlash').disabled=active;$('bAuto').disabled=active;$('bMatch').disabled=active;$('dailyStart2').disabled=active;
+  $('rTr').disabled=active;
+  for(const el of document.querySelectorAll('#tab-set [data-lockfair]')){
+    const locked=active||match.active;el.style.opacity=locked?'.45':'';el.style.pointerEvents=locked?'none':'';
+  }
+  if(track){$('agentTag').classList.remove('on');$('combo').classList.remove('on');$('stateTag').textContent='跟枪训练 · '+TRACK_PATHS[trackCfg.path];}
+  renderTrackingSetup();
+}
+function startAgentPractice(key,repeat){
+  if(!AGENTS[key]||!roundOver||lastResultKind==='daily'||lastResultKind==='match') return false;
+  const proposal=repeat?COACH.lastDrill:COACH.recommendation;
+  if(!proposal||proposal.key!==key||!beginPractice('agent',key)) return false;
+  cfg.agents=dailyOnlyAgents([key]);cfg.mode=1;cfg.roundIdx=1;cfg.auto=true;cfg.diff=proposal.diff;cfg.rate=0.8;
+  COACH.recommendation=null;COACH.lastDrill={key,diff:cfg.diff};
+  syncPracticeChrome();applyCfgToUI();start();
+  log(AGENTS[key].zh+'专项 · 60秒 · '+(key==='gekko'?'发射前击毁':'先练成功应对')+'，结束后恢复原配置。','c');
+  return true;
+}
+function exitPractice(tab){
+  if(!PRACTICE.kind) return;
+  const kind=PRACTICE.kind;restorePractice();
+  playing=false;paused=false;roundOver=false;roundEndAt=0;TRACK.settings=null;TRACK.target=null;
+  lastResultKind='solo';COACH.recommendation=null;COACH.lastDrill=null;
+  $('result').style.display='none';$('trackResult').style.display='none';$('bStart').textContent='开始训练';
+  resetStats(true);if(document.exitPointerLock)document.exitPointerLock();openMenu(tab||(kind==='track'?'track':'solo'),false);
+}
+const LS_TRACK_CFG='aft_tracking_cfg',LS_TRACK_REC='aft_tracking_records';
+function cleanTrackCfg(value){
+  value=value||{};
+  const index=(n,list,fallback)=>Number.isInteger(n)&&n>=0&&n<list.length?n:fallback;
+  return {path:index(value.path,TRACK_PATHS,0),speed:index(value.speed,TRACK_SPEEDS,1),size:index(value.size,TRACK_SIZES,1),
+    seconds:TRACK_SECONDS.includes(value.seconds)?value.seconds:60};
+}
+function loadTrackCfg(){
+  try{Object.assign(trackCfg,cleanTrackCfg(JSON.parse(localStorage.getItem(LS_TRACK_CFG)||'null')));}catch(e){}
+}
+function saveTrackCfg(){try{localStorage.setItem(LS_TRACK_CFG,JSON.stringify(trackCfg));}catch(e){}}
+function trackSettingsLabel(s){
+  return TRACK_PATHS[s.path]+' · '+TRACK_SPEEDS[s.speed].n+' · '+TRACK_SIZES[s.size].n+'靶 · '+s.seconds+'s'+
+    (s.t!=null&&s.path!==2&&s.motionVersion!==TRACK_MOTION_VERSION?' · 旧版轨迹':'');
+}
+function loadTrackRecords(){
+  try{
+    const rows=JSON.parse(localStorage.getItem(LS_TRACK_REC)||'[]');
+    return Array.isArray(rows)?rows.filter(r=>r&&Number.isFinite(r.t)&&Number.isInteger(r.score)&&r.score>=0&&r.score<=1000&&Number.isFinite(r.on)&&r.on>=0&&r.on<=r.seconds&&
+      Number.isFinite(r.best)&&r.best>=0&&r.best<=r.on&&TRACK_SECONDS.includes(r.seconds)&&
+      (r.reacquire==null||(Number.isFinite(r.reacquire)&&r.reacquire>=0&&r.reacquire<=r.seconds*1000))&&
+      Number.isInteger(r.path)&&TRACK_PATHS[r.path]&&Number.isInteger(r.speed)&&TRACK_SPEEDS[r.speed]&&Number.isInteger(r.size)&&TRACK_SIZES[r.size]).slice(0,100):[];
+  }catch(e){return [];}
+}
+function renderTrackHistory(){
+  const rows=loadTrackRecords(),html=rows.slice(0,20).map(r=>'<div class="trackHistoryRow"><span>'+fmtDT(r.t)+
+    '<small>'+trackSettingsLabel(r)+'</small><small>跟住 '+(100*r.on/r.seconds).toFixed(1)+'% · 最长 '+r.best.toFixed(1)+'s</small></span><b>'+r.score+'</b></div>').join('');
+  $('trackHistory').innerHTML=html||'<div class="tip">完成一局跟枪训练后，成绩会独立保存在本机。</div>';
+  $('trackResHistory').innerHTML=rows.length?'<div class="tip">最近跟枪记录</div>'+rows.slice(0,3).map(r=>'<div class="trackHistoryRow"><span>'+trackSettingsLabel(r)+'</span><b>'+r.score+'</b></div>').join(''):'';
+}
+function renderTrackingSetup(){
+  const locked=!!PRACTICE.kind&&!roundOver;
+  for(const [id,index] of [['segTrackPath',trackCfg.path],['segTrackSpeed',trackCfg.speed],['segTrackSize',trackCfg.size],['segTrackDuration',TRACK_SECONDS.indexOf(trackCfg.seconds)]]){
+    for(const [i,b] of [...$(id).children].entries()){b.classList.toggle('act',i===index);b.disabled=locked;}
+  }
+  $('trackStart').disabled=!!match.active||DAILY.active||(locked&&PRACTICE.kind!=='track');
+  $('trackStart').textContent=PRACTICE.kind==='track'&&!roundOver?'继续跟枪训练':'开始跟枪训练';
+  $('trackLockNote').textContent=match.active||DAILY.active?'请先退出联机或完成每日挑战，再开始单人跟枪。':locked?'当前专项进行中；退出后可更换训练参数。':'';
+}
+function trackPosition(time,settings){
+  const phase=time*TRACK_SPEEDS[settings.speed].omega;
+  let x,y=0.65;
+  if(settings.path===0){
+    x=1.42*Math.asin(0.94*Math.sin(phase*1.5))/Math.asin(0.94);
+  }else if(settings.path===1){
+    const p=phase*1.55+0.60*Math.sin(phase*1.7)+0.16*Math.sin(phase*3.1);
+    x=1.38*Math.sin(p);
+    y=0.55+0.46*Math.sin(phase*1.31)+0.14*Math.sin(phase*2.7);
+  }else{
+    x=1.12*Math.sin(phase);y=0.65+0.65*Math.sin(phase*2);
+  }
+  return {x,y,z:ROOM.zW,r:TRACK_SIZES[settings.size].r,born:-1000000};
+}
+function resetTracking(){
+  const settings={...trackCfg};
+  Object.assign(TRACK,{settings,target:trackPosition(0,settings),elapsed:0,on:0,streak:0,best:0,lost:0,hadHit:false,
+    reacquireSum:0,reacquireN:0,onTarget:false,waiting:true,skip:true,yaw:cam.yaw,pitch:cam.pitch,saved:false,lastUI:-1,cueAt:-Infinity});
+  roundEndAt=0;targets=[];score=0;shownScore=0;
+  cam.yaw=0;cam.pitch=Math.atan2(TRACK.target.y-cam.y,TRACK.target.z-cam.z);
+  TRACK.yaw=cam.yaw;TRACK.pitch=cam.pitch;
+  $('trackPrompt').style.display='';
+  updateTrackingHUD(true);
+}
+function startTracking(){
+  if(PRACTICE.kind==='track'&&!roundOver){resume();return true;}
+  if(!beginPractice('track')) return false;
+  Object.assign(trackCfg,cleanTrackCfg(trackCfg));
+  cfg.mode=2;cfg.auto=false;cfg.roundIdx=3;
+  COACH.recommendation=null;COACH.lastDrill=null;
+  start();syncPracticeChrome();
+  log('跟枪训练 · 无需点击，持续用准星跟住红球。','c');
+  return true;
+}
+function trackingBreak(){
+  TRACK.skip=true;TRACK.streak=0;TRACK.hadHit=false;TRACK.lost=0;TRACK.onTarget=false;
+}
+function waitForTrackingInput(){
+  trackingBreak();TRACK.waiting=true;TRACK.cueAt=-Infinity;
+  $('trackPrompt').style.display='';updateTrackingHUD(true);
+}
+function updateTracking(dt){
+  if(PRACTICE.kind!=='track'||!TRACK.settings||!playing||paused||roundOver||TRACK.waiting) return;
+  if(document.hidden||!Number.isFinite(dt)||dt<=0||dt>0.1){trackingBreak();return;}
+  if(TRACK.skip){TRACK.skip=false;TRACK.yaw=cam.yaw;TRACK.pitch=cam.pitch;return;}
+  const span=Math.min(dt,TRACK.settings.seconds-TRACK.elapsed),steps=Math.max(1,Math.ceil(span*240)),step=span/steps;
+  const turn=Math.atan2(Math.sin(cam.yaw-TRACK.yaw),Math.cos(cam.yaw-TRACK.yaw));
+  for(let i=0;i<steps;i++){
+    const f=(i+0.5)/steps,target=trackPosition(TRACK.elapsed+(i+0.5)*step,TRACK.settings);
+    const yaw=TRACK.yaw+turn*f,pitch=lerp(TRACK.pitch,cam.pitch,f),cp=Math.cos(pitch);
+    const dir={x:Math.sin(yaw)*cp,y:Math.sin(pitch),z:Math.cos(yaw)*cp};
+    const offset={x:target.x-cam.x,y:target.y-cam.y,z:target.z-cam.z},distance=len3(offset);
+    const hit=dot3(norm3(offset),dir)>=Math.cos(Math.atan(target.r/distance));
+    if(hit){
+      const at=TRACK.elapsed+(i+0.5)*step;
+      if(!TRACK.onTarget&&at-TRACK.cueAt>=TRACK_CUE_GAP){
+        TRACK.cueAt=at;
+        if(cfg.sound)sfx.trackAcquire();
+      }
+      TRACK.on+=step;TRACK.streak+=step;TRACK.best=Math.max(TRACK.best,TRACK.streak);
+      if(!TRACK.onTarget&&TRACK.hadHit&&TRACK.lost>0){TRACK.reacquireSum+=TRACK.lost;TRACK.reacquireN++;}
+      TRACK.lost=0;TRACK.hadHit=true;
+    }else{TRACK.streak=0;if(TRACK.hadHit)TRACK.lost+=step;}
+    TRACK.onTarget=hit;
+  }
+  TRACK.elapsed=Math.min(TRACK.settings.seconds,TRACK.elapsed+span);
+  TRACK.on=Math.min(TRACK.elapsed,TRACK.on);TRACK.best=Math.min(TRACK.on,TRACK.best);
+  TRACK.yaw=cam.yaw;TRACK.pitch=cam.pitch;TRACK.target=trackPosition(TRACK.elapsed,TRACK.settings);
+  score=Math.round(TRACK.on/TRACK.settings.seconds*1000);
+  updateTrackingHUD();
+  if(TRACK.elapsed>=TRACK.settings.seconds-1e-8) finishTracking();
+}
+function updateTrackingHUD(force){
+  if(PRACTICE.kind!=='track'||!TRACK.settings) return;
+  const tick=Math.floor(TRACK.elapsed*10);
+  if(!force&&TRACK.lastUI===tick) return;
+  TRACK.lastUI=tick;
+  const left=Math.max(0,TRACK.settings.seconds-TRACK.elapsed);
+  $('roundTag').textContent=Math.ceil(left)+'s';$('roundTag').classList.toggle('warn',left<=10);
+  $('stateTag').textContent='跟枪 · '+TRACK_PATHS[TRACK.settings.path]+' · '+TRACK_SPEEDS[TRACK.settings.speed].n;
+  $('trackHudRate').textContent=(TRACK.elapsed?100*TRACK.on/TRACK.elapsed:0).toFixed(1)+'%';
+  $('trackHudStreak').textContent=TRACK.streak.toFixed(1)+'s';$('trackHudBest').textContent=TRACK.best.toFixed(1)+'s';
+  $('trackHudReacquire').textContent=TRACK.reacquireN?Math.round(TRACK.reacquireSum/TRACK.reacquireN*1000)+'ms':'—';
+}
+function finishTracking(){
+  if(PRACTICE.kind!=='track'||roundOver||!TRACK.settings||TRACK.elapsed<TRACK.settings.seconds-1e-8) return;
+  roundOver=true;paused=false;lastResultKind='track';mdx=0;mdy=0;
+  const entry={...TRACK.settings,motionVersion:TRACK_MOTION_VERSION,t:Date.now(),on:TRACK.on,best:TRACK.best,score:Math.round(1000*TRACK.on/TRACK.settings.seconds),
+    reacquire:TRACK.reacquireN?Math.round(TRACK.reacquireSum/TRACK.reacquireN*1000):null};
+  score=entry.score;shownScore=score;
+  if(!TRACK.saved){
+    TRACK.saved=true;
+    try{localStorage.setItem(LS_TRACK_REC,JSON.stringify([entry,...loadTrackRecords()].slice(0,100)));}catch(e){}
+  }
+  $('trackResScore').textContent=entry.score;$('trackResRate').textContent=(100*entry.on/entry.seconds).toFixed(1)+'%';
+  $('trackResOn').textContent=entry.on.toFixed(1)+'s';$('trackResBest').textContent=entry.best.toFixed(1)+'s';
+  $('trackResReacquire').textContent=entry.reacquire===null?'—':entry.reacquire+'ms';
+  $('trackResMeta').textContent=trackSettingsLabel(entry)+' · 重新跟住 '+TRACK.reacquireN+' 次';
+  $('trackResNote').textContent=entry.score>=800?'跟枪很稳，可以尝试更快速度或更小的目标。':entry.score>=500?'已经能跟住大部分移动，注意转向时别甩过头，脱靶后平稳追上。':'先用慢速、大靶练习连续跟随，减少大幅甩动，再逐渐增加速度。';
+  $('result').style.display='none';$('trackResult').style.display='flex';
+  restorePractice();renderTrackHistory();
+  $('roundTag').textContent='0s';$('bStart').textContent='开始训练';
+  if(document.exitPointerLock)document.exitPointerLock();
+}
+function leaveTrackingResult(tab){
+  if(PRACTICE.kind==='track') return exitPractice(tab||'track');
+  if(lastResultKind!=='track') return;
+  lastResultKind='solo';playing=false;paused=false;roundOver=false;roundEndAt=0;TRACK.target=null;TRACK.settings=null;
+  $('trackResult').style.display='none';resetStats(true);$('bStart').textContent='开始训练';openMenu(tab||'track',false);
+}
+function drawTrackingTarget(){
+  const target=TRACK.target;if(!target)return;
+  drawOneTarget(target);
+  if(TRACK.onTarget){
+    const c=toCam(target);if(c.z<NEAR)return;const p=proj(c),r=Math.max(3,F*target.r/c.z);
+    ctx.save();ctx.strokeStyle='rgba(79,240,192,0.8)';ctx.lineWidth=1.5;
+    ctx.beginPath();ctx.arc(p.x,p.y,r+3,0,Math.PI*2);ctx.stroke();ctx.restore();
+  }
+}
+
 function fillResult(rec){
   $('resScore').textContent=score;
   $('resDodge').textContent=pct(st.dodges,st.trials);
@@ -4791,14 +5251,16 @@ function fillResult(rec){
       if(rf>700) note+=' 回靶偏慢（'+Math.round(rf)+'ms），躲开后立刻甩枪，别犹豫。';
     }
   }
-  if(!DAILY.active) note+=buildCoachNotes();   /* 对比式诊断（历史均值 + 最弱特工） */
+  if(lastResultKind==='daily') note+=' 每日挑战的规则与普通训练不同，不进行跨轮弱项推荐。';
+  else if(!DAILY.active) note+=buildCoachNotes(rec);
   $('resNote').textContent=note;
+  renderCoachCard(rec);
   /* 每日挑战：结算面板直接放当日榜（榜单数据由 dailyPost 异步刷进来） */
   if(dailyResultShown) paintDailyResult(DAILY.lastRows);
   else if(!match.active){ const cmp=$('mCmp'); if(cmp) cmp.style.display='none'; }
   /* 对战里这两个按钮语义不同：再战要回大厅让双方重新确认，关闭等于退出对战 */
-  $('resAgain').textContent=match.active?'再战一轮（回大厅）':'再来一轮';
-  $('resClose').textContent=match.active?'退出对战':'继续自由练习';
+  $('resAgain').textContent=match.active?'再战一轮（回大厅）':lastResultKind==='agent'?'再练此专项':'再来一轮';
+  $('resClose').textContent=match.active?'退出对战':lastResultKind==='agent'?'返回普通训练':'继续自由练习';
   renderResRec();                      /* 内嵌记录：本轮刚打完的数据已在库里 */
 }
 
@@ -4818,6 +5280,7 @@ function scheduleAuto(at=T){
   nextAutoAt=at+gapFor(autoN)/Math.max(0.2,cfg.rate*RATE_CAL);
 }
 function updateAuto(){
+  if(PRACTICE.kind==='track') return;
   if(!cfg.auto||cfg.mode===2){ nextAutoAt=T+2; return; }
   if(T>=nextAutoAt){
     const at=nextAutoAt;
@@ -4828,6 +5291,7 @@ function updateAuto(){
 /* 手动丢闪：对战模式禁用 —— 任何一侧多/少一发都会让两人的闪光序列整体错位 */
 function manualFlash(){
   if(!playing||paused||roundOver) return;
+  if(PRACTICE.kind){log('专项中由系统控制训练，请先退出专项。','y');return;}
   if(match.active||DAILY.active){ log('挑战中由系统统一出闪光，不能手动','y'); return; }
   spawnFlash(gpickEl(enabledAgents()),true); scheduleAuto();
 }
@@ -4846,9 +5310,12 @@ function frame(ts){
 
   if(playing&&!paused&&!roundOver){
     applyLook();                     /* 本帧累积的鼠标位移在这里统一应用 */
-    updateFlashes();
-    updateAuto();
-    if(cfg.mode!==1) fillTargets();
+    if(PRACTICE.kind==='track') updateTracking(dt);
+    else{
+      updateFlashes();
+      updateAuto();
+      if(cfg.mode!==1) fillTargets();
+    }
   }
   updateRound();
   shownScore += (score-shownScore)*0.18;
@@ -4890,11 +5357,14 @@ function applyLook(){
 document.addEventListener('mousemove',e=>{
   if(!playing||paused||roundOver) return;    /* 结算面板开着时不转视角、也不累积位移 */
   const locked=document.pointerLockElement===stage;
-  if(!locked && e.target!==cvs && e.target!==stage && !stage.contains(e.target)) return;
+  if(!locked && (PRACTICE.kind==='track' ? e.target!==cvs&&e.target!==stage : e.target!==cvs&&e.target!==stage&&!stage.contains(e.target))) return;
   const dx=e.movementX||0, dy=e.movementY||0;
   /* 鼠标驱动 / 系统指针加速偶尔会甩出上千 count 的假位移，
      直接丢弃而不是截断，避免视角「莫名其妙瞬移」 */
   if(Math.abs(dx)>MOVE_DROP || Math.abs(dy)>MOVE_DROP) return;
+  if(PRACTICE.kind==='track'&&TRACK.waiting&&(dx||dy)){
+    TRACK.waiting=false;TRACK.skip=true;$('trackPrompt').style.display='none';
+  }
   mdx+=clamp(dx,-MOVE_MAX,MOVE_MAX);
   mdy+=clamp(dy,-MOVE_MAX,MOVE_MAX);
 });
@@ -4903,15 +5373,17 @@ document.addEventListener('mousedown',e=>{
   const t=e.target;
   if(t!==cvs && t!==stage) return;      /* 点按钮 / 遮罩不触发射击 */
   e.preventDefault();
-  if(!playing){ start(); return; }
+  if(!playing){ if(menuTab==='track') startTracking(); else start(); return; }
   if(paused){ resume(); return; }
+  if(PRACTICE.kind==='track'){if(document.pointerLockElement!==stage)relock();return;}
   shoot();
 });
 document.addEventListener('keydown',e=>{
   const k=e.key.toLowerCase();
+  if(e.target&&/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)&&k!=='escape') return;
   if(k===' '||e.code==='Space'){ e.preventDefault(); if(playing&&!paused) shoot(); return; }
   if(k==='escape'){
-    if(roundOver){ $('resClose').click(); return; }
+    if(roundOver){ if(lastResultKind==='track')leaveTrackingResult('track');else $('resClose').click(); return; }
     if(menuIsOpen()){ resume(); return; }      /* 菜单开着：再按 Esc = 继续 */
     if(playing) pause();                        /* 游戏中：暂停并开菜单 */
     else openMenu('solo');                      /* 停在开屏：点一下菜单 */
@@ -4919,13 +5391,20 @@ document.addEventListener('keydown',e=>{
   }
   if(k==='h'){ toggleMini(); return; }
   if(k==='f'){ e.preventDefault(); if(!DAILY.active) manualFlash(); return; }
-  if(k==='r'){ if(playing&&!paused&&cfg.mode!==1) relocateTarget(); return; }
+  if(k==='r'){ if(!PRACTICE.kind&&playing&&!paused&&!roundOver&&cfg.mode!==1) relocateTarget(); return; }
   if(k==='a'){ if(!DAILY.active) toggleAuto(); return; }
   if(k==='m'){ cfg.sound=!cfg.sound; syncChecks(); log(cfg.sound?'音效开':'静音','c'); return; }
 });
 document.addEventListener('pointerlockchange',()=>{
   /* 结算面板会主动释放指针锁，别把它误判成「玩家切走了」而弹出暂停 */
   if(playing && !paused && !roundOver && document.pointerLockElement!==stage) pause();
+});
+
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden&&PRACTICE.kind==='track'&&!roundOver) pause();
+});
+window.addEventListener('blur',()=>{
+  if(PRACTICE.kind==='track'&&!roundOver) pause();
 });
 
 /* ---------- 流程控制 ---------- */
@@ -4965,16 +5444,19 @@ function shiftTime(dt){
   reflickBase+=dt; nextAutoAt+=dt;
 }
 function pause(){
-  if(!playing||paused) return;
+  if(!playing||paused||roundOver) return;
   paused=true; pauseT=T; mdx=0; mdy=0;
+  if(PRACTICE.kind==='track') waitForTrackingInput();
   $('bStart').textContent='继续';
-  openMenu('solo', true);
+  openMenu(PRACTICE.kind==='track'?'track':'solo', true);
   if(document.exitPointerLock) document.exitPointerLock();
 }
 function resume(){
   if(paused){
     paused=false; mdx=0; mdy=0;
     shiftTime(T-pauseT);
+    if(PRACTICE.kind==='agent'&&roundEndAt) roundEndAt+=T-pauseT;
+    if(PRACTICE.kind==='track') waitForTrackingInput();
     $('bStart').textContent='暂停';
     blindUntil=0; blindDur=0; blindSrc=0; blindStart=0;
   }
@@ -4991,14 +5473,42 @@ function openMenu(tab, isPause){
   if(tab) selectTab(tab);
 }
 function selectTab(name){
+  menuTab=name;
   const tabs=$('menuTabs').children;
   for(const b of tabs) b.classList.toggle('act', b.dataset.tab===name);
-  for(const pg of ['solo','battle','rec','music','set'])
+  for(const pg of ['solo','track','battle','rec','music','set'])
     $('tab-'+pg).classList.toggle('act', pg===name);
-  if(name==='rec'){ renderRecords(); renderDaily(); renderMatchStats(); }   /* 每次进这页都现读现画 */
-  if(name==='music') musicArm();     /* 首次打开音乐盒才读清单，启动不预载 */
+  if(name==='rec'){ renderRecords(); renderDaily(); renderMatchStats(); }
+  if(name==='track'){renderTrackingSetup();renderTrackHistory();}
+  if(name==='music') musicArm();
+  /* 底部主操作按页决定：跟枪页自带「开始跟枪训练」，底部就不再重复一个同样的红按钮；
+     记录/音乐/设置页没有「开始」语义，换成低调的「返回游戏」，避免出现「返回结算」这种看不懂的文案。 */
+  const startLabel=()=>PRACTICE.kind==='track'?'继续跟枪训练':'开始训练 · 锁定鼠标';
+  let bottom='',primary=false;
+  if(name==='track'){
+    bottom='';                                   /* 页内 trackStart 才是入口 */
+  }else if(roundOver){
+    bottom='返回结算';                            /* 结算面板还开着，回去看结果 */
+  }else if(name==='battle'){
+    bottom=playing&&!paused?'继续训练':'返回游戏';
+  }else if(name==='rec'||name==='music'||name==='set'){
+    bottom='返回游戏';
+  }else{
+    bottom=playing&&!paused?'继续训练':startLabel();primary=!playing||paused;
+  }
+  const btn=$('ovlBtn');
+  btn.textContent=bottom;
+  btn.className=primary?'pri':'';
+  btn.style.display=bottom?'':'none';
+  btn.disabled=false;
 }
-function toggleMini(){ $('miniStats').classList.toggle('hide'); }
+function menuPrimaryAction(){
+  if(menuTab==='track'){startTracking();return;}
+  if(roundOver){closeMenu();return;}
+  if(menuTab==='rec'||menuTab==='music'||menuTab==='set'||menuTab==='battle'){resume();return;}
+  if(!playing) start(); else resume();
+}
+function toggleMini(){ $(PRACTICE.kind==='track'?'trackStats':'miniStats').classList.toggle('hide'); }
 function resetStats(silent){
   /* 丢丢录音统一收尾（见 dizzyAudios 的注释：本体被击毁 + 电浆已出队时，
      只按本体找会漏掉仍在播的那只）。 */
@@ -5037,6 +5547,7 @@ function relock(){
   }catch(e){ fallback(); }
 }
 function toggleAuto(){
+  if(PRACTICE.kind) return;
   cfg.auto=!cfg.auto;
   $('bAuto').classList.toggle('on',cfg.auto);
   scheduleAuto();
@@ -5048,7 +5559,10 @@ function buildSeg(el,items,get,set){
   items.forEach((it,i)=>{
     const b=document.createElement('button');
     b.textContent=it.n||it;
-    b.onclick=()=>{ set(i); syncSegs(); };
+    b.onclick=()=>{
+      if(PRACTICE.kind&&['segMode','segDiff','segVis','segRound'].includes(el.id))return;
+      set(i); syncSegs();
+    };
     el.appendChild(b);
   });
 }
@@ -5074,6 +5588,7 @@ function buildAgents(){
                 '<span class="du">'+a.dur[1].toFixed(1)+'s</span>';
     d.title=a.note;
     d.onclick=()=>{
+      if(PRACTICE.kind)return;
       cfg.agents[k]=!cfg.agents[k];
       const on=Object.values(cfg.agents).some(Boolean);
       if(!on) cfg.agents[k]=true;
@@ -5088,7 +5603,51 @@ function buildAgents(){
 function syncChecks(){
   [...$('chkBox').children].forEach(b=>b.classList.toggle('act',!!cfg[b.dataset.k]));
 }
+/* 页内二级导航：显式登记「导航栏 → 它的分组 id」。
+   不去遍历 DOM 找分组 —— 设置页的分组藏在 #scroll 里面，而最小 DOM 桩
+   （冒烟测试）没有 parentNode/closest，靠遍历会在那儿直接抛错让整个脚本挂掉。 */
+const PAGE_TABS={setTabs:['setGroupPlay','setGroupFeel','setGroupAudio','setGroupHelp'],
+                 recTabs:['recGroupBest','recTrend','recDaily','recMatch']};
+function bindPageTabs(){
+  for(const barId of Object.keys(PAGE_TABS)){
+    const bar=$(barId);if(!bar) continue;
+    const groups=PAGE_TABS[barId].map(id=>$(id));
+    if(groups.some(g=>!g)) continue;
+    for(const button of bar.children){
+      button.onclick=e=>{
+        e.stopPropagation();
+        for(const other of bar.children) other.classList.toggle('act',other===button);
+        for(const group of groups) group.classList.toggle('act',group.id===button.dataset.page);
+        if(button.dataset.page==='recTrend') refreshRecords();   /* 画布隐藏时不量尺寸，切到走势再画一次 */
+      };
+    }
+  }
+}
+function bindPracticeUI(){
+  const segment=(id,items,key,values)=>buildSeg($(id),items,()=>trackCfg[key],i=>{
+    if(PRACTICE.kind&&!roundOver)return;
+    trackCfg[key]=values?values[i]:i;saveTrackCfg();renderTrackingSetup();
+  });
+  segment('segTrackPath',TRACK_PATHS,'path');
+  segment('segTrackSpeed',TRACK_SPEEDS,'speed');
+  segment('segTrackSize',TRACK_SIZES,'size');
+  segment('segTrackDuration',TRACK_SECONDS.map(n=>n+'秒'),'seconds',TRACK_SECONDS);
+  $('coachTrain').onclick=e=>{e.stopPropagation();if(COACH.recommendation)startAgentPractice(COACH.recommendation.key);};
+  $('practiceExit').onclick=$('menuPracticeExit').onclick=e=>{e.stopPropagation();exitPractice();};
+  $('trackStart').onclick=e=>{e.stopPropagation();startTracking();};
+  $('trackAgain').onclick=e=>{
+    e.stopPropagation();if(lastResultKind!=='track'||!roundOver)return;
+    if(TRACK.settings)Object.assign(trackCfg,TRACK.settings);
+    startTracking();
+  };
+  $('trackSetup').onclick=e=>{e.stopPropagation();leaveTrackingResult('track');};
+  $('trackBack').onclick=e=>{e.stopPropagation();leaveTrackingResult('solo');};
+  $('trackPrompt').onclick=e=>{e.stopPropagation();if(PRACTICE.kind==='track'&&!paused&&!roundOver)relock();};
+  renderTrackingSetup();renderTrackHistory();
+}
 function bindUI(){
+  bindPageTabs();
+  bindPracticeUI();
   buildSeg($('segMode'),MODES,v=>v,i=>{cfg.mode=i;relocateTarget();updateStats();saveCfg();});
   buildSeg($('segDiff'),DIFF,v=>v,i=>{cfg.diff=i;relocateTarget();updateStats();saveCfg();});
   buildSeg($('segVis'),[{n:'正常'},{n:'短暂'},{n:'无'}],v=>v,i=>{cfg.vis=i;saveCfg();});
@@ -5105,12 +5664,19 @@ function bindUI(){
   };
 
   $('resAgain').onclick=e=>{ e.stopPropagation();
-    if(match.active){ matchAgain(); return; }        /* 对战：回大厅重新准备，双方再确认一次 */
-    startRound(); relock(); };
+    if(match.active){ matchAgain(); return; }
+    if(lastResultKind==='agent'&&COACH.lastDrill){startAgentPractice(COACH.lastDrill.key,true);return;}
+    start(); };
   $('resClose').onclick=e=>{
     e.stopPropagation();
     if(match.active){ leaveMatch(); $('result').style.display='none'; return; }
-    cfg.roundIdx=ROUNDS.length-1;          /* 关掉面板就转自由练习，避免倒计时为 0 立刻又结算 */
+    if(lastResultKind==='agent'){
+      lastResultKind='solo';COACH.recommendation=null;COACH.lastDrill=null;
+      roundOver=false;roundEndAt=0;playing=false;paused=false;
+      $('result').style.display='none';$('bStart').textContent='开始训练';resetStats(true);openMenu('solo');return;
+    }
+    lastResultKind='solo';COACH.recommendation=null;
+    cfg.roundIdx=ROUNDS.length-1;
     syncSegs();
     roundOver=false; roundEndAt=0; lastRoundSec=-1;
     $('result').style.display='none';
@@ -5120,12 +5686,12 @@ function bindUI(){
   $('resSettings').onclick=e=>{ e.stopPropagation(); openMenu('set', false); };
   $('resRecToggle').onclick=e=>{ e.stopPropagation(); resRecOpen=!resRecOpen; renderResRec(); };
 
-  $('rInt').oninput=e=>{ cfg.rate=+e.target.value; $('vInt').textContent=cfg.rate.toFixed(1)+'×'; scheduleAuto(); saveCfg(); };
+  $('rInt').oninput=e=>{ if(PRACTICE.kind)return; cfg.rate=+e.target.value; $('vInt').textContent=cfg.rate.toFixed(1)+'×'; scheduleAuto(); saveCfg(); };
   $('rSens').oninput=e=>{ cfg.sens=+e.target.value; $('vSens').textContent=cfg.sens.toFixed(2); saveCfg(); };
   $('rFov').oninput=e=>{ cfg.fov=+e.target.value; $('vFov').textContent=cfg.fov+'°'; updateF(); saveCfg(); };
-  $('rTr').oninput=e=>{ cfg.targetR=+e.target.value; $('vTr').textContent=cfg.targetR.toFixed(2);
+  $('rTr').oninput=e=>{ if(PRACTICE.kind)return; cfg.targetR=+e.target.value; $('vTr').textContent=cfg.targetR.toFixed(2);
                         for(const t of targets) t.r=targetR(); saveCfg(); };
-  $('rTn').oninput=e=>{ cfg.targetN=+e.target.value; $('vTn').textContent=cfg.targetN; fillTargets(); saveCfg(); };
+  $('rTn').oninput=e=>{ if(PRACTICE.kind)return; cfg.targetN=+e.target.value; $('vTn').textContent=cfg.targetN; fillTargets(); saveCfg(); };
   $('rGain').oninput=e=>{ cfg.gain=+e.target.value; $('vGain').textContent=Math.round(cfg.gain*100)+'%';
                          applyVolume(); saveCfg(); };
   $('rFgain').oninput=e=>{ cfg.flashGain=+e.target.value; $('vFgain').textContent=Math.round(cfg.flashGain*100)+'%';
@@ -5148,11 +5714,11 @@ function bindUI(){
     b.onclick=()=>{ cfg[b.dataset.k]=!cfg[b.dataset.k]; syncChecks(); saveCfg(); };
   });
 
-  $('bStart').onclick=()=>{ if(!playing) start(); else if(paused) resume(); else pause(); };
+  $('bStart').onclick=()=>{ if(roundOver){closeMenu();return;} if(!playing) menuPrimaryAction(); else if(paused) resume(); else pause(); };
   $('bFlash').onclick=e=>{ e.stopPropagation(); manualFlash(); };
   $('bAuto').onclick=e=>{ e.stopPropagation(); toggleAuto(); };
-  $('bReset').onclick=e=>{ e.stopPropagation(); resetStats(); };
-  $('ovlBtn').onclick=e=>{ e.stopPropagation(); if(!playing) start(); else resume(); };
+  $('bReset').onclick=e=>{ e.stopPropagation(); if(PRACTICE.kind){start();syncPracticeChrome();}else if(!roundOver)resetStats(); };
+  $('ovlBtn').onclick=e=>{ e.stopPropagation(); menuPrimaryAction(); };
   /* 注意：不能再给整个 #ovl 挂「点任意处开始」—— 菜单里有滑杆/按钮，
      点设置会被误判成开始。只有 #ovlBtn 触发开始/继续。 */
 
@@ -5172,7 +5738,7 @@ const LS_NAME='aft_name';
 const LS_CFG='aft_cfg';
 function saveCfg(){
   if(typeof localStorage==='undefined') return;
-  try{ localStorage.setItem(LS_CFG, JSON.stringify(cfg)); }catch(e){}
+  try{ localStorage.setItem(LS_CFG, JSON.stringify(PRACTICE.snapshot?{...cfg,...PRACTICE.snapshot}:cfg)); }catch(e){}
 }
 function loadCfg(){
   cfg.quality=DEFAULT_QUALITY;
@@ -5294,6 +5860,7 @@ async function cloudPost(body){
 }
 /* 进入一个对局：只做本地状态，不联网。seed/时长来自房码。 */
 function enterMatch(code){
+  if(!standardTrainingEntry())return false;
   const d=decodeRoom(code); if(!d) return false;
   leaveMatch(true);
   match.active=true; match.code=code; match.seed=d.seed20||1; match.round=1;
@@ -5542,6 +6109,7 @@ function cloudGaveUp(why){
   renderMatchCard(); if(lobbyIsOpen()) renderLobby();
 }
 async function createMatch(){
+  if(!standardTrainingEntry())return;
   const nm=myName()||randNickname(); localStorage.setItem(LS_NAME,nm);
   const code=newRoomCode();
   if(!enterMatch(code)) return;
@@ -5556,6 +6124,7 @@ async function createMatch(){
   else startPoll();
 }
 async function joinMatch(code){
+  if(!standardTrainingEntry())return;
   code=(code||'').trim().toUpperCase();
   if(!ROOM_RE.test(code)){ log('房码格式不对（6 位，数字与大写字母）','b'); return; }
   const nm=myName()||randNickname(); localStorage.setItem(LS_NAME,nm);
@@ -5618,6 +6187,7 @@ function resumeResolveInterrupted(){
 }
 /* 开机无 ?r= 房码时：凭 sessionStorage 存档自动挂回上一局 */
 async function resumeMatch(){
+  if(!standardTrainingEntry())return;
   let saved=null;
   try{ saved=JSON.parse(sessionStorage.getItem(LS_MATCH)||'null'); }catch(e){}
   if(!saved||!saved.code||!ROOM_RE.test(saved.code)) return;
@@ -5653,6 +6223,7 @@ function renderMatchCard(){
 }
 /* 打完一轮：上报我的分，然后等对方交卷 */
 async function submitMyResult(){
+  if(PRACTICE.kind||lastResultKind==='track')return;
   if(!match.active) return;
   if(match.sent) return;           /* 每轮只上报一次：写 KV 是最贵的操作 */
   match.sent=true;
@@ -5719,6 +6290,7 @@ function initMatchUI(){
   $('lbReady').onclick=e=>{ e.stopPropagation(); toggleReady(); };
   $('lbLeave').onclick=e=>{ e.stopPropagation(); leaveMatch(); };
   $('bMatch').onclick=e=>{ e.stopPropagation();
+    if(!standardTrainingEntry())return;
     if(match.active){ match.quiet=0; lobbyOpen(); startPoll(); return; }
     /* 对战入口移进菜单的「联机对战」页签：开菜单并定位到该页 */
     if(playing && !paused) pause();
@@ -5736,6 +6308,7 @@ function initMatchUI(){
 }
 /* ---------- 启动 ---------- */
 loadCfg();
+loadTrackCfg();
 applyQuality(cfg.quality);
 bindUI();
 buildAgents();
